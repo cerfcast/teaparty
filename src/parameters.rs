@@ -232,9 +232,7 @@ impl TestParameters {
                 arguments.push(argument);
             }
         }
-        Ok(TestArguments {
-            arguments,
-        })
+        Ok(TestArguments { arguments })
     }
 }
 

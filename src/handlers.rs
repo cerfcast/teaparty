@@ -398,7 +398,7 @@ impl TlvHandler for DestinationPort {
             flags: 0,
             tpe: 177,
             length: 4,
-            value: data.to_vec()
+            value: data.to_vec(),
         }
     }
 
@@ -419,7 +419,10 @@ impl TlvHandler for DestinationPort {
         address: SockaddrIn,
         logger: Logger,
     ) -> SockaddrIn {
-        info!(logger, "Preparing the response target in the destination port Tlv.");
+        info!(
+            logger,
+            "Preparing the response target in the destination port Tlv."
+        );
         for tlv in response.tlvs.iter() {
             if tlv.tpe == self.tlv_type() {
                 let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());

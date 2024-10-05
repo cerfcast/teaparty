@@ -68,7 +68,9 @@ impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if !value.iter().all(|b| *b == V) {
-            Err(StampError::Stamp(format!("MBZ bytes were not all {}", V).to_string()))
+            Err(StampError::Stamp(
+                format!("MBZ bytes were not all {}", V).to_string(),
+            ))
         } else {
             Ok(Self {})
         }

@@ -42,10 +42,7 @@ impl SessionData {
 
 impl Session {
     pub fn new(src: SockaddrIn, dst: SockaddrIn) -> Self {
-        Self {
-            src,
-            dst,
-        }
+        Self { src, dst }
     }
 }
 

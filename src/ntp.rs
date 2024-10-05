@@ -200,9 +200,13 @@ impl TryFrom<&[u8]> for ErrorEstimate {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value[1] == 0x0 {
-            Err(NtpError::InvalidData("Cannot have non-zero multiplier in error-estimate field.".to_string()))
+            Err(NtpError::InvalidData(
+                "Cannot have non-zero multiplier in error-estimate field.".to_string(),
+            ))
         } else if value[0] & 0x40 != 0 {
-            Err(NtpError::InvalidData("Non NTP timestampts are not supported.".to_string()))
+            Err(NtpError::InvalidData(
+                "Non NTP timestampts are not supported.".to_string(),
+            ))
         } else {
             Ok(Self {
                 synchronized: value[0] & 0x80 != 0,
