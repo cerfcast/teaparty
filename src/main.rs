@@ -1,0 +1,352 @@
+use clap::{Parser, Subcommand};
+use handlers::Handlers;
+use nix::cmsg_space;
+use nix::sys::socket::sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv4Tos};
+use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SetSockOpt, SockaddrIn};
+use ntp::NtpTime;
+use parameters::{TestArguments, TestParameters};
+use server::{Session, Sessions};
+use slog::{debug, error, info, warn, Drain};
+use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
+use std::io::IoSliceMut;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::os::fd::AsRawFd;
+use std::sync::{Arc, Mutex};
+use tlv::Tlv;
+
+mod handlers;
+mod ntp;
+mod parameters;
+mod responder;
+mod server;
+mod stamp;
+mod tlv;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(default_value_t=IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
+    ip_addr: IpAddr,
+
+    #[arg(default_value_t = 862)]
+    port: u16,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Client {
+        #[arg(long)]
+        ssid: Option<u16>,
+
+        #[arg(long)]
+        tlv: Option<String>,
+
+        #[arg(long, default_value_t = false)]
+        ecn: bool,
+
+        #[arg(long, default_value_t = 0)]
+        src_port: u16,
+    },
+    Server {
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Run teaparty in stateless mode."
+        )]
+        stateless: bool,
+    },
+}
+
+fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
+    let server_addr = SocketAddr::new(args.ip_addr, args.port);
+    let (maybe_ssid, maybe_tlv_name, use_ecn, src_port) = match args.command {
+        Commands::Client {
+            ssid,
+            tlv,
+            ecn,
+            src_port,
+        } => (
+            if let Some(ssid) = ssid {
+                if ssid != 0 {
+                    Some(Ssid::Ssid(ssid))
+                } else {
+                    None
+                }
+            } else {
+                None
+            },
+            tlv,
+            ecn,
+            src_port,
+        ),
+        _ => panic!("The source port is somehow missing a value."),
+    };
+
+    info!(logger, "Connecting to the server at {}", server_addr);
+
+    let server_socket =
+        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
+
+    let tlv = if let Some(tlv_name) = maybe_tlv_name {
+        if let Some(handler) = handlers.get_request(tlv_name.clone()) {
+            handler
+        } else {
+            error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
+            return Err(StampError::Stamp(format!(
+                "No Tlv available with name {}",
+                tlv_name
+            )));
+        }
+    } else {
+        Tlv {
+            flags: 0u8,
+            tpe: 0x3,
+            length: 0x4,
+            value: vec![0u8; 4],
+        }
+    };
+
+    if use_ecn {
+        info!(
+            logger,
+            "About to configure the sending value of the IpV4 TOS on the server socket."
+        );
+        let set_tos_value = 0x2i32;
+        if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
+            error!(
+                logger,
+                "There was an error configuring the server socket: {}", set_tos_value_err
+            );
+            return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                std::io::ErrorKind::ConnectionRefused,
+            )));
+        }
+        info!(
+            logger,
+            "Done configuring the sending value of the IpV4 TOS on the server socket."
+        );
+    }
+
+    let tlvs = [tlv];
+
+    let client_msg = StampMsg {
+        sequence: 0x22,
+        time: NtpTime {
+            seconds: 0x55,
+            fractions: 0x44,
+        },
+        error: Default::default(),
+        ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
+        body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice())?,
+        tlvs: tlvs.to_vec(),
+    };
+    let send_length =
+        server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
+    info!(
+        logger,
+        "Sent a stamp message that is {} bytes long.", send_length
+    );
+
+    info!(logger, "Stamp message sent: {:?}", client_msg);
+
+    let mut server_response = vec![0u8; 1500];
+    let (server_response_len, _) = server_socket.recv_from(&mut server_response)?;
+
+    info!(
+        logger,
+        "Got a response back from the server that is {} bytes long.", server_response_len
+    );
+    debug!(
+        logger,
+        "Response: {:x?}",
+        &server_response[0..server_response_len]
+    );
+
+    let deserialized_response =
+        TryInto::<StampMsg>::try_into(&server_response[0..server_response_len]);
+
+    if let Err(e) = deserialized_response {
+        error!(logger, "Could not deserialize the server's response: {}", e);
+        Err(e)
+    } else {
+        info!(
+            logger,
+            "Deserialized response: {:?}",
+            deserialized_response.unwrap()
+        );
+        Ok(())
+    }
+}
+
+fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
+    // The command is specific to the server. The match should *only* yield a
+    // server command.
+    let stateless = match args.command {
+        Commands::Server { stateless } => stateless,
+        _ => {
+            return Err(StampError::Stamp(
+                "Somehow a non-server command was found during an invocation of the server.".into(),
+            ))
+        }
+    };
+
+    let bind_socket_addr = SocketAddr::from((args.ip_addr, args.port));
+    let bind_result = UdpSocket::bind(bind_socket_addr).map_err(|e| {
+        error!(
+            logger,
+            "There was an error creating the server socket: {}", e
+        );
+        Into::<StampError>::into(e)
+    })?;
+
+    let socket = bind_result;
+
+    info!(
+        logger,
+        "About to configure the test parameters on the server socket."
+    );
+    let mut parameters = TestParameters::new();
+    let test_argument_space_required = parameters.configure_parameters(&socket, logger.clone())?;
+    info!(
+        logger,
+        "Done configuring the test parameters on the server socket."
+    );
+
+    let socket = Arc::new(socket);
+
+    let responder = Arc::new(responder::Responder::new(socket.clone()));
+
+    let sessions = Arc::<Sessions>::new(Sessions::new());
+
+    loop {
+        // TODO: Dynamically determine MSS
+        const MSS: usize = 1500;
+
+        let mut recv_buffer = [0u8; MSS];
+        let recv_buffer_iov = IoSliceMut::new(&mut recv_buffer);
+
+        let mut cmsg = Vec::<u8>::with_capacity(test_argument_space_required);
+        let mut iovs = [recv_buffer_iov];
+
+        let recv_result = recvmsg::<SockaddrIn>(
+            socket.as_raw_fd(),
+            &mut iovs,
+            Some(&mut cmsg),
+            MsgFlags::empty(),
+        );
+
+        if recv_result.is_err() {
+            error!(
+                logger,
+                "There was an error on recv msg: {:?}",
+                recv_result.unwrap_err()
+            );
+            continue;
+        }
+
+        let recv_data = recv_result.unwrap();
+
+        let arguments = if let Ok(cmsgs) = recv_data.cmsgs() {
+            parameters.get_arguments(cmsgs.collect(), logger.clone())
+        } else {
+            Ok(TestArguments::empty_arguments())
+        };
+
+        if let Err(e) = arguments {
+            error!(
+                logger,
+                "There was an error getting the test arguments: {}. Abandoning this request.", e
+            );
+            continue;
+        }
+
+        let arguments = arguments.unwrap();
+
+        let client_address = recv_data.address;
+
+        if client_address.is_none() {
+            warn!(
+                logger,
+                "Did not get a client address; not responding to probe."
+            );
+            continue;
+        }
+        let client_address = client_address.unwrap();
+
+        let received_time = chrono::Utc::now();
+
+        info!(
+            logger,
+            "Got a connection from {:?} at {}", client_address, received_time
+        );
+
+        let server_address = if let SocketAddr::V4(v4) = bind_socket_addr {
+            v4
+        } else {
+            panic!("Ipv6 not supported yet.")
+        };
+        let session = Session::new(Into::<SockaddrIn>::into(server_address), client_address);
+
+        let handler_responder = responder.clone();
+        let handler_logger = logger.clone();
+        let handler_sessions = sessions.clone();
+        let recv_msg_size = recv_data.bytes;
+        let handler_handlers = handlers.clone();
+        let handler_arguments = arguments.clone();
+        // If the server did not run forever, it may have been necessary
+        // to `join` on this handle to make sure that the server did not
+        // exit before the client was completely serviced.
+        tokio::spawn(async move {
+            handlers::handler(
+                received_time,
+                &recv_buffer[0..recv_msg_size],
+                handler_arguments,
+                session,
+                handler_sessions,
+                !stateless,
+                handler_handlers,
+                handler_responder,
+                handler_logger,
+            )
+            .await;
+        });
+
+        info!(
+            logger,
+            "Passed off the connection from {:?} to the handler for handling.", client_address
+        );
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), StampError> {
+    let args = Cli::parse();
+
+    let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
+    let drain = slog_term::FullFormat::new(decorator)
+        .build()
+        .filter_level(slog::Level::Debug)
+        .fuse();
+    let logger = slog::Logger::root(drain, slog::o!("version" => "0.5"));
+
+    let mut handlers = handlers::Handlers::new();
+    let ecn_handler = Arc::new(Mutex::new(handlers::DscpEcnTlv {}));
+    handlers.add(ecn_handler);
+    let time_handler = Arc::new(Mutex::new(handlers::TimeTlv {}));
+    handlers.add(time_handler);
+    let destination_port_handler = Arc::new(Mutex::new(handlers::DestinationPort {}));
+    handlers.add(destination_port_handler);
+
+    match args.command {
+        Commands::Server { stateless: _ } => server(args, handlers, logger),
+        Commands::Client {
+            ssid: _,
+            tlv: _,
+            ecn: _,
+            src_port: _,
+        } => client(args, handlers, logger),
+    }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "teaparty"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nix = { path="nix", features = ["socket", "net", "uio"]}
+clap = { version = "4.5.4", features = ["derive"] }
+rand = "0.8.5"
+slog = "2.7.0"
+slog-term = "2.9.1"
+tokio = {version="1", features=["full"]}
+chrono = "0.4.38"
