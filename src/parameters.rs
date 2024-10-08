@@ -20,9 +20,9 @@ use std::fmt::{Debug, Display};
 use std::net::UdpSocket;
 use std::{mem, vec};
 
+use nix::libc;
 use nix::sys::socket::sockopt::{IpRecvTos, Ipv4RecvTtl};
 use nix::sys::socket::{ControlMessageOwned, SetSockOpt};
-use nix::{cmsg_space, libc};
 use slog::Logger;
 use slog::{error, info};
 
@@ -37,12 +37,12 @@ pub enum EcnValue {
     Ce = 0x3u8,
 }
 
-impl From<&u8> for EcnValue {
-    fn from(value: &u8) -> Self {
+impl From<u8> for EcnValue {
+    fn from(value: u8) -> Self {
         let result = [
             EcnValue::NotEct,
-            EcnValue::Ect0,
             EcnValue::Ect1,
+            EcnValue::Ect0,
             EcnValue::Ce,
         ];
         result[(value & 0x3) as usize]
@@ -75,35 +75,42 @@ pub enum DscpValue {
     EF = 46,
     #[allow(clippy::upper_case_acronyms)]
     VOICEADMIT = 44,
+    Invalid,
 }
 
-impl From<&u8> for DscpValue {
-    fn from(value: &u8) -> Self {
-        let result = [
-            DscpValue::CS0,
-            DscpValue::CS1,
-            DscpValue::CS2,
-            DscpValue::CS3,
-            DscpValue::CS4,
-            DscpValue::CS5,
-            DscpValue::CS6,
-            DscpValue::CS7,
-            DscpValue::AF11,
-            DscpValue::AF12,
-            DscpValue::AF13,
-            DscpValue::AF21,
-            DscpValue::AF22,
-            DscpValue::AF23,
-            DscpValue::AF31,
-            DscpValue::AF32,
-            DscpValue::AF33,
-            DscpValue::AF41,
-            DscpValue::AF42,
-            DscpValue::AF43,
-            DscpValue::EF,
-            DscpValue::VOICEADMIT,
-        ];
-        result[(value >> 2) as usize]
+impl From<DscpValue> for u8 {
+    fn from(value: DscpValue) -> Self {
+        (value as u8) << 2
+    }
+}
+impl From<u8> for DscpValue {
+    fn from(mut value: u8) -> Self {
+        value >>= 2;
+        match value {
+            0 => DscpValue::CS0,
+            8 => DscpValue::CS1,
+            16 => DscpValue::CS2,
+            24 => DscpValue::CS3,
+            32 => DscpValue::CS4,
+            40 => DscpValue::CS5,
+            48 => DscpValue::CS6,
+            56 => DscpValue::CS7,
+            10 => DscpValue::AF11,
+            12 => DscpValue::AF12,
+            14 => DscpValue::AF13,
+            18 => DscpValue::AF21,
+            20 => DscpValue::AF22,
+            22 => DscpValue::AF23,
+            26 => DscpValue::AF31,
+            28 => DscpValue::AF32,
+            30 => DscpValue::AF33,
+            34 => DscpValue::AF41,
+            36 => DscpValue::AF42,
+            38 => DscpValue::AF43,
+            46 => DscpValue::EF,
+            44 => DscpValue::VOICEADMIT,
+            _ => DscpValue::Invalid,
+        }
     }
 }
 
@@ -160,7 +167,7 @@ impl Debug for TestArgument {
     }
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
 #[repr(usize)]
 pub enum TestArgumentKind {
     Ttl = 0,
@@ -181,11 +188,17 @@ impl TestArguments {
 }
 
 impl TestArguments {
-    pub fn get_parameter_value<T: From<TestArgument>>(self, parameter: TestArgumentKind) -> T {
+    pub fn get_parameter_value<T: From<TestArgument>>(
+        &self,
+        parameter: TestArgumentKind,
+    ) -> Result<T, StampError> {
         if parameter < TestArgumentKind::MaxParameterKind {
-            Into::<T>::into(self.arguments[parameter as usize].clone())
+            match self.arguments[parameter as usize].clone() {
+                TestArgument::Invalid => Err(StampError::MissingRequiredArgument(parameter)),
+                e => Ok(Into::<T>::into(e)),
+            }
         } else {
-            panic!()
+            Err(StampError::MissingRequiredArgument(parameter))
         }
     }
 }
@@ -196,12 +209,17 @@ pub struct TestParameters {
 }
 
 static TTL_TEST_PARAMETER: TtlTestParameter = TtlTestParameter {};
-static TOS_TEST_PARAMETER: TosTestParameter = TosTestParameter {};
+static ECN_TEST_PARAMETER: EcnTestParameter = EcnTestParameter {};
+static DSCP_TEST_PARAMETER: DscpTestParameter = DscpTestParameter {};
 
 impl TestParameters {
     pub fn new() -> Self {
         Self {
-            parameters: vec![&TTL_TEST_PARAMETER, &TOS_TEST_PARAMETER],
+            parameters: vec![
+                &TTL_TEST_PARAMETER,
+                &ECN_TEST_PARAMETER,
+                &DSCP_TEST_PARAMETER,
+            ],
         }
     }
 
@@ -222,21 +240,27 @@ impl TestParameters {
         cmsgs: Vec<ControlMessageOwned>,
         logger: Logger,
     ) -> Result<TestArguments, StampError> {
-        let mut arguments = Vec::<TestArgument>::new();
+        let mut arguments =
+            vec![TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize];
+
         for cmsg in cmsgs.iter() {
-            if let Some(argument) = self
-                .parameters
+            self.parameters
                 .iter()
-                .find_map(|param| param.argument_from(cmsg, logger.clone()))
-            {
-                arguments.push(argument);
-            }
+                .filter_map(|param| {
+                    param
+                        .argument_from(cmsg, logger.clone())
+                        .map(|argument| (param.argument_kind(), argument))
+                })
+                .for_each(|(kind, value)| {
+                    arguments[kind as usize] = value;
+                });
         }
         Ok(TestArguments { arguments })
     }
 }
 
 trait TestParameter {
+    fn argument_kind(&self) -> TestArgumentKind;
     fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError>;
     fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument>;
 }
@@ -244,6 +268,10 @@ trait TestParameter {
 pub struct TtlTestParameter {}
 
 impl TestParameter for TtlTestParameter {
+    fn argument_kind(&self) -> TestArgumentKind {
+        TestArgumentKind::Ttl
+    }
+
     fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
         let recv_ttl_value = true;
         Ipv4RecvTtl.set(&socket, &recv_ttl_value).map_err(|e| {
@@ -273,15 +301,19 @@ impl TestParameter for TtlTestParameter {
     }
 }
 
-pub struct TosTestParameter {}
+pub struct EcnTestParameter {}
 
-impl TestParameter for TosTestParameter {
+impl TestParameter for EcnTestParameter {
+    fn argument_kind(&self) -> TestArgumentKind {
+        TestArgumentKind::Ecn
+    }
+
     fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
         let recv_tos_value = true;
         IpRecvTos.set(&socket, &recv_tos_value).map_err(|e| {
             error!(
                 logger,
-                "There was an error configuring the server socket for the TOS test parameter: {}",
+                "There was an error configuring the server socket for the Ecn test parameter: {}",
                 e
             );
             Into::<StampError>::into(Into::<std::io::Error>::into(
@@ -293,11 +325,47 @@ impl TestParameter for TosTestParameter {
 
     fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
         match cmsg {
-            ControlMessageOwned::Ipv4Tos(v) => Some(TestArgument::Ecn(v.into())),
+            ControlMessageOwned::Ipv4Tos(v) => Some(TestArgument::Ecn((*v).into())),
             _ => {
                 info!(
                     logger,
-                    "{:?} does not appear to be an argument for the Tos test parameter.", cmsg
+                    "{:?} does not appear to be an argument for the Ecn test parameter.", cmsg
+                );
+                None
+            }
+        }
+    }
+}
+
+pub struct DscpTestParameter {}
+
+impl TestParameter for DscpTestParameter {
+    fn argument_kind(&self) -> TestArgumentKind {
+        TestArgumentKind::Dscp
+    }
+
+    fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
+        let recv_tos_value = true;
+        IpRecvTos.set(&socket, &recv_tos_value).map_err(|e| {
+            error!(
+                logger,
+                "There was an error configuring the server socket for the Dscp test parameter: {}",
+                e
+            );
+            Into::<StampError>::into(Into::<std::io::Error>::into(
+                std::io::ErrorKind::ConnectionRefused,
+            ))
+        })?;
+        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u8>() as libc::c_uint) as usize) }
+    }
+
+    fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
+        match cmsg {
+            ControlMessageOwned::Ipv4Tos(v) => Some(TestArgument::Dscp((v & 0xfc).into())),
+            _ => {
+                info!(
+                    logger,
+                    "{:?} does not appear to be an argument for the Dscp test parameter.", cmsg
                 );
                 None
             }

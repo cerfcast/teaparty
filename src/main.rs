@@ -18,19 +18,18 @@
 
 use clap::{Parser, Subcommand};
 use handlers::Handlers;
-use nix::cmsg_space;
-use nix::sys::socket::sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv4Tos};
-use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SetSockOpt, SockaddrIn};
+use nix::errno::Errno;
+use nix::sys::socket::sockopt::Ipv4Tos;
+use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
 use ntp::NtpTime;
-use parameters::{TestArguments, TestParameters};
-use server::{Session, Sessions};
+use parameters::{DscpValue, TestArguments, TestParameters};
+use server::{ServerSocket, Session, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
-use tlv::Tlv;
 
 mod handlers;
 mod ntp;
@@ -62,8 +61,13 @@ enum Commands {
         #[arg(long)]
         tlv: Option<String>,
 
+        /// Enable a non-default ECN for testing (ECT0)
         #[arg(long, default_value_t = false)]
         ecn: bool,
+
+        /// Enable a non-default DSCP for testing (EF)
+        #[arg(long, default_value_t = false)]
+        dscp: bool,
 
         #[arg(long, default_value_t = 0)]
         src_port: u16,
@@ -80,11 +84,12 @@ enum Commands {
 
 fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, maybe_tlv_name, use_ecn, src_port) = match args.command {
+    let (maybe_ssid, maybe_tlv_name, use_ecn, use_dscp, src_port) = match args.command {
         Commands::Client {
             ssid,
             tlv,
             ecn,
+            dscp,
             src_port,
         } => (
             if let Some(ssid) = ssid {
@@ -98,6 +103,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             },
             tlv,
             ecn,
+            dscp,
             src_port,
         ),
         _ => panic!("The source port is somehow missing a value."),
@@ -110,29 +116,27 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
     let tlv = if let Some(tlv_name) = maybe_tlv_name {
         if let Some(handler) = handlers.get_request(tlv_name.clone()) {
-            handler
+            Some(handler)
         } else {
             error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
-            return Err(StampError::Stamp(format!(
+            return Err(StampError::Other(format!(
                 "No Tlv available with name {}",
                 tlv_name
             )));
         }
     } else {
-        Tlv {
-            flags: 0u8,
-            tpe: 0x3,
-            length: 0x4,
-            value: vec![0u8; 4],
-        }
+        None
     };
+
+    let mut tos_byte: u8 = 0;
 
     if use_ecn {
         info!(
             logger,
-            "About to configure the sending value of the IpV4 TOS on the server socket."
+            "About to configure the sending value of the IpV4 ECN on the server socket."
         );
-        let set_tos_value = 0x2i32;
+        tos_byte |= 0x2;
+        let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
                 logger,
@@ -144,11 +148,33 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         }
         info!(
             logger,
-            "Done configuring the sending value of the IpV4 TOS on the server socket."
+            "Done configuring the sending value of the IpV4 ECN on the server socket."
         );
     }
 
-    let tlvs = [tlv];
+    if use_dscp {
+        info!(
+            logger,
+            "About to configure the sending value of the IpV4 DSCP on the server socket."
+        );
+        tos_byte |= Into::<u8>::into(DscpValue::EF);
+        let set_tos_value = tos_byte as i32;
+        if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
+            error!(
+                logger,
+                "There was an error configuring the server socket: {}", set_tos_value_err
+            );
+            return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                std::io::ErrorKind::ConnectionRefused,
+            )));
+        }
+        info!(
+            logger,
+            "Done configuring the sending value of the IpV4 DSCP on the server socket."
+        );
+    }
+
+    let tlvs = tlv.map(|tlv| [tlv].to_vec()).unwrap_or([].to_vec());
 
     let client_msg = StampMsg {
         sequence: 0x22,
@@ -159,7 +185,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         error: Default::default(),
         ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
         body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice())?,
-        tlvs: tlvs.to_vec(),
+        tlvs,
     };
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
@@ -205,7 +231,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     let stateless = match args.command {
         Commands::Server { stateless } => stateless,
         _ => {
-            return Err(StampError::Stamp(
+            return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
             ))
         }
@@ -220,12 +246,22 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         Into::<StampError>::into(e)
     })?;
 
+    // Make the socket non-blocking ...
+
     let socket = bind_result;
+    socket.set_nonblocking(true).map_err(|e| {
+        error!(
+            logger,
+            "There was an error setting the server server socket to non blocking: {}", e
+        );
+        Into::<StampError>::into(e)
+    })?;
 
     info!(
         logger,
         "About to configure the test parameters on the server socket."
     );
+
     let mut parameters = TestParameters::new();
     let test_argument_space_required = parameters.configure_parameters(&socket, logger.clone())?;
     info!(
@@ -233,9 +269,9 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         "Done configuring the test parameters on the server socket."
     );
 
-    let socket = Arc::new(socket);
+    let socket = ServerSocket::new(socket);
 
-    let responder = Arc::new(responder::Responder::new(socket.clone()));
+    let responder = Arc::new(responder::Responder::new());
 
     let sessions = Arc::<Sessions>::new(Sessions::new());
 
@@ -249,19 +285,23 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         let mut cmsg = Vec::<u8>::with_capacity(test_argument_space_required);
         let mut iovs = [recv_buffer_iov];
 
-        let recv_result = recvmsg::<SockaddrIn>(
-            socket.as_raw_fd(),
-            &mut iovs,
-            Some(&mut cmsg),
-            MsgFlags::empty(),
-        );
+        // Lock the socket for a receive.
+        let recv_result = {
+            let server_socket = socket.socket.lock().unwrap();
 
-        if recv_result.is_err() {
-            error!(
-                logger,
-                "There was an error on recv msg: {:?}",
-                recv_result.unwrap_err()
-            );
+            recvmsg::<SockaddrIn>(
+                server_socket.as_raw_fd(),
+                &mut iovs,
+                Some(&mut cmsg),
+                MsgFlags::empty(),
+            )
+        };
+
+        if let Err(e) = recv_result {
+            // Special case: Don't error if it is EAGAIN
+            if e != Errno::EAGAIN {
+                error!(logger, "There was an error on recv msg: {:?}", e);
+            }
             continue;
         }
 
@@ -314,6 +354,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         let recv_msg_size = recv_data.bytes;
         let handler_handlers = handlers.clone();
         let handler_arguments = arguments.clone();
+        let handler_server = socket.clone();
         // If the server did not run forever, it may have been necessary
         // to `join` on this handle to make sure that the server did not
         // exit before the client was completely serviced.
@@ -327,6 +368,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
                 !stateless,
                 handler_handlers,
                 handler_responder,
+                handler_server,
                 handler_logger,
             )
             .await;
@@ -364,6 +406,7 @@ async fn main() -> Result<(), StampError> {
             ssid: _,
             tlv: _,
             ecn: _,
+            dscp: _,
             src_port: _,
         } => client(args, handlers, logger),
     }

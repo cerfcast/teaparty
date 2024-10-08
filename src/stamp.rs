@@ -17,6 +17,7 @@
  */
 
 use crate::ntp::{self, NtpError};
+use crate::parameters::{TestArgument, TestArgumentKind};
 use crate::tlv;
 
 use std::fmt::{Debug, Display};
@@ -27,7 +28,8 @@ pub const UNAUTHENTICATED_STAMP_PKT_SIZE: usize = 44; // in octets
 pub const MBZ_VALUE: u8 = 0xaa;
 
 pub enum StampError {
-    Stamp(String),
+    Other(String),
+    MissingRequiredArgument(TestArgumentKind),
     Ntp(NtpError),
     Io(std::io::Error),
 }
@@ -47,9 +49,10 @@ impl From<std::io::Error> for StampError {
 impl Display for StampError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StampError::Stamp(s) => write!(f, "Stamp error: {}", s),
+            StampError::Other(s) => write!(f, "Other Stamp error: {}", s),
             StampError::Io(e) => write!(f, "IO error: {}", e),
             StampError::Ntp(e) => write!(f, "NTP error: {}", e),
+            StampError::MissingRequiredArgument(arg) => write!(f, "An argument for a test was missing: {:?}", arg)
         }
     }
 }
@@ -68,7 +71,7 @@ impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if !value.iter().all(|b| *b == V) {
-            Err(StampError::Stamp(
+            Err(StampError::Other(
                 format!("MBZ bytes were not all {}", V).to_string(),
             ))
         } else {
@@ -99,7 +102,7 @@ impl TryFrom<&[u8]> for StampResponseContents {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() != 28 {
-            return Err(StampError::Stamp(
+            return Err(StampError::Other(
                 "Could not parse a Stamp response contents with an invalid size.".to_string(),
             ));
         }
@@ -154,7 +157,7 @@ impl TryFrom<&[u8]> for StampMsgBody {
         } else if let Ok(body) = TryInto::<StampResponseContents>::try_into(value) {
             Ok(Self::Response(body))
         } else {
-            Err(StampError::Stamp(
+            Err(StampError::Other(
                 "Could not parse the bytes of the message's body into an MBZ or a stamp response."
                     .to_string(),
             ))
@@ -236,14 +239,14 @@ impl TryFrom<&[u8]> for StampMsg {
 
     fn try_from(raw: &[u8]) -> Result<Self, Self::Error> {
         if raw.len() < UNAUTHENTICATED_STAMP_PKT_SIZE {
-            return Err(StampError::Stamp("Packet is too short".to_string()));
+            return Err(StampError::Other("Packet is too short".to_string()));
         }
 
         let mut raw_idx: usize = 0;
         let sequence = u32::from_be_bytes(
             raw[0..4]
                 .try_into()
-                .map_err(|_| StampError::Stamp("Invalid sequence number.".to_string()))?,
+                .map_err(|_| StampError::Other("Invalid sequence number.".to_string()))?,
         );
         raw_idx += 4;
 

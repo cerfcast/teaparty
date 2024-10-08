@@ -17,8 +17,7 @@
  */
 
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    collections::HashMap, net::UdpSocket, sync::{Arc, Mutex}
 };
 
 use nix::sys::socket::SockaddrIn;
@@ -60,5 +59,17 @@ impl Sessions {
             >::new(
             ))),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ServerSocket {
+    pub socket: Arc<Mutex<UdpSocket>>
+}
+
+
+impl ServerSocket {
+    pub fn new(socket: UdpSocket) -> Self {
+        Self{socket: Arc::new(Mutex::new(socket))}
     }
 }
