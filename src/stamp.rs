@@ -17,7 +17,7 @@
  */
 
 use crate::ntp::{self, NtpError};
-use crate::parameters::{TestArgument, TestArgumentKind};
+use crate::parameters::TestArgumentKind;
 use crate::tlv;
 
 use std::fmt::{Debug, Display};
