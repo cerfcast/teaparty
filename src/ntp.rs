@@ -66,6 +66,7 @@ impl NtpTime {
         // per second, then nanos/NANOSECONDS_PER_SECOND is the fractions of a second. To
         // convert that into units of 1/(2^32), we multiply by 2^32. Because * is commutative,
         // we can do them in any order, so we will do the multiply first and the divide second.
+        // Notes taken from: https://tickelton.gitlab.io/articles/ntp-timestamps/
         nanos <<= 32;
         nanos /= NANOSECONDS_PER_SECOND;
 

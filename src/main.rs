@@ -178,10 +178,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
     let client_msg = StampMsg {
         sequence: 0x22,
-        time: NtpTime {
-            seconds: 0x55,
-            fractions: 0x44,
-        },
+        time: NtpTime::now(),
         error: Default::default(),
         ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
         body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice())?,
