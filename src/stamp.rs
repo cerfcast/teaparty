@@ -25,7 +25,7 @@ use std::io::Error;
 
 pub const UNAUTHENTICATED_STAMP_PKT_SIZE: usize = 44; // in octets
 
-pub const MBZ_VALUE: u8 = 0xaa;
+pub const MBZ_VALUE: u8 = 0x00;
 
 pub enum StampError {
     Other(String),
