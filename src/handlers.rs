@@ -16,20 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::net::SocketAddrV4;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use nix::sys::socket::sockopt::Ipv4Tos;
-use nix::sys::socket::SetSockOpt;
 use nix::sys::socket::SockaddrIn;
+use slog::warn;
 use slog::Logger;
 use slog::{debug, error, info};
 
 use crate::ntp;
-use crate::parameters::DscpValue;
-use crate::parameters::EcnValue;
 use crate::parameters::TestArgumentKind;
 use crate::parameters::TestArguments;
 use crate::responder;
@@ -42,11 +38,12 @@ use crate::stamp::StampMsg;
 use crate::stamp::StampMsgBody;
 use crate::stamp::StampResponseContents;
 use crate::tlv;
+use crate::tlv::MalformedTlv;
 use crate::tlv::Tlv;
 
 /// An object that participates in handling STAMP messages
 /// with certain TLVs.
-/// 
+///
 /// When a test packet is received ...
 /// 1. Every registered TlvHandler's [`TlvHandler::handle`] method
 ///    will be called.
@@ -91,7 +88,7 @@ pub trait TlvHandler {
     fn request(&self) -> Tlv;
 
     /// Customize the IP/port of the destination of the reflected STAMP packet.
-    /// 
+    ///
     /// This method generates a (possibly) modified [`address`]. Return [`address`]
     /// if there is no change necessary.
     fn prepare_response_target(
@@ -101,9 +98,8 @@ pub trait TlvHandler {
         logger: Logger,
     ) -> SockaddrIn;
 
-
     /// Customize the socket used to send the reflected STAMP packet.
-    /// 
+    ///
     /// [`TlvHandler::unprepare_response_socket`] and this method are called in
     /// pairs. See documentation for that method for more information.
     fn prepare_response_socket(
@@ -115,7 +111,7 @@ pub trait TlvHandler {
 
     /// Undo any previously made customizations to the socket used to
     /// send the reflected STAMP packet.
-    /// 
+    ///
     /// [`TlvHandler::prepare_response_socket`] and this method are called in
     /// pairs and should leave the socket in the same configuration as
     /// it was before [`TlvHandler::prepare_response_socket`].
@@ -127,7 +123,7 @@ pub trait TlvHandler {
     ) -> Result<(), StampError>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Handlers {
     handlers: Vec<Arc<Mutex<dyn TlvHandler + Send>>>,
 }
@@ -135,14 +131,16 @@ pub struct Handlers {
 impl Handlers {
     pub fn new() -> Self {
         Self {
-            handlers: Vec::new(),
+            ..Default::default()
         }
     }
 
+    /// Add a Tlv handler to the list of available handlers.
     pub fn add(&mut self, handler: Arc<Mutex<dyn TlvHandler + Send>>) {
         self.handlers.push(handler)
     }
 
+    /// Given a Tlv type value, find a handler, if one is available.
     pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvHandler + Send>>> {
         self.handlers
             .iter()
@@ -150,6 +148,7 @@ impl Handlers {
             .cloned()
     }
 
+    /// Given the name of a Tlv, find a request, if one is available.
     pub fn get_request(&self, tlv_name: String) -> Option<Tlv> {
         self.handlers
             .iter()
@@ -159,9 +158,9 @@ impl Handlers {
 }
 
 #[allow(clippy::complexity)]
-pub async fn handler(
+pub fn handler(
     received_time: chrono::DateTime<chrono::Utc>,
-    msg: &[u8],
+    msg: &Vec<u8>,
     test_arguments: TestArguments,
     session: Session,
     sessions: Arc<Sessions>,
@@ -178,7 +177,7 @@ pub async fn handler(
         msg
     );
 
-    let maybe_stamp_msg = TryInto::<StampMsg>::try_into(msg);
+    let maybe_stamp_msg = TryInto::<StampMsg>::try_into(msg.as_slice());
 
     if maybe_stamp_msg.is_err() {
         error!(
@@ -194,7 +193,7 @@ pub async fn handler(
         "The following arguments are available for this test:\n {:?}", test_arguments
     );
 
-    let src_stamp_msg = maybe_stamp_msg.unwrap();
+    let mut src_stamp_msg = maybe_stamp_msg.unwrap();
 
     let mut session_data = SessionData::new();
     session_data.sequence = src_stamp_msg.sequence;
@@ -221,8 +220,15 @@ pub async fn handler(
         }
     }
 
-    let mut tlv_response = Vec::<Tlv>::new();
-    for tlv in src_stamp_msg.tlvs {
+    // It's possible that one of the Tlvs does not have their flags set correctly. If that
+    // is the case, then we need to make some adjustments.
+
+    src_stamp_msg.handle_invalid_tlv_request_flags();
+
+    // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
+    // test packet.
+    let mut tlv_response: Vec<tlv::Tlv> = vec![];
+    for mut tlv in src_stamp_msg.tlvs {
         let handler = handlers.get_handler(tlv.tpe);
         if let Some(handler) = handler {
             let handler_result =
@@ -235,9 +241,14 @@ pub async fn handler(
                 return;
             }
             tlv_response.push(handler_result.unwrap());
+        } else {
+            // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
+            tlv.flags.set_unrecognized(true);
+            tlv_response.push(tlv);
         }
     }
 
+    // Generate a session-reflector test packet based on the Tlvs generated by the handlers.
     let mut response_stamp_msg = StampMsg {
         time: ntp::NtpTime::now(),
         sequence: session_data.sequence,
@@ -255,10 +266,13 @@ pub async fn handler(
             mbz_2: Default::default(),
         }),
         tlvs: tlv_response,
+        // Copy any malformed Tlvs into the packet sent back.
+        malformed: src_stamp_msg.malformed,
     };
 
     let mut response_src_socket_addr = session.src.clone();
 
+    // Let each of the handlers have the chance to modify the socket from which the response will be sent.
     for response_tlv in response_stamp_msg.tlvs.clone().iter() {
         if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
             response_src_socket_addr = response_tlv_handler
@@ -272,6 +286,7 @@ pub async fn handler(
         }
     }
 
+    // If there was a change requested, handle that request now.
     let response_src_socket = if response_src_socket_addr != session.src {
         let response_src_socket = UdpSocket::bind((
             response_src_socket_addr.ip(),
@@ -297,7 +312,11 @@ pub async fn handler(
         None
     };
 
+    // It's possible that the handlers also want to add some special configuration to the socket, too.
     let response_result = {
+        // Take a lock on the socket that we are going to use to send the response packet. We do this locking
+        // because the handlers may want to make a change to the socket's configuration and attempting to
+        // read packets in this configuration could cause a problem.
         let unlocked_socket_to_prepare = response_src_socket
             .map(|s| Arc::new(Mutex::new(s)))
             .or(Some(server.socket.clone()))
@@ -333,6 +352,7 @@ pub async fn handler(
             session.dst,
         );
 
+        // If the handlers changed the socket in some way, they are responsible for setting it back!
         for response_tlv in response_stamp_msg.tlvs.iter() {
             if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
                 if let Err(e) = response_tlv_handler
@@ -370,273 +390,4 @@ pub async fn handler(
         "Sent {} bytes as a response.",
         response_result.unwrap()
     );
-}
-
-pub struct DscpEcnTlv {}
-
-impl TlvHandler for DscpEcnTlv {
-    fn tlv_type(&self) -> u8 {
-        179
-    }
-
-    fn tlv_name(&self) -> String {
-        "dscpecn".into()
-    }
-
-    fn request(&self) -> Tlv {
-        Tlv {
-            flags: 0,
-            tpe: self.tlv_type(),
-            length: 4,
-            value: vec![(0x2e << 2) | 1u8, 0, 0, 0],
-        }
-    }
-
-    fn handle(
-        &self,
-        _tlv: &tlv::Tlv,
-        _parameters: &TestArguments,
-        _client: SockaddrIn,
-        logger: slog::Logger,
-    ) -> Result<Tlv, StampError> {
-        info!(logger, "I am in the Ecn TLV handler!");
-
-        let ecn_argument: u8 = _parameters.get_parameter_value(TestArgumentKind::Ecn)?;
-        let dscp_argument: u8 = _parameters.get_parameter_value(TestArgumentKind::Dscp)?;
-
-        info!(logger, "Got ecn argument: {:x}", ecn_argument);
-        info!(logger, "Got dscp argument: {:x}", dscp_argument);
-
-        let dscp_ecn_response = (dscp_argument << 2) | ecn_argument;
-
-        let ecn_requested_response: EcnValue = (_tlv.value[0] & 0x3).into();
-        let dscp_requested_response: DscpValue = (_tlv.value[0] & 0xfc).into();
-
-        info!(logger, "Ecn requested back? {:?}", ecn_requested_response);
-        info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
-
-        let response = Tlv {
-            flags: 0,
-            tpe: self.tlv_type(),
-            length: 4,
-            value: vec![_tlv.value[0], dscp_ecn_response, 0, 0],
-        };
-        Ok(response)
-    }
-
-    fn prepare_response_target(
-        &self,
-        _: &mut StampMsg,
-        address: SockaddrIn,
-        logger: Logger,
-    ) -> SockaddrIn {
-        info!(logger, "Preparing the response target in the Dscp Ecn Tlv.");
-        address
-    }
-
-    fn prepare_response_socket(
-        &self,
-        response: &mut StampMsg,
-        socket: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(logger, "Preparing the response socket in the Dscp Ecn Tlv.");
-
-        for tlv in response.tlvs.iter_mut() {
-            if tlv.tpe == self.tlv_type() {
-                let set_tos_value = tlv.value[0] as i32;
-                if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
-                    error!(
-                        logger,
-                        "There was an error preparing the response socket: {}", set_tos_value_err
-                    );
-                    // This is not an error. All that we need to do is make sure that the RP
-                    // field is set to 1 to indicate that we were not allowed to assign
-                    // the requested DSCP/ECN values to the socket.
-                }
-                tlv.value[2] = 0x80;
-                return Ok(());
-            }
-        }
-        Ok(())
-    }
-
-    fn unprepare_response_socket(
-        &self,
-        _: &StampMsg,
-        socket: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(
-            logger,
-            "Unpreparing the response socket in the Dscp Ecn Tlv."
-        );
-        let set_tos_value = 0i32;
-        if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
-            error!(
-                logger,
-                "There was an error unpreparing the response socket: {}", set_tos_value_err
-            );
-            return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            )));
-        }
-        Ok(())
-    }
-}
-
-pub struct TimeTlv {}
-
-impl TlvHandler for TimeTlv {
-    fn tlv_type(&self) -> u8 {
-        0x3
-    }
-
-    fn tlv_name(&self) -> String {
-        "timestamp".into()
-    }
-
-    fn request(&self) -> Tlv {
-        Tlv {
-            flags: 0,
-            tpe: 0x3,
-            length: 4,
-            value: vec![0u8; 4],
-        }
-    }
-
-    fn handle(
-        &self,
-        _tlv: &tlv::Tlv,
-        _parameters: &TestArguments,
-        _client: SockaddrIn,
-        logger: slog::Logger,
-    ) -> Result<Tlv, StampError> {
-        info!(logger, "I am handling a timestamp Tlv.");
-        let mut response_data = [0u8; 4];
-        response_data[0] = 1; // NTP
-        response_data[1] = 2; // Software local
-        response_data[2] = 1; // NTP
-        response_data[3] = 2; // Software local
-        let response = Tlv {
-            flags: 0,
-            tpe: 0x3,
-            length: 4,
-            value: response_data.to_vec(),
-        };
-        Ok(response)
-    }
-
-    fn prepare_response_target(
-        &self,
-        _: &mut StampMsg,
-        address: SockaddrIn,
-        logger: Logger,
-    ) -> SockaddrIn {
-        info!(
-            logger,
-            "Preparing the response target in the Timestamp Tlv."
-        );
-        address
-    }
-
-    fn prepare_response_socket(
-        &self,
-        _: &mut StampMsg,
-        _: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(
-            logger,
-            "Preparing the response socket in the Timestamp Tlv."
-        );
-        Ok(())
-    }
-
-    fn unprepare_response_socket(
-        &self,
-        _: &StampMsg,
-        _: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(logger, "Unpreparing the response socket in the Time Tlv.");
-        Ok(())
-    }
-}
-
-pub struct DestinationPort {}
-
-impl TlvHandler for DestinationPort {
-    fn tlv_type(&self) -> u8 {
-        177
-    }
-
-    fn tlv_name(&self) -> String {
-        "destinationport".into()
-    }
-
-    fn request(&self) -> Tlv {
-        let mut data = [0u8; 4];
-
-        data[0..2].copy_from_slice(&983u16.to_be_bytes());
-
-        Tlv {
-            flags: 0,
-            tpe: 177,
-            length: 4,
-            value: data.to_vec(),
-        }
-    }
-
-    fn handle(
-        &self,
-        _tlv: &tlv::Tlv,
-        _parameters: &TestArguments,
-        _client: SockaddrIn,
-        logger: slog::Logger,
-    ) -> Result<Tlv, StampError> {
-        info!(logger, "I am handling a destination port Tlv.");
-        Ok(_tlv.clone())
-    }
-
-    fn prepare_response_target(
-        &self,
-        response: &mut StampMsg,
-        address: SockaddrIn,
-        logger: Logger,
-    ) -> SockaddrIn {
-        info!(
-            logger,
-            "Preparing the response target in the destination port Tlv."
-        );
-        for tlv in response.tlvs.iter() {
-            if tlv.tpe == self.tlv_type() {
-                let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
-                let mut ipv4: SocketAddrV4 = address.into();
-                ipv4.set_port(new_port);
-                return ipv4.into();
-            }
-        }
-        address
-    }
-
-    fn prepare_response_socket(
-        &self,
-        _: &mut StampMsg,
-        _: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(logger, "Preparing the response socket in the Time Tlv.");
-        Ok(())
-    }
-
-    fn unprepare_response_socket(
-        &self,
-        _: &StampMsg,
-        _: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), StampError> {
-        info!(logger, "Unpreparing the response socket in the Time Tlv.");
-        Ok(())
-    }
 }

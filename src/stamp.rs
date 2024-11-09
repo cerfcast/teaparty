@@ -18,7 +18,7 @@
 
 use crate::ntp::{self, NtpError};
 use crate::parameters::TestArgumentKind;
-use crate::tlv;
+use crate::tlv::{self, MalformedTlv};
 
 use std::fmt::{Debug, Display};
 use std::io::Error;
@@ -52,7 +52,9 @@ impl Display for StampError {
             StampError::Other(s) => write!(f, "Other Stamp error: {}", s),
             StampError::Io(e) => write!(f, "IO error: {}", e),
             StampError::Ntp(e) => write!(f, "NTP error: {}", e),
-            StampError::MissingRequiredArgument(arg) => write!(f, "An argument for a test was missing: {:?}", arg)
+            StampError::MissingRequiredArgument(arg) => {
+                write!(f, "An argument for a test was missing: {:?}", arg)
+            }
         }
     }
 }
@@ -216,6 +218,34 @@ pub struct StampMsg {
     pub ssid: Ssid,
     pub body: StampMsgBody,
     pub tlvs: Vec<tlv::Tlv>,
+    pub malformed: Option<tlv::MalformedTlv>,
+}
+
+impl StampMsg {
+    pub fn handle_invalid_tlv_request_flags(&mut self) {
+        let invalid_tlvs = if let Some(first_bad) = self
+            .tlvs
+            .clone()
+            .into_iter()
+            .position(|tlv| !tlv.is_valid_request())
+        {
+            let invalid_tlvs = self.tlvs.split_off(first_bad);
+            invalid_tlvs
+        } else {
+            vec![]
+        };
+
+        invalid_tlvs.into_iter().for_each(|invalid| {
+            if let Some(malformed) = self.malformed.as_mut() {
+                malformed.add_malformed_tlv(invalid);
+            } else {
+                self.malformed = Some(MalformedTlv {
+                    reason: tlv::Error::InvalidFlag(Default::default()),
+                    bytes: invalid.into(),
+                });
+            }
+        });
+    }
 }
 
 impl From<StampMsg> for Vec<u8> {
@@ -227,9 +257,12 @@ impl From<StampMsg> for Vec<u8> {
         result[14..16].copy_from_slice(&Into::<Vec<u8>>::into(value.ssid));
         result[16..44].copy_from_slice(&Into::<Vec<u8>>::into(value.body));
         for tlv in value.tlvs {
-            let mut tlv_bytes = Into::<Vec<u8>>::into(&tlv);
-            result.append(&mut tlv_bytes);
+            result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
         }
+        value
+            .malformed
+            .iter()
+            .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
         result
     }
 }
@@ -266,14 +299,22 @@ impl TryFrom<&[u8]> for StampMsg {
         raw_idx += 28;
 
         // Only now do we have to worry about not having enough data!
-        let mut tlvs = Vec::<tlv::Tlv>::new();
+        let mut tlvs: Vec<tlv::Tlv> = vec![];
 
+        let mut malformed: Option<MalformedTlv> = None;
         while raw_idx < raw.len() {
-            if let Ok(tlv) = TryInto::<tlv::Tlv>::try_into(&raw[raw_idx..]) {
-                raw_idx += (tlv.length + 1 + 1 + 2) as usize;
-                tlvs.push(tlv);
-            } else {
-                break;
+            match TryInto::<tlv::Tlv>::try_into(&raw[raw_idx..]) {
+                Ok(tlv) => {
+                    raw_idx += (tlv.length + 1 + 1 + 2) as usize;
+                    tlvs.push(tlv);
+                }
+                Err(reason) => {
+                    malformed = Some(MalformedTlv {
+                        reason,
+                        bytes: raw[raw_idx..].to_vec(),
+                    });
+                    break;
+                }
             }
         }
 
@@ -284,6 +325,7 @@ impl TryFrom<&[u8]> for StampMsg {
             ssid,
             body,
             tlvs,
+            malformed,
         })
     }
 }
@@ -371,6 +413,243 @@ mod stamp_test {
     }
 
     #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        // TLV Length
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 4]
+            .copy_from_slice(&u16::to_be_bytes(8));
+        // TLV Data
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + 12]
+            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        let mut stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!((stamp_pkt.malformed.is_none()));
+
+        stamp_pkt.handle_invalid_tlv_request_flags();
+
+        assert!((stamp_pkt.malformed.is_some()));
+        assert!(stamp_pkt.tlvs.len() == 0);
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + (1 + 1 + 2 + 8)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + (1 + 1 + 2 + 8)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x40;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        // TLV Length
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 4]
+            .copy_from_slice(&u16::to_be_bytes(8));
+        // TLV Data
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + 12]
+            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) /* + 0*/] = 0x20;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 1] = 0xfe;
+        // TLV Length
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 2..UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 4]
+            .copy_from_slice(&u16::to_be_bytes(9));
+        // TLV Data
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 12]
+            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+
+        let mut stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!(stamp_pkt.tlvs.len() == 1);
+        assert!((stamp_pkt.malformed.is_some()));
+
+        let malformed = stamp_pkt.malformed.clone().unwrap();
+        assert!(malformed.bytes.len() == (1 + 1 + 2 + 8));
+
+        stamp_pkt.handle_invalid_tlv_request_flags();
+
+        assert!((stamp_pkt.malformed.is_some()));
+        assert!(stamp_pkt.tlvs.len() == 0);
+        let malformed = stamp_pkt.malformed.unwrap();
+        assert!(malformed.bytes.len() == 2*(1 + 1 + 2 + 8));
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_test_data_too_short() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 4]
+            .copy_from_slice(&u16::to_be_bytes(9));
+        // TLV Data
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + 12]
+            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        let stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!((stamp_pkt.malformed.is_some()));
+
+        let malformed = stamp_pkt.malformed.unwrap();
+
+        assert!(malformed.bytes.len() == (1 + 1 + 2 + 8));
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_test_tlv_flag_only() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+
+        let stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!((stamp_pkt.malformed.is_some()));
+
+        let malformed = stamp_pkt.malformed.unwrap();
+
+        assert!(malformed.bytes.len() == 1);
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_test_tlv_flag_type_only() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+
+        let stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!((stamp_pkt.malformed.is_some()));
+
+        let malformed = stamp_pkt.malformed.unwrap();
+
+        assert!(malformed.bytes.len() == 2);
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_test_flag_type_partial_length() {
+        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 1)] =
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 1)];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[12] = 0x80;
+        raw_data[13] = 0x01;
+        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
+        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+
+        // TLV Flag
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+        // TLV Type
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 3]
+            .copy_from_slice([0xde; 1].as_slice());
+
+        let stamp_pkt: StampMsg = raw_data
+            .as_slice()
+            .try_into()
+            .expect("Stamp packet parsing unexpectedly failed");
+
+        assert!((stamp_pkt.malformed.is_some()));
+
+        let malformed = stamp_pkt.malformed.unwrap();
+
+        assert!(malformed.bytes.len() == (1 + 1 + 1));
+    }
+
+    #[test]
     fn simple_stamp_from_bytes_one_tlv_test() {
         let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =
             [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)];
@@ -387,7 +666,7 @@ mod stamp_test {
         raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
 
         // TLV Flag
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0xca;
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
         // TLV Type
         raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
         // TLV Length
@@ -435,8 +714,8 @@ mod stamp_test {
         }
 
         let parsed_tlv = stamp_pkt.tlvs[0].clone();
-        if parsed_tlv.flags != 0xca {
-            panic!("Got {} flags, expected 0xca", parsed_tlv.flags);
+        if parsed_tlv.flags.get_raw() != 0x20 {
+            panic!("Got {} flags, expected 0x20", parsed_tlv.flags);
         }
         if parsed_tlv.tpe != 0xfe {
             panic!("Got {} type, expected 0xfe", parsed_tlv.tpe);
@@ -477,6 +756,7 @@ mod stamp_test {
             ssid: Default::default(),
             body: Default::default(),
             tlvs: tlvs.to_vec(),
+            malformed: None,
         };
 
         let serialized_msg = Into::<Vec<u8>>::into(msg);

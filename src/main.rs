@@ -17,6 +17,8 @@
  */
 
 use clap::{Parser, Subcommand};
+use core::fmt::Debug;
+use custom_handlers::CustomHandlers;
 use handlers::Handlers;
 use nix::errno::Errno;
 use nix::sys::socket::sockopt::Ipv4Tos;
@@ -29,11 +31,15 @@ use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::AsRawFd;
-use std::sync::{Arc, Mutex};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::thread;
 
+mod custom_handlers;
 mod handlers;
 mod ntp;
 mod parameters;
+mod periodicity;
 mod responder;
 mod server;
 mod stamp;
@@ -61,6 +67,10 @@ enum Commands {
         #[arg(long)]
         tlv: Option<String>,
 
+        /// Include an unrecognized Tlv in the test packet.
+        #[arg(long, default_value_t = false)]
+        unrecognized: bool,
+
         /// Enable a non-default ECN for testing (ECT0)
         #[arg(long, default_value_t = false)]
         ecn: bool,
@@ -79,15 +89,51 @@ enum Commands {
             help = "Run teaparty in stateless mode."
         )]
         stateless: bool,
+
+        #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP]@[Seconds]")]
+        heartbeat: Vec<HeartbeatConfiguration>,
     },
+}
+
+#[derive(Debug, Parser, Clone)]
+struct HeartbeatConfiguration {
+    target: IpAddr,
+    interval: u64,
+}
+
+impl FromStr for HeartbeatConfiguration {
+    type Err = clap::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let components = s.split("@").collect::<Vec<&str>>();
+
+        if components.len() != 2 {
+            return Err(clap::error::Error::new(
+                clap::error::ErrorKind::InvalidValue,
+            ));
+        }
+
+        let maybe_target = components[0];
+        let maybe_interval = components[1];
+
+        let target = maybe_target
+            .parse::<IpAddr>()
+            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+        let interval = maybe_interval
+            .parse::<u64>()
+            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+
+        Ok(Self { target, interval })
+    }
 }
 
 fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, maybe_tlv_name, use_ecn, use_dscp, src_port) = match args.command {
+    let (maybe_ssid, maybe_tlv_name, unrecognized, use_ecn, use_dscp, src_port) = match args.command
+    {
         Commands::Client {
             ssid,
             tlv,
+            unrecognized,
             ecn,
             dscp,
             src_port,
@@ -102,6 +148,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
                 None
             },
             tlv,
+            unrecognized,
             ecn,
             dscp,
             src_port,
@@ -114,19 +161,21 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     let server_socket =
         UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
 
-    let tlv = if let Some(tlv_name) = maybe_tlv_name {
-        if let Some(handler) = handlers.get_request(tlv_name.clone()) {
-            Some(handler)
+    let mut tlvs = maybe_tlv_name.map_or(Ok(vec![]), |tlv_name| {
+        if let Some(request_tlv) = handlers.get_request(tlv_name.clone()) {
+            Ok(vec![request_tlv])
         } else {
             error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
-            return Err(StampError::Other(format!(
+            Err(StampError::Other(format!(
                 "No Tlv available with name {}",
                 tlv_name
-            )));
+            )))
         }
-    } else {
-        None
-    };
+    })?;
+
+    if unrecognized {
+        tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
+    }
 
     let mut tos_byte: u8 = 0;
 
@@ -174,8 +223,6 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         );
     }
 
-    let tlvs = tlv.map(|tlv| [tlv].to_vec()).unwrap_or([].to_vec());
-
     let client_msg = StampMsg {
         sequence: 0x22,
         time: NtpTime::now(),
@@ -183,6 +230,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
         body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice())?,
         tlvs,
+        malformed: None,
     };
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
@@ -225,8 +273,11 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let stateless = match args.command {
-        Commands::Server { stateless } => stateless,
+    let (stateless, heartbeats) = match args.command {
+        Commands::Server {
+            stateless,
+            heartbeat,
+        } => (stateless, heartbeat),
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
@@ -271,6 +322,13 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     let responder = Arc::new(responder::Responder::new());
 
     let sessions = Arc::<Sessions>::new(Sessions::new());
+
+    {
+        let socket = socket.clone();
+        thread::spawn(move || {
+            periodicity::periodicity(socket, heartbeats);
+        });
+    }
 
     loop {
         // TODO: Dynamically determine MSS
@@ -345,31 +403,33 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         };
         let session = Session::new(Into::<SockaddrIn>::into(server_address), client_address);
 
-        let handler_responder = responder.clone();
-        let handler_logger = logger.clone();
-        let handler_sessions = sessions.clone();
-        let recv_msg_size = recv_data.bytes;
-        let handler_handlers = handlers.clone();
-        let handler_arguments = arguments.clone();
-        let handler_server = socket.clone();
-        // If the server did not run forever, it may have been necessary
-        // to `join` on this handle to make sure that the server did not
-        // exit before the client was completely serviced.
-        tokio::spawn(async move {
-            handlers::handler(
-                received_time,
-                &recv_buffer[0..recv_msg_size],
-                handler_arguments,
-                session,
-                handler_sessions,
-                !stateless,
-                handler_handlers,
-                handler_responder,
-                handler_server,
-                handler_logger,
-            )
-            .await;
-        });
+        {
+            let responder = responder.clone();
+            let logger = logger.clone();
+            let sessions = sessions.clone();
+            let recv_msg_size = recv_data.bytes;
+            let handlers = handlers.clone();
+            let arguments = arguments.clone();
+            let server = socket.clone();
+            let stamp_packets = recv_buffer[0..recv_msg_size].to_vec();
+            // If the server did not run forever, it may have been necessary
+            // to `join` on this handle to make sure that the server did not
+            // exit before the client was completely serviced.
+            thread::spawn(move || {
+                handlers::handler(
+                    received_time,
+                    &stamp_packets,
+                    arguments,
+                    session,
+                    sessions,
+                    !stateless,
+                    handlers,
+                    responder,
+                    server,
+                    logger,
+                );
+            });
+        }
 
         info!(
             logger,
@@ -378,8 +438,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), StampError> {
+fn main() -> Result<(), StampError> {
     let args = Cli::parse();
 
     let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
@@ -389,19 +448,17 @@ async fn main() -> Result<(), StampError> {
         .fuse();
     let logger = slog::Logger::root(drain, slog::o!("version" => "0.5"));
 
-    let mut handlers = handlers::Handlers::new();
-    let ecn_handler = Arc::new(Mutex::new(handlers::DscpEcnTlv {}));
-    handlers.add(ecn_handler);
-    let time_handler = Arc::new(Mutex::new(handlers::TimeTlv {}));
-    handlers.add(time_handler);
-    let destination_port_handler = Arc::new(Mutex::new(handlers::DestinationPort {}));
-    handlers.add(destination_port_handler);
+    let handlers = CustomHandlers::build();
 
     match args.command {
-        Commands::Server { stateless: _ } => server(args, handlers, logger),
+        Commands::Server {
+            stateless: _,
+            heartbeat: _,
+        } => server(args, handlers, logger),
         Commands::Client {
             ssid: _,
             tlv: _,
+            unrecognized: _,
             ecn: _,
             dscp: _,
             src_port: _,
