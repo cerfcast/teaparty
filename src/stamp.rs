@@ -176,7 +176,7 @@ impl From<StampMsgBody> for Vec<u8> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Hash)]
 pub enum Ssid {
     Mbz(Mbz<2, MBZ_VALUE>),
     Ssid(u16),
@@ -206,6 +206,15 @@ impl TryFrom<&[u8]> for Ssid {
             Ok(Ssid::Mbz(Default::default()))
         } else {
             Ok(Ssid::Ssid(u16::from_be_bytes(value.try_into().unwrap())))
+        }
+    }
+}
+
+impl Debug for Ssid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Ssid::Mbz(_) => write!(f, "MBZ"),
+            Ssid::Ssid(s) => write!(f, "0x{:02x}", s),
         }
     }
 }
@@ -482,14 +491,15 @@ mod stamp_test {
         // TLV Flag
         raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) /* + 0*/] = 0x20;
         // TLV Type
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 1] = 0xfe;
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 1] = 0xfe;
         // TLV Length
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 2..UNAUTHENTICATED_STAMP_PKT_SIZE  + (1 + 1 + 2 + 8) + 4]
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 2
+            ..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4]
             .copy_from_slice(&u16::to_be_bytes(9));
         // TLV Data
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 12]
+        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4
+            ..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 12]
             .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
-
 
         let mut stamp_pkt: StampMsg = raw_data
             .as_slice()
@@ -507,7 +517,7 @@ mod stamp_test {
         assert!((stamp_pkt.malformed.is_some()));
         assert!(stamp_pkt.tlvs.len() == 0);
         let malformed = stamp_pkt.malformed.unwrap();
-        assert!(malformed.bytes.len() == 2*(1 + 1 + 2 + 8));
+        assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
     }
 
     #[test]
