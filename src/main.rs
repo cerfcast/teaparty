@@ -138,15 +138,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             dscp,
             src_port,
         } => (
-            if let Some(ssid) = ssid {
-                if ssid != 0 {
-                    Some(Ssid::Ssid(ssid))
-                } else {
-                    None
-                }
-            } else {
-                None
-            },
+            ssid.map(Ssid::Ssid),
             tlv,
             unrecognized,
             ecn,
