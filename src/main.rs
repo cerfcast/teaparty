@@ -240,6 +240,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     );
 
     info!(logger, "Stamp message sent: {:?}", client_msg);
+    info!(logger, "Stamp message sent (bytes): {:x?}", Into::<Vec<u8>>::into(client_msg.clone()));
 
     let mut server_response = vec![0u8; 1500];
     let (server_response_len, _) = server_socket.recv_from(&mut server_response)?;
