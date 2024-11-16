@@ -17,15 +17,17 @@
  */
 
 use clap::{Parser, Subcommand};
+use os::MacAddr;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
+use mio::{Interest, Token};
 use nix::errno::Errno;
 use nix::sys::socket::sockopt::Ipv4Tos;
 use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
 use ntp::NtpTime;
 use parameters::{DscpValue, TestArguments, TestParameters};
-use server::{ServerSocket, Session, Sessions};
+use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
@@ -38,6 +40,7 @@ use std::thread;
 mod custom_handlers;
 mod handlers;
 mod ntp;
+mod os;
 mod parameters;
 mod periodicity;
 mod responder;
@@ -95,9 +98,10 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone)]
 struct HeartbeatConfiguration {
-    target: IpAddr,
+    target: SocketAddr,
+    mac: MacAddr,
     interval: u64,
 }
 
@@ -116,13 +120,13 @@ impl FromStr for HeartbeatConfiguration {
         let maybe_interval = components[1];
 
         let target = maybe_target
-            .parse::<IpAddr>()
+            .parse::<SocketAddr>()
             .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
         let interval = maybe_interval
             .parse::<u64>()
             .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
 
-        Ok(Self { target, interval })
+        Ok(Self { target, mac: MacAddr{..Default::default()}, interval })
     }
 }
 
@@ -137,14 +141,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             ecn,
             dscp,
             src_port,
-        } => (
-            ssid.map(Ssid::Ssid),
-            tlv,
-            unrecognized,
-            ecn,
-            dscp,
-            src_port,
-        ),
+        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, ecn, dscp, src_port),
         _ => panic!("The source port is somehow missing a value."),
     };
 
@@ -232,7 +229,11 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     );
 
     info!(logger, "Stamp message sent: {:?}", client_msg);
-    info!(logger, "Stamp message sent (bytes): {:x?}", Into::<Vec<u8>>::into(client_msg.clone()));
+    info!(
+        logger,
+        "Stamp message sent (bytes): {:x?}",
+        Into::<Vec<u8>>::into(client_msg.clone())
+    );
 
     let mut server_response = vec![0u8; 1500];
     let (server_response_len, _) = server_socket.recv_from(&mut server_response)?;
@@ -266,7 +267,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let (stateless, heartbeats) = match args.command {
+    let (stateless, mut heartbeats) = match args.command {
         Commands::Server {
             stateless,
             heartbeat,
@@ -310,124 +311,148 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         "Done configuring the test parameters on the server socket."
     );
 
-    let socket = ServerSocket::new(socket);
+    let mut poller = mio::Poll::new().unwrap();
+    let mut events = mio::Events::with_capacity(128);
+    poller
+        .registry()
+        .register::<mio::unix::SourceFd>(
+            &mut mio::unix::SourceFd(&socket.as_raw_fd()),
+            Token(0),
+            Interest::READABLE,
+        )
+        .unwrap();
+
+    let socket = ServerSocket::new(socket, bind_socket_addr);
 
     let responder = Arc::new(responder::Responder::new());
 
-    let sessions = Arc::<Sessions>::new(Sessions::new());
+    let sessions = Sessions::new();
 
     {
         let socket = socket.clone();
+        let sessions = sessions.clone();
+        let logger = logger.clone();
         thread::spawn(move || {
-            periodicity::periodicity(socket, heartbeats);
+            periodicity::periodicity(
+                socket,
+                heartbeats,
+                sessions,
+                std::time::Duration::from_secs(10),
+                logger,
+            );
         });
     }
 
     loop {
-        // TODO: Dynamically determine MSS
-        const MSS: usize = 1500;
+        poller.poll(&mut events, None)?;
 
-        let mut recv_buffer = [0u8; MSS];
-        let recv_buffer_iov = IoSliceMut::new(&mut recv_buffer);
-
-        let mut cmsg = Vec::<u8>::with_capacity(test_argument_space_required);
-        let mut iovs = [recv_buffer_iov];
-
-        // Lock the socket for a receive.
-        let recv_result = {
-            let server_socket = socket.socket.lock().unwrap();
-
-            recvmsg::<SockaddrIn>(
-                server_socket.as_raw_fd(),
-                &mut iovs,
-                Some(&mut cmsg),
-                MsgFlags::empty(),
-            )
-        };
-
-        if let Err(e) = recv_result {
-            // Special case: Don't error if it is EAGAIN
-            if e != Errno::EAGAIN {
-                error!(logger, "There was an error on recv msg: {:?}", e);
+        for event in events.iter() {
+            // We have an event. It's terribly unlikely that it is _not_ for us,
+            // but we should check that anyways.
+            if event.token() != Token(0) {
+                continue;
             }
-            continue;
-        }
 
-        let recv_data = recv_result.unwrap();
+            // TODO: Dynamically determine MSS
+            const MSS: usize = 1500;
 
-        let arguments = if let Ok(cmsgs) = recv_data.cmsgs() {
-            parameters.get_arguments(cmsgs.collect(), logger.clone())
-        } else {
-            Ok(TestArguments::empty_arguments())
-        };
+            let mut recv_buffer = [0u8; MSS];
+            let recv_buffer_iov = IoSliceMut::new(&mut recv_buffer);
 
-        if let Err(e) = arguments {
-            error!(
-                logger,
-                "There was an error getting the test arguments: {}. Abandoning this request.", e
-            );
-            continue;
-        }
+            let mut cmsg = Vec::<u8>::with_capacity(test_argument_space_required);
+            let mut iovs = [recv_buffer_iov];
 
-        let arguments = arguments.unwrap();
+            // Even though we know that there is data waiting, we cannot go after it directly. We still
+            // need to lock the socket so that we can be sure we are the only one reading!
+            let recv_result = {
+                let server_socket = socket.socket.lock().unwrap();
 
-        let client_address = recv_data.address;
+                recvmsg::<SockaddrIn>(
+                    server_socket.as_raw_fd(),
+                    &mut iovs,
+                    Some(&mut cmsg),
+                    MsgFlags::empty(),
+                )
+            };
 
-        if client_address.is_none() {
-            warn!(
-                logger,
-                "Did not get a client address; not responding to probe."
-            );
-            continue;
-        }
-        let client_address = client_address.unwrap();
+            if let Err(e) = recv_result {
+                // Special case: Don't error if it is EAGAIN
+                if e != Errno::EAGAIN {
+                    error!(logger, "There was an error on recv msg: {:?}", e);
+                }
+                continue;
+            }
 
-        let received_time = chrono::Utc::now();
+            let recv_data = recv_result.unwrap();
 
-        info!(
-            logger,
-            "Got a connection from {:?} at {}", client_address, received_time
-        );
+            let arguments = if let Ok(cmsgs) = recv_data.cmsgs() {
+                parameters.get_arguments(cmsgs.collect(), logger.clone())
+            } else {
+                Ok(TestArguments::empty_arguments())
+            };
 
-        let server_address = if let SocketAddr::V4(v4) = bind_socket_addr {
-            v4
-        } else {
-            panic!("Ipv6 not supported yet.")
-        };
-        let session = Session::new(Into::<SockaddrIn>::into(server_address), client_address);
-
-        {
-            let responder = responder.clone();
-            let logger = logger.clone();
-            let sessions = sessions.clone();
-            let recv_msg_size = recv_data.bytes;
-            let handlers = handlers.clone();
-            let arguments = arguments.clone();
-            let server = socket.clone();
-            let stamp_packets = recv_buffer[0..recv_msg_size].to_vec();
-            // If the server did not run forever, it may have been necessary
-            // to `join` on this handle to make sure that the server did not
-            // exit before the client was completely serviced.
-            thread::spawn(move || {
-                handlers::handler(
-                    received_time,
-                    &stamp_packets,
-                    arguments,
-                    session,
-                    sessions,
-                    !stateless,
-                    handlers,
-                    responder,
-                    server,
+            if let Err(e) = arguments {
+                error!(
                     logger,
+                    "There was an error getting the test arguments: {}. Abandoning this request.",
+                    e
                 );
-            });
-        }
+                continue;
+            }
 
-        info!(
-            logger,
-            "Passed off the connection from {:?} to the handler for handling.", client_address
-        );
+            let arguments = arguments.unwrap();
+
+            let client_address = recv_data.address;
+
+            if client_address.is_none() {
+                warn!(
+                    logger,
+                    "Did not get a client address; not responding to probe."
+                );
+                continue;
+            }
+            let client_address = client_address.unwrap();
+
+            let received_time = chrono::Utc::now();
+
+            info!(
+                logger,
+                "Got a connection from {:?} at {}", client_address, received_time
+            );
+
+            {
+                let responder = responder.clone();
+                let logger = logger.clone();
+                let sessions = sessions.clone();
+                let recv_msg_size = recv_data.bytes;
+                let handlers = handlers.clone();
+                let arguments = arguments.clone();
+                let server = socket.clone();
+                let stamp_packets = recv_buffer[0..recv_msg_size].to_vec();
+                // If the server did not run forever, it may have been necessary
+                // to `join` on this handle to make sure that the server did not
+                // exit before the client was completely serviced.
+                thread::spawn(move || {
+                    handlers::handler(
+                        received_time,
+                        &stamp_packets,
+                        arguments,
+                        sessions,
+                        !stateless,
+                        handlers,
+                        responder,
+                        server,
+                        client_address,
+                        logger,
+                    );
+                });
+            }
+
+            info!(
+                logger,
+                "Passed off the connection from {:?} to the handler for handling.", client_address
+            );
+        }
     }
 }
 
