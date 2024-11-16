@@ -322,6 +322,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mio"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80e04d1dcff3aae0704555fe5fee3bcfaf3d1fdf8a7e521d5b9d2b42acb52cec"
+dependencies = [
+ "hermit-abi",
+ "libc 0.2.155 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log",
+ "wasi",
+ "windows-sys",
+]
+
+[[package]]
 name = "nix"
 version = "0.29.0"
 dependencies = [
@@ -501,6 +514,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "mio",
  "nix",
  "rand",
  "slog",

@@ -19,12 +19,10 @@
 use std::{
     net::UdpSocket,
     os::fd::AsRawFd,
-    sync::{Arc, Mutex},
 };
 
 use nix::sys::socket::{sendto, MsgFlags, SockaddrIn};
 
-use crate::server::ServerSocket;
 
 pub struct Responder {
 }

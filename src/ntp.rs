@@ -18,6 +18,7 @@
 
 use chrono::prelude::Utc;
 use chrono::TimeZone;
+use clap::Error;
 
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -49,6 +50,8 @@ pub struct NtpTime {
 const NANOSECONDS_PER_SECOND: u64 = 1000000000u64;
 
 impl NtpTime {
+    pub const RawSize: usize = 8;
+
     pub fn now() -> Self {
         let then = Utc.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap();
         let now = Utc::now();
@@ -184,6 +187,10 @@ pub struct ErrorEstimate {
     pub multiple: u8,
     pub synchronized: bool,
     // Note: Z is not tracked -- we only implement the NTP format at this time.
+}
+
+impl ErrorEstimate {
+    pub const RawSize: usize = 2;
 }
 
 impl Default for ErrorEstimate {

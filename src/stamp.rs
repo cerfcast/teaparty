@@ -16,9 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::ntp::{self, NtpError};
+use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
-use crate::tlv::{self, MalformedTlv};
+use crate::tlv::{self, MalformedTlv, Tlv};
 
 use std::fmt::{Debug, Display};
 use std::io::Error;
@@ -65,7 +65,7 @@ impl Debug for StampError {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Hash, Eq)]
 pub struct Mbz<const L: usize, const V: u8> {}
 
 impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
@@ -145,6 +145,10 @@ pub enum StampMsgBody {
     Mbz(Mbz<28, MBZ_VALUE>),
 }
 
+impl StampMsgBody {
+    pub const RawSize: usize = 28;
+}
+
 impl Default for StampMsgBody {
     fn default() -> Self {
         StampMsgBody::Mbz(Default::default())
@@ -176,10 +180,14 @@ impl From<StampMsgBody> for Vec<u8> {
     }
 }
 
-#[derive(Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Ssid {
     Mbz(Mbz<2, MBZ_VALUE>),
     Ssid(u16),
+}
+
+impl Ssid {
+    pub const RawSize: usize = 2;
 }
 
 impl Default for Ssid {
@@ -238,8 +246,7 @@ impl StampMsg {
             .into_iter()
             .position(|tlv| !tlv.is_valid_request())
         {
-            let invalid_tlvs = self.tlvs.split_off(first_bad);
-            invalid_tlvs
+            self.tlvs.split_off(first_bad)
         } else {
             vec![]
         };
@@ -292,19 +299,19 @@ impl TryFrom<&[u8]> for StampMsg {
         );
         raw_idx += 4;
 
-        let time: ntp::NtpTime = raw[raw_idx..raw_idx + 8].try_into()?;
+        let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize].try_into()?;
         raw_idx += 8;
 
-        let ee: ntp::ErrorEstimate = raw[raw_idx..raw_idx + 2].try_into()?;
+        let ee: ErrorEstimate = raw[raw_idx..raw_idx + ErrorEstimate::RawSize].try_into()?;
         raw_idx += 2;
 
-        let ssid: Ssid = raw[raw_idx..raw_idx + 2].try_into()?;
+        let ssid: Ssid = raw[raw_idx..raw_idx + Ssid::RawSize].try_into()?;
         raw_idx += 2;
 
         // Let's see whether these bytes are 0s. If they are, then we move on.
         // Otherwise, we will have to parse a response message!
 
-        let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..raw_idx + 28])?;
+        let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..raw_idx + StampMsgBody::RawSize])?;
         raw_idx += 28;
 
         // Only now do we have to worry about not having enough data!
@@ -314,7 +321,7 @@ impl TryFrom<&[u8]> for StampMsg {
         while raw_idx < raw.len() {
             match TryInto::<tlv::Tlv>::try_into(&raw[raw_idx..]) {
                 Ok(tlv) => {
-                    raw_idx += (tlv.length + 1 + 1 + 2) as usize;
+                    raw_idx += tlv.length as usize + Tlv::FtlSize;
                     tlvs.push(tlv);
                 }
                 Err(reason) => {

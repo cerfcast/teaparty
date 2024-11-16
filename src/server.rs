@@ -17,15 +17,21 @@
  */
 
 use std::{
-    collections::HashMap, net::UdpSocket, sync::{Arc, Mutex}
+    collections::HashMap,
+    net::{self, UdpSocket},
+    sync::{Arc, Mutex},
 };
 
 use nix::sys::socket::SockaddrIn;
+
+use crate::stamp::Ssid;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Session {
     pub src: SockaddrIn,
     pub dst: SockaddrIn,
+    pub ssid: Ssid,
+    last: std::time::SystemTime,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -40,8 +46,21 @@ impl SessionData {
 }
 
 impl Session {
-    pub fn new(src: SockaddrIn, dst: SockaddrIn) -> Self {
-        Self { src, dst }
+    pub fn new(src: SockaddrIn, dst: SockaddrIn, ssid: Ssid) -> Self {
+        Self {
+            src,
+            dst,
+            last: std::time::SystemTime::now(),
+            ssid,
+        }
+    }
+
+    pub fn reference(&mut self) {
+        self.last = std::time::SystemTime::now()
+    }
+
+    pub fn last(&self) -> std::time::SystemTime {
+        self.last
     }
 }
 
@@ -64,12 +83,15 @@ impl Sessions {
 
 #[derive(Clone)]
 pub struct ServerSocket {
-    pub socket: Arc<Mutex<UdpSocket>>
+    pub socket: Arc<Mutex<UdpSocket>>,
+    pub socket_addr: net::SocketAddr,
 }
 
-
 impl ServerSocket {
-    pub fn new(socket: UdpSocket) -> Self {
-        Self{socket: Arc::new(Mutex::new(socket))}
+    pub fn new(socket: UdpSocket, addr: net::SocketAddr) -> Self {
+        Self {
+            socket: Arc::new(Mutex::new(socket)),
+            socket_addr: addr,
+        }
     }
 }
