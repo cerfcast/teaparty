@@ -3,7 +3,10 @@ use std::sync::{Arc, Mutex};
 use crate::handlers;
 
 pub mod ch {
-    use std::net::{SocketAddrV4, UdpSocket};
+    use std::{
+        net::{SocketAddrV4, UdpSocket},
+        thread,
+    };
 
     use nix::sys::socket::{sockopt::Ipv4Tos, SetSockOpt, SockaddrIn};
     use slog::{error, info, Logger};

@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use std::net::SocketAddr;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use nix::sys::socket::SockaddrIn;
-use slog::warn;
 use slog::Logger;
 use slog::{debug, error, info};
 
@@ -38,7 +38,6 @@ use crate::stamp::StampMsg;
 use crate::stamp::StampMsgBody;
 use crate::stamp::StampResponseContents;
 use crate::tlv;
-use crate::tlv::MalformedTlv;
 use crate::tlv::Tlv;
 
 /// An object that participates in handling STAMP messages
@@ -162,12 +161,12 @@ pub fn handler(
     received_time: chrono::DateTime<chrono::Utc>,
     msg: &Vec<u8>,
     test_arguments: TestArguments,
-    session: Session,
-    sessions: Arc<Sessions>,
+    sessions: Sessions,
     stateful: bool,
     handlers: Handlers,
     responder: Arc<responder::Responder>,
     server: ServerSocket,
+    client_address: SockaddrIn,
     logger: slog::Logger,
 ) {
     debug!(
@@ -195,8 +194,20 @@ pub fn handler(
 
     let mut src_stamp_msg = maybe_stamp_msg.unwrap();
 
+    let server_address = if let SocketAddr::V4(v4) = server.socket_addr {
+        v4
+    } else {
+        panic!("Ipv6 not supported yet.")
+    };
+
+    let session = Session::new(
+        Into::<SockaddrIn>::into(server_address),
+        client_address,
+        src_stamp_msg.ssid.clone(),
+    );
     let mut session_data = SessionData::new();
     session_data.sequence = src_stamp_msg.sequence;
+
     if stateful {
         let mut sessions = sessions.sessions.lock().unwrap();
         if let Some(existing_session) = sessions.get_mut(&session.clone()) {

@@ -23,6 +23,8 @@ use std::{
     result::Result,
 };
 
+use crate::os::MacAddr;
+
 #[derive(Clone, PartialEq)]
 pub enum Error {
     InvalidFlag(String),
@@ -266,6 +268,10 @@ pub struct Tlv {
     pub value: Vec<u8>,
 }
 
+impl Tlv {
+    pub const FtlSize: usize = 1 + 1 + 2;
+}
+
 /// Convert from a &Tlv into a vector of bytes.
 impl From<&Tlv> for Vec<u8> {
     fn from(raw: &Tlv) -> Vec<u8> {
@@ -339,12 +345,14 @@ impl Tlv {
         }
     }
 
-    pub fn heartbeat() -> Self {
+    pub fn heartbeat(mac: MacAddr) -> Self {
+        let mut macv = mac.mac.to_vec();
+        macv.extend(vec![0, 0]);
         Tlv {
             flags: Flags::new_request(),
             tpe: Tlv::HEARTBEAT,
             length: 8,
-            value: vec![0u8; 8],
+            value: macv
         }
     }
 
