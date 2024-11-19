@@ -17,7 +17,6 @@
  */
 
 use clap::{Parser, Subcommand};
-use os::{get_mac_address, MacAddr};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -31,7 +30,7 @@ use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr,UdpSocket};
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -93,7 +92,7 @@ enum Commands {
         )]
         stateless: bool,
 
-        #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP]@[Seconds]")]
+        #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
         heartbeat: Vec<HeartbeatConfiguration>,
     },
 }
@@ -101,7 +100,6 @@ enum Commands {
 #[derive(Debug, Clone)]
 struct HeartbeatConfiguration {
     target: SocketAddr,
-    mac: MacAddr,
     interval: u64,
 }
 
@@ -126,7 +124,7 @@ impl FromStr for HeartbeatConfiguration {
             .parse::<u64>()
             .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
 
-        Ok(Self { target, mac: MacAddr{..Default::default()}, interval })
+        Ok(Self { target, interval })
     }
 }
 
@@ -267,7 +265,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let (stateless, mut heartbeats) = match args.command {
+    let (stateless, heartbeats) = match args.command {
         Commands::Server {
             stateless,
             heartbeat,
