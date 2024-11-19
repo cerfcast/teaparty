@@ -17,7 +17,7 @@
  */
 
 use clap::{Parser, Subcommand};
-use os::MacAddr;
+use os::{get_mac_address, MacAddr};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -31,7 +31,7 @@ use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;

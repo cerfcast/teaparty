@@ -22,7 +22,7 @@ pub fn periodicity(
             let hb = hb.clone();
             let socket = socket.clone();
 
-            let mac = get_mac_address(socket.clone(), hb.target);
+            let mac = get_mac_address(socket.clone(), hb.target, logger.clone());
             if let Ok(mac) = mac {
                 Some(thread::spawn(move || loop {
                     thread::sleep(Duration::from_secs(hb.interval));
