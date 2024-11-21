@@ -94,4 +94,4 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Heartbeat (reflector) | &#9989; |
 | Heartbeat (sender) | &#10060; |
 | Destination port (reflector) | &#9989; |
-| Destination port (sender) | &#10060; |
+| Destination port (sender) | &#9989; |
