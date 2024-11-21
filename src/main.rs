@@ -26,11 +26,12 @@ use nix::sys::socket::sockopt::Ipv4Tos;
 use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
 use ntp::NtpTime;
 use parameters::{DscpValue, TestArguments, TestParameters};
+use periodicity::Periodicity;
 use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
 use std::io::IoSliceMut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr,UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -326,18 +327,17 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
     let sessions = Sessions::new();
 
+    let periodical = Periodicity::new(
+        socket.clone(),
+        heartbeats.clone(),
+        sessions.clone(),
+        std::time::Duration::from_secs(10),
+        logger.clone(),
+    );
+
     {
-        let socket = socket.clone();
-        let sessions = sessions.clone();
         let logger = logger.clone();
         thread::spawn(move || {
-            periodicity::periodicity(
-                socket,
-                heartbeats,
-                sessions,
-                std::time::Duration::from_secs(10),
-                logger,
-            );
         });
     }
 
