@@ -210,8 +210,14 @@ pub fn handler(
 
     if stateful {
         let mut sessions = sessions.sessions.lock().unwrap();
-        if let Some(existing_session) = sessions.get_mut(&session.clone()) {
+        if let Some(mut existing_session) = sessions.remove(&session.clone()) {
+
             existing_session.sequence += 1;
+            let mut new_session = session.clone();
+            new_session.reference();
+
+            sessions.insert(new_session, existing_session);
+
             session_data = existing_session.clone();
             info!(
                 logger,

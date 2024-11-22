@@ -23,10 +23,11 @@ use std::{
 };
 
 use nix::sys::socket::SockaddrIn;
+use std::hash::Hash;
 
 use crate::stamp::Ssid;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Session {
     pub src: SockaddrIn,
     pub dst: SockaddrIn,
@@ -34,7 +35,23 @@ pub struct Session {
     last: std::time::SystemTime,
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+impl PartialEq for Session {
+    fn eq(&self, other: &Self) -> bool {
+        self.dst == other.dst && self.src == other.src && self.ssid == other.ssid
+    }
+}
+
+impl Hash for Session {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.src, state);
+        Hash::hash(&self.dst, state);
+        Hash::hash(&self.ssid, state);
+    }
+}
+
+impl Eq for Session {}
+
+#[derive(Serialize, Debug, Copy, Clone, Default)]
 pub struct SessionData {
     pub sequence: u32,
 }
