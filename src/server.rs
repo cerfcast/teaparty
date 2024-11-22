@@ -23,6 +23,7 @@ use std::{
 };
 
 use nix::sys::socket::SockaddrIn;
+use serde::{ser::SerializeStruct, Serialize};
 use std::hash::Hash;
 
 use crate::stamp::Ssid;
@@ -33,6 +34,22 @@ pub struct Session {
     pub dst: SockaddrIn,
     pub ssid: Ssid,
     last: std::time::SystemTime,
+}
+
+impl Serialize for Session {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let srcs = self.src.to_string();
+        let dsts = self.dst.to_string();
+        let mut struct_serializer = serializer.serialize_struct("Session", 4)?;
+        struct_serializer.serialize_field("src", &srcs)?;
+        struct_serializer.serialize_field("dst", &dsts)?;
+        struct_serializer.serialize_field("ssid", &self.ssid)?;
+        struct_serializer.serialize_field("last", &self.last)?;
+        struct_serializer.end()
+    }
 }
 
 impl PartialEq for Session {
@@ -81,9 +98,36 @@ impl Session {
     }
 }
 
-#[derive(Clone)]
+impl ToString for Session {
+    fn to_string(&self) -> String {
+        self.ssid.to_string()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Sessions {
     pub sessions: Arc<Mutex<HashMap<Session, SessionData>>>,
+}
+
+impl Serialize for Sessions {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct EmbeddedSession {
+            id: Session,
+            data: SessionData,
+        }
+
+        let sessions = self.sessions.lock().unwrap();
+
+        let embedded_sessions: Vec<_> = sessions.iter().map(|v| EmbeddedSession {
+            id: v.0.clone(),
+            data: v.1.clone(),
+        }).collect();
+        serde::Serialize::serialize(&embedded_sessions, serializer)
+    }
 }
 
 impl Sessions {

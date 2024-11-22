@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use serde::Serialize;
+
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
 use crate::tlv::{self, MalformedTlv, Tlv};
@@ -65,7 +67,7 @@ impl Debug for StampError {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Hash, Eq)]
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Hash, Eq)]
 pub struct Mbz<const L: usize, const V: u8> {}
 
 impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
@@ -180,7 +182,7 @@ impl From<StampMsgBody> for Vec<u8> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Clone, PartialEq, Eq, Hash)]
 pub enum Ssid {
     Mbz(Mbz<2, MBZ_VALUE>),
     Ssid(u16),
@@ -188,6 +190,15 @@ pub enum Ssid {
 
 impl Ssid {
     pub const RawSize: usize = 2;
+}
+
+impl ToString for Ssid {
+    fn to_string(&self) -> String {
+        match self {
+            Ssid::Mbz(_) => "Zero".to_string(),
+            Ssid::Ssid(s) => s.to_string(),
+        }
+    }
 }
 
 impl Default for Ssid {
@@ -311,7 +322,8 @@ impl TryFrom<&[u8]> for StampMsg {
         // Let's see whether these bytes are 0s. If they are, then we move on.
         // Otherwise, we will have to parse a response message!
 
-        let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..raw_idx + StampMsgBody::RawSize])?;
+        let body =
+            TryInto::<StampMsgBody>::try_into(&raw[raw_idx..raw_idx + StampMsgBody::RawSize])?;
         raw_idx += 28;
 
         // Only now do we have to worry about not having enough data!

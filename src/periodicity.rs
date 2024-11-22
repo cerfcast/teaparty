@@ -11,12 +11,13 @@ use std::sync::mpsc::{Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+#[derive(Debug, Clone)]
 pub struct Periodicity {
     heartbeaters: std::sync::Arc<
         std::sync::Mutex<HashMap<SocketAddr, (std::sync::mpsc::Sender<bool>, JoinHandle<()>)>>,
     >,
     stale_sender: Sender<bool>,
-    stale_joiner: JoinHandle<()>,
+    stale_joiner: std::sync::Arc<std::sync::Mutex<JoinHandle<()>>>,
 }
 
 impl Periodicity {
@@ -165,7 +166,7 @@ impl Periodicity {
         Self {
             heartbeaters: std::sync::Arc::new(std::sync::Mutex::new(heartbeaters)),
             stale_sender,
-            stale_joiner,
+            stale_joiner: std::sync::Arc::new(std::sync::Mutex::new(stale_joiner)),
         }
     }
 

@@ -15,8 +15,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#![feature(proc_macro_hygiene, decl_macro)]
 
 use clap::{Parser, Subcommand};
+use monitor::Monitor;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -37,8 +39,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 
+#[macro_use]
+extern crate rocket;
+
 mod custom_handlers;
 mod handlers;
+mod meta;
+mod monitor;
 mod ntp;
 mod os;
 mod parameters;
@@ -336,8 +343,10 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     );
 
     {
+        let monitor = Monitor{sessions: sessions.clone(), periodic: periodical.clone()};
         let logger = logger.clone();
         thread::spawn(move || {
+            meta::launch_meta(monitor, logger);
         });
     }
 
