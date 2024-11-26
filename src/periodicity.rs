@@ -142,10 +142,10 @@ impl Periodicity {
             info!(logger, "Checking for stale sessions.");
             {
                 let mut sessions = sessions.sessions.lock().unwrap();
-                for session in sessions.clone().keys() {
-                    info!(logger, "Session last referenced at: {:?}", session.last());
+                for (session, data) in sessions.clone().iter() {
+                    info!(logger, "Session last referenced at: {:?}", data.last);
                     if std::time::SystemTime::now()
-                        .duration_since(session.last())
+                        .duration_since(data.last)
                         .unwrap()
                         > sessions_cleanup_duration
                     {

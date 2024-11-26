@@ -24,16 +24,26 @@ use std::{
 
 use nix::sys::socket::SockaddrIn;
 use serde::{ser::SerializeStruct, Serialize};
-use std::hash::Hash;
 
 use crate::stamp::Ssid;
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Debug, Copy, Clone)]
+pub struct SessionData {
+    pub sequence: u32,
+    pub last: std::time::SystemTime,
+}
+
+impl SessionData {
+    pub fn new() -> SessionData {
+        Self { sequence: 0u32, last: std::time::SystemTime::now()}
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Session {
     pub src: SockaddrIn,
     pub dst: SockaddrIn,
     pub ssid: Ssid,
-    last: std::time::SystemTime,
 }
 
 impl Serialize for Session {
@@ -47,35 +57,7 @@ impl Serialize for Session {
         struct_serializer.serialize_field("src", &srcs)?;
         struct_serializer.serialize_field("dst", &dsts)?;
         struct_serializer.serialize_field("ssid", &self.ssid)?;
-        struct_serializer.serialize_field("last", &self.last)?;
         struct_serializer.end()
-    }
-}
-
-impl PartialEq for Session {
-    fn eq(&self, other: &Self) -> bool {
-        self.dst == other.dst && self.src == other.src && self.ssid == other.ssid
-    }
-}
-
-impl Hash for Session {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        Hash::hash(&self.src, state);
-        Hash::hash(&self.dst, state);
-        Hash::hash(&self.ssid, state);
-    }
-}
-
-impl Eq for Session {}
-
-#[derive(Serialize, Debug, Copy, Clone, Default)]
-pub struct SessionData {
-    pub sequence: u32,
-}
-
-impl SessionData {
-    pub fn new() -> SessionData {
-        Self { sequence: 0u32 }
     }
 }
 
@@ -84,17 +66,8 @@ impl Session {
         Self {
             src,
             dst,
-            last: std::time::SystemTime::now(),
             ssid,
         }
-    }
-
-    pub fn reference(&mut self) {
-        self.last = std::time::SystemTime::now()
-    }
-
-    pub fn last(&self) -> std::time::SystemTime {
-        self.last
     }
 }
 

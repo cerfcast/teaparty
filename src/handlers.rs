@@ -210,13 +210,10 @@ pub fn handler(
 
     if stateful {
         let mut sessions = sessions.sessions.lock().unwrap();
-        if let Some(mut existing_session) = sessions.remove(&session.clone()) {
+        if let Some(existing_session) = sessions.get_mut(&session.clone()) {
 
             existing_session.sequence += 1;
-            let mut new_session = session.clone();
-            new_session.reference();
-
-            sessions.insert(new_session, existing_session);
+            existing_session.last = std::time::SystemTime::now();
 
             session_data = existing_session.clone();
             info!(
@@ -226,13 +223,13 @@ pub fn handler(
                 session_data
             );
         } else {
-            sessions.insert(session.clone(), SessionData::default());
-            session_data = SessionData::default();
+            let new_session = SessionData::new();
+            sessions.insert(session.clone(), new_session.clone());
             info!(
                 logger,
                 "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
                 session,
-                session_data
+                new_session
             );
         }
     }
