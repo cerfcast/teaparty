@@ -1,3 +1,4 @@
+use serde::Serialize;
 use slog::{error, info, Logger};
 
 use crate::os::{get_mac_address, MacAddr};
@@ -16,11 +17,27 @@ pub struct Periodicity {
     heartbeaters: std::sync::Arc<
         std::sync::Mutex<HashMap<SocketAddr, (std::sync::mpsc::Sender<bool>, JoinHandle<()>)>>,
     >,
+    heartbeaters_info: std::sync::Arc<std::sync::Mutex<HashMap<SocketAddr, std::time::Duration>>>,
     stale_sender: Sender<bool>,
     stale_joiner: std::sync::Arc<std::sync::Mutex<JoinHandle<()>>>,
 }
 
+
+#[derive(Clone, Serialize)]
+pub struct HeartbeatInfo {
+    target: SocketAddr,
+    interval: Duration,
+}
+
 impl Periodicity {
+    pub fn get_heartbeaters_info(
+        &self,
+    ) -> std::vec::Vec<HeartbeatInfo> {
+        self.heartbeaters_info.lock().unwrap().clone().into_iter().map(|(k, v)|  {
+            HeartbeatInfo{target: k, interval: v}
+        }).collect()
+    }
+
     fn launch_heartbeater(
         socket: ServerSocket,
         addr: SocketAddr,
@@ -88,6 +105,8 @@ impl Periodicity {
         let mut heartbeaters =
             HashMap::<SocketAddr, (std::sync::mpsc::Sender<bool>, JoinHandle<()>)>::new();
 
+        let mut heartbeaters_info = HashMap::<SocketAddr, std::time::Duration>::new();
+
         heartbeats.iter().for_each(|hb| {
             let mut target_addr: Option<SocketAddr> = None;
 
@@ -105,6 +124,7 @@ impl Periodicity {
                     mac,
                 );
                 heartbeaters.insert(target_addr, (sender, joiner));
+                heartbeaters_info.insert(target_addr, std::time::Duration::from_secs(hb.interval));
             } else {
                 error!(
                     logger,
@@ -165,6 +185,7 @@ impl Periodicity {
 
         Self {
             heartbeaters: std::sync::Arc::new(std::sync::Mutex::new(heartbeaters)),
+            heartbeaters_info: std::sync::Arc::new(std::sync::Mutex::new(heartbeaters_info)),
             stale_sender,
             stale_joiner: std::sync::Arc::new(std::sync::Mutex::new(stale_joiner)),
         }
