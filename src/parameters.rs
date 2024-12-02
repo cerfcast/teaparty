@@ -114,7 +114,7 @@ impl From<u8> for DscpValue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum TestArgument {
     Ttl(u8),
     Ecn(EcnValue),
@@ -183,7 +183,7 @@ pub struct TestArguments {
 
 impl TestArguments {
     pub fn empty_arguments() -> Self {
-        TestArguments { arguments: vec![] }
+        TestArguments { arguments: [TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize].to_vec() }
     }
 }
 
@@ -199,6 +199,12 @@ impl TestArguments {
             }
         } else {
             Err(StampError::MissingRequiredArgument(parameter))
+        }
+    }
+
+    pub fn add_argument<T: Into<TestArgument>>(&mut self, parameter: TestArgumentKind, arg: T) {
+        if parameter < TestArgumentKind::MaxParameterKind {
+            self.arguments[parameter as usize] = Into::<TestArgument>::into(arg);
         }
     }
 }
