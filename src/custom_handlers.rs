@@ -91,6 +91,8 @@ pub mod ch {
 
             for tlv in response.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
+                    // TODO: Decide whether multiple handlers that may set the same byte of the header
+                    // are cumulative.
                     let set_tos_value = tlv.value[0] as i32;
                     if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
                         error!(
@@ -101,9 +103,8 @@ pub mod ch {
                         // This is not an error. All that we need to do is make sure that the RP
                         // field is set to 1 to indicate that we were not allowed to assign
                         // the requested DSCP/ECN values to the socket.
-                        // TODO!
+                        tlv.value[2] = 0x80;
                     }
-                    tlv.value[2] = 0x80;
                     return Ok(());
                 }
             }
@@ -120,6 +121,8 @@ pub mod ch {
                 logger,
                 "Unpreparing the response socket in the Dscp Ecn Tlv."
             );
+            // TODO: We assume that the the unprepared socket has 0 for the tos byte -- that assumption
+            // may not be correct!
             let set_tos_value = 0i32;
             if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
                 error!(
@@ -386,8 +389,10 @@ pub mod ch {
 
             for tlv in response.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
-                    let set_tos_value = (tlv.value[0] >> 2) as i32;
-                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
+                    // TODO: Decide whether multiple handlers that may set the same byte of the header
+                    // are cumulative.
+                    let set_dscp_value = (tlv.value[0] & 0xfc) as i32;
+                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_dscp_value) {
                         error!(
                             logger,
                             "There was an error preparing the response socket: {}",
@@ -396,9 +401,8 @@ pub mod ch {
                         // This is not an error. All that we need to do is make sure that the RP
                         // field is set to 1 to indicate that we were not allowed to assign
                         // the requested DSCP value to the socket.
-                        // TODO!
+                        tlv.value[1] |= 0x1;
                     }
-                    tlv.value[2] = 0x1;
                     return Ok(());
                 }
             }
@@ -413,6 +417,8 @@ pub mod ch {
         ) -> Result<(), StampError> {
             info!(logger, "Unpreparing the response socket in the CoS Tlv.");
             let set_tos_value = 0i32;
+            // TODO: We assume that the the unprepared socket has 0 for the tos byte -- that assumption
+            // may not be correct!
             if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
                 error!(
                     logger,

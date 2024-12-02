@@ -167,12 +167,12 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             logger,
             "About to configure the sending value of the IpV4 ECN on the server socket."
         );
-        tos_byte |= 0x2;
+        tos_byte |= 0x1;
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
                 logger,
-                "There was an error configuring the server socket: {}", set_tos_value_err
+                "There was an error configuring the client socket: {}", set_tos_value_err
             );
             return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
                 std::io::ErrorKind::ConnectionRefused,
@@ -198,7 +198,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
                 logger,
-                "There was an error configuring the server socket: {}", set_tos_value_err
+                "There was an error configuring the client socket: {}", set_tos_value_err
             );
             return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
                 std::io::ErrorKind::ConnectionRefused,
