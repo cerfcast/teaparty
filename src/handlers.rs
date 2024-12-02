@@ -84,7 +84,7 @@ pub trait TlvHandler {
     fn tlv_name(&self) -> String;
 
     /// Generate a TLV to include a STAMP test packet.
-    fn request(&self) -> Tlv;
+    fn request(&self, arguments: Option<TestArguments>) -> Tlv;
 
     /// Customize the IP/port of the destination of the reflected STAMP packet.
     ///
@@ -148,11 +148,11 @@ impl Handlers {
     }
 
     /// Given the name of a Tlv, find a request, if one is available.
-    pub fn get_request(&self, tlv_name: String) -> Option<Tlv> {
+    pub fn get_request(&self, tlv_name: String, args: Option<TestArguments>) -> Option<Tlv> {
         self.handlers
             .iter()
             .find(|v| tlv_name == v.lock().unwrap().tlv_name())
-            .map(|h| h.lock().unwrap().request())
+            .map(|h| h.lock().unwrap().request(args))
     }
 }
 

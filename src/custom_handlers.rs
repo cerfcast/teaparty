@@ -29,7 +29,7 @@ pub mod ch {
             "dscpecn".into()
         }
 
-        fn request(&self) -> Tlv {
+        fn request(&self, _: Option<TestArguments>) -> Tlv {
             Tlv {
                 flags: Flags::new_request(),
                 tpe: self.tlv_type(),
@@ -145,7 +145,7 @@ pub mod ch {
             "timestamp".into()
         }
 
-        fn request(&self) -> Tlv {
+        fn request(&self, _: Option<TestArguments>) -> Tlv {
             Tlv {
                 flags: Flags::new_request(),
                 tpe: 0x3,
@@ -224,7 +224,7 @@ pub mod ch {
             "destinationport".into()
         }
 
-        fn request(&self) -> Tlv {
+        fn request(&self, _: Option<TestArguments>) -> Tlv {
             let mut data = [0u8; 4];
 
             data[0..2].copy_from_slice(&983u16.to_be_bytes());

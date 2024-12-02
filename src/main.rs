@@ -27,7 +27,7 @@ use nix::errno::Errno;
 use nix::sys::socket::sockopt::Ipv4Tos;
 use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
 use ntp::NtpTime;
-use parameters::{DscpValue, TestArguments, TestParameters};
+use parameters::{DscpValue, EcnValue, TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
 use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
@@ -156,21 +156,9 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     let server_socket =
         UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
 
-    let mut tlvs = maybe_tlv_name.map_or(Ok(vec![]), |tlv_name| {
-        if let Some(request_tlv) = handlers.get_request(tlv_name.clone()) {
-            Ok(vec![request_tlv])
-        } else {
-            error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
-            Err(StampError::Other(format!(
-                "No Tlv available with name {}",
-                tlv_name
-            )))
-        }
-    })?;
 
-    if unrecognized {
-        tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
-    }
+
+    let mut test_arguments = TestArguments::empty_arguments();
 
     let mut tos_byte: u8 = 0;
 
@@ -190,6 +178,10 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
                 std::io::ErrorKind::ConnectionRefused,
             )));
         }
+
+        let ecn_argment = TestArgument::Ecn(EcnValue::from(tos_byte));
+        test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
+
         info!(
             logger,
             "Done configuring the sending value of the IpV4 ECN on the server socket."
@@ -212,11 +204,35 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
                 std::io::ErrorKind::ConnectionRefused,
             )));
         }
+
+        let dscp_argment = TestArgument::Dscp(DscpValue::from(tos_byte));
+        test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
+
         info!(
             logger,
             "Done configuring the sending value of the IpV4 DSCP on the server socket."
         );
     }
+
+
+
+
+    let mut tlvs = maybe_tlv_name.map_or(Ok(vec![]), |tlv_name| {
+        if let Some(request_tlv) = handlers.get_request(tlv_name.clone(), Some(test_arguments)) {
+            Ok(vec![request_tlv])
+        } else {
+            error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
+            Err(StampError::Other(format!(
+                "No Tlv available with name {}",
+                tlv_name
+            )))
+        }
+    })?;
+
+    if unrecognized {
+        tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
+    }
+
 
     let client_msg = StampMsg {
         sequence: 0x22,
