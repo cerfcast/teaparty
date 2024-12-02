@@ -29,6 +29,7 @@ use crate::os::MacAddr;
 pub enum Error {
     InvalidFlag(String),
     NotEnoughData,
+    FieldNotZerod(String),
 }
 
 impl Debug for Error {
@@ -36,6 +37,7 @@ impl Debug for Error {
         match self {
             Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {}", r),
             Error::NotEnoughData => write!(f, "TLV length exceeded available data"),
+            Error::FieldNotZerod(field) => write!(f, "TLV field {} name was not zerod.", field),
         }
     }
 }
@@ -331,9 +333,10 @@ impl TryFrom<&[u8]> for Tlv {
 impl Tlv {
     pub const HEARTBEAT: u8 = 176;
     pub const DESTINATION_PORT: u8 = 177;
-    pub const TIMESTAMP: u8 = 3;
-    pub const PADDING: u8 = 1;
     pub const DSCPECN: u8 = 179;
+    pub const PADDING: u8 = 1;
+    pub const TIMESTAMP: u8 = 3;
+    pub const COS: u8 = 4;
 
     /// Make a Tlv for padding.
     pub fn extra_padding(len: u16) -> Self {

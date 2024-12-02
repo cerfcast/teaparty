@@ -289,6 +289,142 @@ pub mod ch {
             Ok(())
         }
     }
+
+    pub struct ClassOfServiceTlv {}
+
+    impl TlvHandler for ClassOfServiceTlv {
+        fn tlv_type(&self) -> u8 {
+            Tlv::COS
+        }
+
+        fn tlv_name(&self) -> String {
+            "classofservice".into()
+        }
+
+        fn request(&self, args: Option<TestArguments>) -> Tlv {
+            let data = if let Some(tas) = args {
+                let mut data = [0u8; 4];
+                if let Ok(dscp_value) = tas.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
+                    data[0] = dscp_value << 2;
+                }
+                data
+            } else {
+                [0u8; 4]
+            };
+
+            Tlv {
+                flags: Flags::new_request(),
+                tpe: Tlv::COS,
+                length: 4,
+                value: data.to_vec(),
+            }
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            parameters: &TestArguments,
+            _client: SockaddrIn,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am in the Class of Service TLV handler!");
+
+            if tlv.length != 4 {
+                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
+            }
+
+            if tlv.value[1] & 0x3 != 0 {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                    "RP".to_string(),
+                )));
+            }
+
+            if tlv.value[2] != 0 || tlv.value[3] != 0 {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                    "Reserved".to_string(),
+                )));
+            }
+
+            let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
+            let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
+
+            info!(logger, "Got ecn argument: {:x}", ecn_argument);
+            info!(logger, "Got dscp argument: {:x}", dscp_argument);
+
+            let dscp_byte1 = tlv.value[0] | (dscp_argument >> 4);
+            let dscp_byte2 = (dscp_argument << 4) | (ecn_argument << 2);
+
+            info!(logger, "dscp_byte1: {:x}", dscp_byte1);
+            info!(logger, "dscp_byte2: {:x}", dscp_byte2);
+
+            let response = Tlv {
+                flags: Flags::new_response(),
+                tpe: self.tlv_type(),
+                length: 4,
+                value: vec![dscp_byte1, dscp_byte2, 0, 0],
+            };
+            Ok(response)
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SockaddrIn,
+            logger: Logger,
+        ) -> SockaddrIn {
+            info!(logger, "Preparing the response target in the CoS Tlv.");
+            address
+        }
+
+        fn prepare_response_socket(
+            &self,
+            response: &mut StampMsg,
+            socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(logger, "Preparing the response socket in the CoS Tlv.");
+
+            for tlv in response.tlvs.iter_mut() {
+                if tlv.tpe == self.tlv_type() {
+                    let set_tos_value = (tlv.value[0] >> 2) as i32;
+                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
+                        error!(
+                            logger,
+                            "There was an error preparing the response socket: {}",
+                            set_tos_value_err
+                        );
+                        // This is not an error. All that we need to do is make sure that the RP
+                        // field is set to 1 to indicate that we were not allowed to assign
+                        // the requested DSCP value to the socket.
+                        // TODO!
+                    }
+                    tlv.value[2] = 0x1;
+                    return Ok(());
+                }
+            }
+            Ok(())
+        }
+
+        fn unprepare_response_socket(
+            &self,
+            _: &StampMsg,
+            socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(logger, "Unpreparing the response socket in the CoS Tlv.");
+            let set_tos_value = 0i32;
+            if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
+                error!(
+                    logger,
+                    "There was an error unpreparing the response socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+            Ok(())
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -302,6 +438,8 @@ impl CustomHandlers {
         handlers.add(time_handler);
         let destination_port_handler = Arc::new(Mutex::new(ch::DestinationPort {}));
         handlers.add(destination_port_handler);
+        let cos_handler = Arc::new(Mutex::new(ch::ClassOfServiceTlv {}));
+        handlers.add(cos_handler);
 
         handlers
     }

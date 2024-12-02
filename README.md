@@ -73,8 +73,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Location (sender) | &#10060; |
 | Timestamp (reflector) | &#9989; |
 | Timestamp (sender) |  &#9989;  |
-| Class of service (reflector) | &#10060; |
-| Class of service (sender) | &#10060; |
+| Class of service (reflector) | &#9989; |
+| Class of service (sender) |  &#9989; |
 | Direct measurement (reflector) | &#10060; |
 | Direct measurement (sender) | &#10060; |
 | Access report (reflector) | &#10060; |

@@ -34,6 +34,7 @@ pub enum StampError {
     MissingRequiredArgument(TestArgumentKind),
     Ntp(NtpError),
     Io(std::io::Error),
+    MalformedTlv(tlv::Error)
 }
 
 impl From<NtpError> for StampError {
@@ -57,6 +58,7 @@ impl Display for StampError {
             StampError::MissingRequiredArgument(arg) => {
                 write!(f, "An argument for a test was missing: {:?}", arg)
             }
+            StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {:?}", e),
         }
     }
 }
