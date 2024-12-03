@@ -34,7 +34,7 @@ pub enum StampError {
     MissingRequiredArgument(TestArgumentKind),
     Ntp(NtpError),
     Io(std::io::Error),
-    MalformedTlv(tlv::Error)
+    MalformedTlv(tlv::Error),
 }
 
 impl From<NtpError> for StampError {
@@ -268,9 +268,12 @@ impl StampMsg {
             if let Some(malformed) = self.malformed.as_mut() {
                 malformed.add_malformed_tlv(invalid);
             } else {
+                let mut malformed_tlv = invalid.clone();
+                malformed_tlv.flags.set_malformed(true);
+
                 self.malformed = Some(MalformedTlv {
-                    reason: tlv::Error::InvalidFlag(Default::default()),
-                    bytes: invalid.into(),
+                    reason: tlv::Error::InvalidFlag(format!("{:?}", invalid.flags).to_string()),
+                    bytes: malformed_tlv.into(),
                 });
             }
         });
@@ -335,8 +338,19 @@ impl TryFrom<&[u8]> for StampMsg {
         while raw_idx < raw.len() {
             match TryInto::<tlv::Tlv>::try_into(&raw[raw_idx..]) {
                 Ok(tlv) => {
-                    raw_idx += tlv.length as usize + Tlv::FtlSize;
-                    tlvs.push(tlv);
+                    // We are _not_ safe: The malformed flag may be set.
+                    if !tlv.flags.get_malformed() {
+                        raw_idx += tlv.length as usize + Tlv::FtlSize;
+                        tlvs.push(tlv);
+                    } else {
+                        // Even if we were able to parse the TLV, if the
+                        // malformed flag is set, we have to bail out.
+                        malformed = Some(MalformedTlv {
+                            reason: tlv::Error::InvalidFlag("Malformed is indicated.".to_string()),
+                            bytes: raw[raw_idx..].to_vec(),
+                        });
+                        break;
+                    }
                 }
                 Err(reason) => {
                     malformed = Some(MalformedTlv {

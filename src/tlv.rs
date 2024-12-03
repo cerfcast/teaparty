@@ -37,7 +37,7 @@ impl Debug for Error {
         match self {
             Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {}", r),
             Error::NotEnoughData => write!(f, "TLV length exceeded available data"),
-            Error::FieldNotZerod(field) => write!(f, "TLV field {} name was not zerod.", field),
+            Error::FieldNotZerod(field) => write!(f, "TLV field named {} was not zerod.", field),
         }
     }
 }
@@ -65,7 +65,7 @@ impl Debug for Flags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Flags: Unrecognized: {}, Integrity: {}, Malformed: {}",
+            "Unrecognized: {}, Integrity: {}, Malformed: {}",
             self.get_unrecognized(),
             self.get_integrity(),
             self.get_malformed()
@@ -277,11 +277,11 @@ impl Tlv {
 /// Convert from a &Tlv into a vector of bytes.
 impl From<&Tlv> for Vec<u8> {
     fn from(raw: &Tlv) -> Vec<u8> {
-        let mut result = vec![0u8; 1 + 1 + 2 + raw.length as usize];
+        let mut result = vec![0u8; Tlv::FtlSize + raw.value.len()];
         result[0] = raw.flags.clone().into();
         result[1] = raw.tpe;
         result[2..4].copy_from_slice(&raw.length.to_be_bytes());
-        result[4..4 + raw.length as usize].copy_from_slice(raw.value.as_slice());
+        result[4..4 + raw.value.len()].copy_from_slice(raw.value.as_slice());
         result
     }
 }
@@ -359,8 +359,20 @@ impl Tlv {
         }
     }
 
+    pub fn malformed_request(len: u16) -> Self {
+        Self::extra_padding(len)
+    }
+
+    pub fn malformed_tlv(len: u16) -> Self {
+        let mut long = Self::extra_padding(len);
+        long.flags = Flags::new_request();
+        long.length = len + 5;
+        long
+    }
+
     pub fn unrecognized(len: u16) -> Self {
         let mut unrecognized = Self::extra_padding(len);
+        unrecognized.flags = Flags::new_request();
         unrecognized.tpe = 0xff;
         unrecognized
     }

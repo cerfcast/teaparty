@@ -23,7 +23,7 @@ use std::sync::Mutex;
 
 use nix::sys::socket::SockaddrIn;
 use slog::Logger;
-use slog::{debug, error, info};
+use slog::{debug, error, info, warn};
 
 use crate::ntp;
 use crate::parameters::TestArgumentKind;
@@ -257,6 +257,7 @@ pub fn handler(
             tlv_response.push(handler_result.unwrap());
         } else {
             // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
+            error!(logger, "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe);
             tlv.flags.set_unrecognized(true);
             tlv_response.push(tlv);
         }

@@ -17,7 +17,7 @@
  */
 #![feature(proc_macro_hygiene, decl_macro)]
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use monitor::Monitor;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
@@ -68,6 +68,12 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+enum MalformedWhy {
+    BadFlags,
+    BadLength,
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     Client {
@@ -80,6 +86,10 @@ enum Commands {
         /// Include an unrecognized Tlv in the test packet.
         #[arg(long, default_value_t = false)]
         unrecognized: bool,
+
+        /// Include a malformed Tlv in the test packet.
+        #[arg(long)]
+        malformed: Option<MalformedWhy>,
 
         /// Enable a non-default ECN for testing (ECT0)
         #[arg(long, default_value_t = false)]
@@ -138,16 +148,17 @@ impl FromStr for HeartbeatConfiguration {
 
 fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, maybe_tlv_name, unrecognized, use_ecn, use_dscp, src_port) = match args.command
+    let (maybe_ssid, maybe_tlv_name, unrecognized, malformed, use_ecn, use_dscp, src_port) = match args.command
     {
         Commands::Client {
             ssid,
             tlv,
             unrecognized,
+            malformed,
             ecn,
             dscp,
             src_port,
-        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, ecn, dscp, src_port),
+        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, malformed, ecn, dscp, src_port),
         _ => panic!("The source port is somehow missing a value."),
     };
 
@@ -229,10 +240,20 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         }
     })?;
 
+    tlvs.extend(malformed.map(|o| {
+        match o {
+            MalformedWhy::BadFlags => {
+                vec![tlv::Tlv::malformed_request(22)]
+            },
+            MalformedWhy::BadLength => {
+                vec![tlv::Tlv::malformed_tlv(22)]
+            }
+        }
+    }).unwrap_or_default());
+
     if unrecognized {
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
     }
-
 
     let client_msg = StampMsg {
         sequence: 0x22,
@@ -500,6 +521,7 @@ fn main() -> Result<(), StampError> {
             ssid: _,
             tlv: _,
             unrecognized: _,
+            malformed: _,
             ecn: _,
             dscp: _,
             src_port: _,
