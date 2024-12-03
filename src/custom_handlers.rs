@@ -234,7 +234,7 @@ pub mod ch {
 
             Tlv {
                 flags: Flags::new_request(),
-                tpe: 177,
+                tpe: self.tlv_type(),
                 length: 4,
                 value: data.to_vec(),
             }

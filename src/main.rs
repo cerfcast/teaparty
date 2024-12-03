@@ -76,7 +76,7 @@ enum MalformedWhy {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Client {
+    Sender {
         #[arg(long)]
         ssid: Option<u16>,
 
@@ -102,7 +102,7 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         src_port: u16,
     },
-    Server {
+    Reflector {
         #[arg(
             long,
             default_value_t = false,
@@ -150,7 +150,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
     let (maybe_ssid, maybe_tlv_name, unrecognized, malformed, use_ecn, use_dscp, src_port) = match args.command
     {
-        Commands::Client {
+        Commands::Sender {
             ssid,
             tlv,
             unrecognized,
@@ -311,7 +311,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     // The command is specific to the server. The match should *only* yield a
     // server command.
     let (stateless, heartbeats) = match args.command {
-        Commands::Server {
+        Commands::Reflector {
             stateless,
             heartbeat,
         } => (stateless, heartbeat),
@@ -513,11 +513,11 @@ fn main() -> Result<(), StampError> {
     let handlers = CustomHandlers::build();
 
     match args.command {
-        Commands::Server {
+        Commands::Reflector {
             stateless: _,
             heartbeat: _,
         } => server(args, handlers, logger),
-        Commands::Client {
+        Commands::Sender {
             ssid: _,
             tlv: _,
             unrecognized: _,
