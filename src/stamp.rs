@@ -119,10 +119,10 @@ pub enum StampSendContents {
 impl TryFrom<&[u8]> for StampSendContents {
     type Error = StampError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if let Ok(unauthenticated) = TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
-            Ok(StampSendContents::UnAuthenticated(unauthenticated))
-        } else if let Ok(authenticated) = TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
+        if let Ok(authenticated) = TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
             Ok(StampSendContents::Authenticated(authenticated))
+        } else if let Ok(unauthenticated) = TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
+            Ok(StampSendContents::UnAuthenticated(unauthenticated))
         } else {
             Err(StampError::Other(
                 "Could not parse the bytes of the message's body into an MBZ or a stamp response."
@@ -377,10 +377,10 @@ impl From<StampMsg> for Vec<u8> {
                 authenticated: true,
                 ..
             }) => {
-                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE>{}));
+                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE> {}));
             }
             StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
-                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE>{}));
+                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE> {}));
             }
             _ => {}
         };
@@ -406,15 +406,27 @@ impl From<StampMsg> for Vec<u8> {
     }
 }
 
+impl StampMsg {
+    fn too_short<T>(destination: usize, len: usize, err: T) -> Result<(), T> {
+        if destination >= len {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for StampMsg {
     type Error = StampError;
 
     fn try_from(raw: &[u8]) -> Result<Self, Self::Error> {
-        if raw.len() < UNAUTHENTICATED_STAMP_PKT_SIZE {
-            return Err(StampError::Other("Packet is too short".to_string()));
-        }
-
         let mut raw_idx: usize = 0;
+
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let sequence = u32::from_be_bytes(
             raw[0..4]
                 .try_into()
@@ -422,6 +434,11 @@ impl TryFrom<&[u8]> for StampMsg {
         );
         raw_idx += 4;
 
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let authenticated_pkt =
             if TryInto::<Mbz<12, 0>>::try_into(&raw[raw_idx..raw_idx + 12]).is_ok() {
                 raw_idx += 12;
@@ -430,20 +447,49 @@ impl TryFrom<&[u8]> for StampMsg {
                 false
             };
 
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize].try_into()?;
         raw_idx += 8;
 
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let ee: ErrorEstimate = raw[raw_idx..raw_idx + ErrorEstimate::RawSize].try_into()?;
         raw_idx += 2;
 
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let ssid: Ssid = raw[raw_idx..raw_idx + Ssid::RawSize].try_into()?;
         raw_idx += 2;
 
         // Let's see whether these bytes are 0s. If they are, then we move on.
         // Otherwise, we will have to parse a response message!
-
+        StampMsg::too_short(
+            raw_idx,
+            raw.len(),
+            StampError::Other("Packet is too short".to_string()),
+        )?;
         let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..])?;
         raw_idx += body.len();
+
+        if authenticated_pkt {
+            StampMsg::too_short(
+                raw_idx,
+                raw.len(),
+                StampError::Other("Packet is too short".to_string()),
+            )?;
+            // TODO: Read the hmac!
+            raw_idx += 16;
+        }
 
         // Only now do we have to worry about not having enough data!
         let mut tlvs: Vec<tlv::Tlv> = vec![];
@@ -494,25 +540,50 @@ mod stamp_test_messages {
 
     use super::*;
 
-    #[test]
-    fn simple_stamp_from_bytes_test() {
-        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE] =
-            [0; UNAUTHENTICATED_STAMP_PKT_SIZE];
-        let expected_sequence: u32 = 5;
-        let expected_seconds: u32 = 6;
-        let expected_fracs: u32 = 7;
-        let expected_scale: u8 = 0;
-        let expected_multiple: u8 = 2;
-        let expected_ssid: u16 = 254;
+    pub const common_expected_sequence: u32 = 5;
+    pub const common_expected_seconds: u32 = 6;
+    pub const common_expected_fractions: u32 = 7;
+    pub const common_expected_scale: u8 = 0;
+    pub const common_expected_multiple: u8 = 2;
+    pub const common_expected_ssid: u16 = 254;
 
-        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
-        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
-        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
-        raw_data[12] = 0x80;
-        raw_data[13] = 0x02;
-        raw_data[14..16].copy_from_slice(&u16::to_be_bytes(expected_ssid));
-        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+    pub fn simple_stamp_message_from_bytes(authenticated: bool) -> Vec<u8> {
+        let mut raw_data = if authenticated {
+            [0; AUTHENTICATED_STAMP_PKT_SIZE].to_vec()
+        } else {
+            [0; UNAUTHENTICATED_STAMP_PKT_SIZE].to_vec()
+        };
 
+        let mut index = 0;
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_sequence));
+        index += 4;
+
+        if authenticated {
+            index += 12;
+        }
+
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_seconds));
+        index += 4;
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_fractions));
+        index += 4;
+
+        raw_data[index] = 0x80;
+        index += 1;
+        raw_data[index] = 0x02;
+        index += 1;
+        raw_data[index..index + 2].copy_from_slice(&u16::to_be_bytes(common_expected_ssid));
+        index += 2;
+
+        if authenticated {
+            raw_data[index..index + 68].copy_from_slice([MBZ_VALUE; 68].as_slice());
+        } else {
+            raw_data[index..index + 28].copy_from_slice([MBZ_VALUE; 28].as_slice());
+        }
+        raw_data
+    }
+
+    fn simple_stamp_from_bytes_test(authenticated: bool) {
+        let raw_data = simple_stamp_message_from_bytes(authenticated);
         let stamp_pkt: Result<StampMsg, StampError> = raw_data.as_slice().try_into();
 
         if stamp_pkt.is_err() {
@@ -523,36 +594,36 @@ mod stamp_test_messages {
         }
         let stamp_pkt = stamp_pkt.unwrap();
 
-        if stamp_pkt.time.seconds != expected_seconds {
+        if stamp_pkt.time.seconds != common_expected_seconds {
             panic!(
                 "Incorrect seconds. Got {}, wanted {}.",
-                stamp_pkt.time.seconds, expected_seconds
+                stamp_pkt.time.seconds, common_expected_seconds
             );
         }
-        if stamp_pkt.time.fractions != expected_fracs {
+        if stamp_pkt.time.fractions != common_expected_fractions {
             panic!(
                 "Incorrect fractions. Got {}, wanted {}.",
-                stamp_pkt.time.fractions, expected_fracs
+                stamp_pkt.time.fractions, common_expected_fractions
             );
         }
-        if stamp_pkt.sequence != expected_sequence {
+        if stamp_pkt.sequence != common_expected_sequence {
             panic!(
                 "Incorrect sequence. Got {}, wanted {}.",
-                stamp_pkt.sequence, expected_sequence
+                stamp_pkt.sequence, common_expected_sequence
             );
         }
 
-        if stamp_pkt.error.scale != expected_scale {
+        if stamp_pkt.error.scale != common_expected_scale {
             panic!(
                 "Incorrect error scale. Got {}, wanted {}.",
-                stamp_pkt.error.scale, expected_scale
+                stamp_pkt.error.scale, common_expected_scale
             );
         }
 
-        if stamp_pkt.error.multiple != expected_multiple {
+        if stamp_pkt.error.multiple != common_expected_multiple {
             panic!(
                 "Incorrect error multiple. Got {}, wanted {}.",
-                stamp_pkt.error.multiple, expected_multiple
+                stamp_pkt.error.multiple, common_expected_multiple
             );
         }
 
@@ -560,131 +631,57 @@ mod stamp_test_messages {
             panic!("Incorrect error synchronized status. Got false, wanted true.");
         }
 
-        match stamp_pkt.ssid {
+        match &stamp_pkt.ssid {
             Ssid::Mbz(_) => panic!("Incorrect error synchronized status. Got false, wanted true."),
             Ssid::Ssid(ssid) => {
-                if ssid != expected_ssid {
-                    panic!("Incorrect ssid. Wanted {}, got {}", expected_ssid, ssid);
+                if *ssid != common_expected_ssid {
+                    panic!(
+                        "Incorrect ssid. Wanted {}, got {}",
+                        common_expected_ssid, ssid
+                    );
                 }
+            }
+        }
+
+        match &stamp_pkt.body {
+            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+                assert!(authenticated);
+            }
+            StampMsgBody::Send(StampSendContents::UnAuthenticated(_)) => {
+                assert!(!authenticated);
+            }
+            StampMsgBody::Response(response) => {
+                assert!(response.authenticated == authenticated);
             }
         }
     }
 
+    #[test]
+    fn simple_stamp_from_bytes_unauthenticated_test() {
+        simple_stamp_from_bytes_test(false);
+    }
     #[test]
     fn simple_stamp_from_bytes_authenticated_test() {
-        let mut raw_data: [u8; AUTHENTICATED_STAMP_PKT_SIZE] = [0; AUTHENTICATED_STAMP_PKT_SIZE];
-        let expected_sequence: u32 = 5;
-        let expected_seconds: u32 = 6;
-        let expected_fracs: u32 = 7;
-        let expected_scale: u8 = 0;
-        let expected_multiple: u8 = 2;
-        let expected_ssid: u16 = 254;
-
-        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
-        // 12 byte gap!
-        raw_data[16..20].copy_from_slice(&u32::to_be_bytes(expected_seconds));
-        raw_data[20..24].copy_from_slice(&u32::to_be_bytes(expected_fracs));
-        raw_data[24] = 0x80;
-        raw_data[25] = 0x02;
-        raw_data[26..28].copy_from_slice(&u16::to_be_bytes(expected_ssid));
-        raw_data[28..96].copy_from_slice([MBZ_VALUE; 68].as_slice());
-
-        let stamp_pkt: Result<StampMsg, StampError> = raw_data.as_slice().try_into();
-
-        if stamp_pkt.is_err() {
-            panic!(
-                "There was an error parsing the test message: {:?}",
-                stamp_pkt.unwrap_err()
-            )
-        }
-        let stamp_pkt = stamp_pkt.unwrap();
-
-        if stamp_pkt.time.seconds != expected_seconds {
-            panic!(
-                "Incorrect seconds. Got {}, wanted {}.",
-                stamp_pkt.time.seconds, expected_seconds
-            );
-        }
-        if stamp_pkt.time.fractions != expected_fracs {
-            panic!(
-                "Incorrect fractions. Got {}, wanted {}.",
-                stamp_pkt.time.fractions, expected_fracs
-            );
-        }
-        if stamp_pkt.sequence != expected_sequence {
-            panic!(
-                "Incorrect sequence. Got {}, wanted {}.",
-                stamp_pkt.sequence, expected_sequence
-            );
-        }
-
-        if stamp_pkt.error.scale != expected_scale {
-            panic!(
-                "Incorrect error scale. Got {}, wanted {}.",
-                stamp_pkt.error.scale, expected_scale
-            );
-        }
-
-        if stamp_pkt.error.multiple != expected_multiple {
-            panic!(
-                "Incorrect error multiple. Got {}, wanted {}.",
-                stamp_pkt.error.multiple, expected_multiple
-            );
-        }
-
-        if !stamp_pkt.error.synchronized {
-            panic!("Incorrect error synchronized status. Got false, wanted true.");
-        }
-
-        match stamp_pkt.ssid {
-            Ssid::Mbz(_) => panic!("Incorrect error synchronized status. Got false, wanted true."),
-            Ssid::Ssid(ssid) => {
-                if ssid != expected_ssid {
-                    panic!("Incorrect ssid. Wanted {}, got {}", expected_ssid, ssid);
-                }
-            }
-        }
-
-        assert!(!matches!(
-            stamp_pkt.body,
-            StampMsgBody::Response(StampResponseContents {
-                authenticated: true,
-                ..
-            })
-        ));
+        simple_stamp_from_bytes_test(true);
     }
-
 }
 
 #[cfg(test)]
 mod stamp_test_messages_with_tlvs {
     use super::*;
-    #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags() {
-        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =
-            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)];
-        let expected_sequence: u32 = 5;
-        let expected_seconds: u32 = 6;
-        let expected_fracs: u32 = 7;
 
-        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
-        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
-        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
-        raw_data[12] = 0x80;
-        raw_data[13] = 0x01;
-        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
-        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+    fn do_simple_stamp_malformed_tlv_invalid_flags(authenticated: bool) {
+        let mut raw_data =
+            super::stamp_test_messages::simple_stamp_message_from_bytes(authenticated);
 
         // TLV Flag
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x20;
+        raw_data.extend_from_slice(&[0x20]);
         // TLV Type
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        raw_data.extend_from_slice(&[0xfe]);
         // TLV Length
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 4]
-            .copy_from_slice(&u16::to_be_bytes(8));
+        raw_data.extend_from_slice(&u16::to_be_bytes(8));
         // TLV Data
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + 12]
-            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
 
         let mut stamp_pkt: StampMsg = raw_data
             .as_slice()
@@ -696,48 +693,40 @@ mod stamp_test_messages_with_tlvs {
         stamp_pkt.handle_invalid_tlv_request_flags();
 
         assert!((stamp_pkt.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.len() == 0);
+        assert!(stamp_pkt.tlvs.is_empty());
     }
 
     #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv() {
-        let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + (1 + 1 + 2 + 8)] =
-            [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + (1 + 1 + 2 + 8)];
-        let expected_sequence: u32 = 5;
-        let expected_seconds: u32 = 6;
-        let expected_fracs: u32 = 7;
+    fn simple_stamp_malformed_tlv_invalid_flags_authenticated() {
+        do_simple_stamp_malformed_tlv_invalid_flags(true);
+    }
 
-        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
-        raw_data[4..8].copy_from_slice(&u32::to_be_bytes(expected_seconds));
-        raw_data[8..12].copy_from_slice(&u32::to_be_bytes(expected_fracs));
-        raw_data[12] = 0x80;
-        raw_data[13] = 0x01;
-        raw_data[14..16].copy_from_slice(&0u16.to_be_bytes());
-        raw_data[16..44].copy_from_slice([MBZ_VALUE; 28].as_slice());
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags_unauthenticated() {
+        do_simple_stamp_malformed_tlv_invalid_flags(false);
+    }
+
+    fn do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(authenticated: bool) {
+        let mut raw_data =
+            super::stamp_test_messages::simple_stamp_message_from_bytes(authenticated);
 
         // TLV Flag
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE/* + 0*/] = 0x40;
+        raw_data.extend_from_slice(&[0x40]);
         // TLV Type
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 1] = 0xfe;
+        raw_data.extend_from_slice(&[0xfe]);
         // TLV Length
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 2..UNAUTHENTICATED_STAMP_PKT_SIZE + 4]
-            .copy_from_slice(&u16::to_be_bytes(8));
+        raw_data.extend_from_slice(&u16::to_be_bytes(8));
         // TLV Data
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + 4..UNAUTHENTICATED_STAMP_PKT_SIZE + 12]
-            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
 
         // TLV Flag
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) /* + 0*/] = 0x20;
+        raw_data.extend_from_slice(&[0x20]);
         // TLV Type
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 1] = 0xfe;
+        raw_data.extend_from_slice(&[0xfe]);
         // TLV Length
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 2
-            ..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4]
-            .copy_from_slice(&u16::to_be_bytes(9));
+        raw_data.extend_from_slice(&u16::to_be_bytes(9));
         // TLV Data
-        raw_data[UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 4
-            ..UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8) + 12]
-            .copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
 
         let mut stamp_pkt: StampMsg = raw_data
             .as_slice()
@@ -747,9 +736,19 @@ mod stamp_test_messages_with_tlvs {
         stamp_pkt.handle_invalid_tlv_request_flags();
 
         assert!((stamp_pkt.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.len() == 0);
+        assert!(stamp_pkt.tlvs.is_empty());
         let malformed = stamp_pkt.malformed.unwrap();
         assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv_authenticated() {
+        do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(true);
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv_unauthenticated() {
+        do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(false);
     }
 
     #[test]
