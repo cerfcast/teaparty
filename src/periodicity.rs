@@ -78,6 +78,7 @@ impl Periodicity {
                     error: Default::default(),
                     ssid: Default::default(),
                     body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice()).unwrap(),
+                    hmac: None,
                     tlvs: vec![tlv::Tlv::heartbeat(mac.clone())],
                     malformed: None,
                 };

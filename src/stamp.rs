@@ -17,6 +17,7 @@
  */
 
 use serde::Serialize;
+use sha2::Digest;
 
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
@@ -25,7 +26,9 @@ use crate::tlv::{self, MalformedTlv, Tlv};
 use std::fmt::{Debug, Display};
 use std::io::Error;
 
+pub const MINIMUM_STAMP_PKT_SIZE: usize = 16; // in octets
 pub const UNAUTHENTICATED_STAMP_PKT_SIZE: usize = 44; // in octets
+pub const AUTHENTICATED_STAMP_PKT_SIZE: usize = 112; // in octets
 
 pub const MBZ_VALUE: u8 = 0x00;
 
@@ -76,19 +79,65 @@ impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
     type Error = StampError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !value.iter().all(|b| *b == V) {
-            Err(StampError::Other(
+        if !value.iter().take(L).all(|b| *b == V) {
+            return Err(StampError::Other(
                 format!("MBZ bytes were not all {}", V).to_string(),
-            ))
-        } else {
-            Ok(Self {})
+            ));
         }
+        if value.len() < L {
+            return Err(StampError::Other(
+                format!(
+                    "MBZ bytes were not the proper size ({} vs {})",
+                    L,
+                    value.len()
+                )
+                .to_string(),
+            ));
+        }
+        Ok(Self {})
+    }
+}
+
+impl<const L: usize, const V: u8> From<&Mbz<L, V>> for Vec<u8> {
+    fn from(_: &Mbz<L, V>) -> Self {
+        vec![V; L]
     }
 }
 
 impl<const L: usize, const V: u8> From<&Mbz<L, V>> for [u8; L] {
     fn from(_: &Mbz<L, V>) -> Self {
         [V; L]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StampSendContents {
+    UnAuthenticated(Mbz<28, MBZ_VALUE>),
+    Authenticated(Mbz<68, MBZ_VALUE>),
+}
+
+impl TryFrom<&[u8]> for StampSendContents {
+    type Error = StampError;
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if let Ok(unauthenticated) = TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
+            Ok(StampSendContents::UnAuthenticated(unauthenticated))
+        } else if let Ok(authenticated) = TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
+            Ok(StampSendContents::Authenticated(authenticated))
+        } else {
+            Err(StampError::Other(
+                "Could not parse the bytes of the message's body into an MBZ or a stamp response."
+                    .to_string(),
+            ))
+        }
+    }
+}
+
+impl From<&StampSendContents> for Vec<u8> {
+    fn from(value: &StampSendContents) -> Vec<u8> {
+        match value {
+            StampSendContents::Authenticated(mbz) => Into::<Vec<u8>>::into(mbz),
+            StampSendContents::UnAuthenticated(mbz) => Into::<Vec<u8>>::into(mbz),
+        }
     }
 }
 
@@ -101,13 +150,14 @@ pub struct StampResponseContents {
     pub mbz_1: Mbz<2, MBZ_VALUE>,
     pub received_ttl: u8,
     pub mbz_2: Mbz<3, MBZ_VALUE>,
+    pub authenticated: bool,
 }
 
 impl TryFrom<&[u8]> for StampResponseContents {
     type Error = StampError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != 28 {
+        if value.len() < 28 {
             return Err(StampError::Other(
                 "Could not parse a Stamp response contents with an invalid size.".to_string(),
             ));
@@ -125,6 +175,11 @@ impl TryFrom<&[u8]> for StampResponseContents {
             mbz_1: Mbz::<2, MBZ_VALUE>::try_from(&value[22..24])?,
             received_ttl: value[24],
             mbz_2: Mbz::<3, MBZ_VALUE>::try_from(&value[25..28])?,
+            authenticated: if value.len() > 28 {
+                Mbz::<12, MBZ_VALUE>::try_from(&value[25..28]).is_ok()
+            } else {
+                false
+            },
         })
     }
 }
@@ -143,27 +198,41 @@ impl From<&StampResponseContents> for Vec<u8> {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct RawStampHmac {
+    hmac: Vec<u8>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum StampMsgBody {
     Response(StampResponseContents),
-    Mbz(Mbz<28, MBZ_VALUE>),
+    Send(StampSendContents),
 }
 
 impl StampMsgBody {
     pub const RawSize: usize = 28;
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Response(_) => 28,
+            Self::Send(StampSendContents::Authenticated(_)) => 68,
+            Self::Send(StampSendContents::UnAuthenticated(_)) => 28,
+        }
+    }
 }
 
 impl Default for StampMsgBody {
     fn default() -> Self {
-        StampMsgBody::Mbz(Default::default())
+        StampMsgBody::Send(StampSendContents::UnAuthenticated(Default::default()))
     }
 }
 
 impl TryFrom<&[u8]> for StampMsgBody {
     type Error = StampError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if let Ok(mbz) = TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
-            Ok(Self::Mbz(mbz))
+        if let Ok(body) = TryInto::<StampSendContents>::try_into(value) {
+            // TODO
+            Ok(Self::Send(body))
         } else if let Ok(body) = TryInto::<StampResponseContents>::try_into(value) {
             Ok(Self::Response(body))
         } else {
@@ -178,8 +247,8 @@ impl TryFrom<&[u8]> for StampMsgBody {
 impl From<StampMsgBody> for Vec<u8> {
     fn from(value: StampMsgBody) -> Vec<u8> {
         match value {
-            StampMsgBody::Mbz(mbz) => Into::<[u8; 28]>::into(&mbz).to_vec(),
             StampMsgBody::Response(response) => (&response).into(),
+            StampMsgBody::Send(send) => (&send).into(),
         }
     }
 }
@@ -247,11 +316,29 @@ pub struct StampMsg {
     pub error: ntp::ErrorEstimate,
     pub ssid: Ssid,
     pub body: StampMsgBody,
+    pub hmac: Option<RawStampHmac>,
     pub tlvs: Vec<tlv::Tlv>,
     pub malformed: Option<tlv::MalformedTlv>,
 }
 
 impl StampMsg {
+    pub fn authenticate(&mut self) -> Result<(), StampError> {
+        match &self.body {
+            StampMsgBody::Response(response) => Ok(()),
+            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+                let body_bytes: Vec<u8> = self.clone().into();
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(body_bytes);
+                let hmac = RawStampHmac {
+                    hmac: hasher.finalize().to_vec(),
+                };
+                self.hmac = Some(hmac);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
     pub fn handle_invalid_tlv_request_flags(&mut self) {
         let invalid_tlvs = if let Some(first_bad) = self
             .tlvs
@@ -282,12 +369,32 @@ impl StampMsg {
 
 impl From<StampMsg> for Vec<u8> {
     fn from(value: StampMsg) -> Self {
-        let mut result = vec![0u8; 44];
-        result[0..4].copy_from_slice(&value.sequence.to_be_bytes());
-        result[4..12].copy_from_slice(&Into::<Vec<u8>>::into(&value.time));
-        result[12..14].copy_from_slice(&Into::<Vec<u8>>::into(value.error));
-        result[14..16].copy_from_slice(&Into::<Vec<u8>>::into(value.ssid));
-        result[16..44].copy_from_slice(&Into::<Vec<u8>>::into(value.body));
+        let mut result = vec![0u8; 0];
+        result.extend(&value.sequence.to_be_bytes());
+
+        match &value.body {
+            StampMsgBody::Response(StampResponseContents {
+                authenticated: true,
+                ..
+            }) => {
+                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE>{}));
+            }
+            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+                result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE>{}));
+            }
+            _ => {}
+        };
+
+        result.extend(&Into::<Vec<u8>>::into(&value.time));
+        result.extend(&Into::<Vec<u8>>::into(value.error));
+        result.extend(&Into::<Vec<u8>>::into(value.ssid));
+        result.extend(&Into::<Vec<u8>>::into(value.body));
+
+        // If there is an HMAC, add it now.
+        if let Some(hmac) = value.hmac {
+            result.extend_from_slice(&hmac.hmac);
+        }
+
         for tlv in value.tlvs {
             result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
         }
@@ -315,6 +422,14 @@ impl TryFrom<&[u8]> for StampMsg {
         );
         raw_idx += 4;
 
+        let authenticated_pkt =
+            if TryInto::<Mbz<12, 0>>::try_into(&raw[raw_idx..raw_idx + 12]).is_ok() {
+                raw_idx += 12;
+                true
+            } else {
+                false
+            };
+
         let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize].try_into()?;
         raw_idx += 8;
 
@@ -327,9 +442,8 @@ impl TryFrom<&[u8]> for StampMsg {
         // Let's see whether these bytes are 0s. If they are, then we move on.
         // Otherwise, we will have to parse a response message!
 
-        let body =
-            TryInto::<StampMsgBody>::try_into(&raw[raw_idx..raw_idx + StampMsgBody::RawSize])?;
-        raw_idx += 28;
+        let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..])?;
+        raw_idx += body.len();
 
         // Only now do we have to worry about not having enough data!
         let mut tlvs: Vec<tlv::Tlv> = vec![];
@@ -368,6 +482,7 @@ impl TryFrom<&[u8]> for StampMsg {
             error: ee,
             ssid,
             body,
+            hmac: None,
             tlvs,
             malformed,
         })
@@ -457,6 +572,90 @@ mod stamp_test {
     }
 
     #[test]
+    fn simple_stamp_from_bytes_authenticated_test() {
+        let mut raw_data: [u8; AUTHENTICATED_STAMP_PKT_SIZE] = [0; AUTHENTICATED_STAMP_PKT_SIZE];
+        let expected_sequence: u32 = 5;
+        let expected_seconds: u32 = 6;
+        let expected_fracs: u32 = 7;
+        let expected_scale: u8 = 0;
+        let expected_multiple: u8 = 2;
+        let expected_ssid: u16 = 254;
+
+        raw_data[0..4].copy_from_slice(&u32::to_be_bytes(expected_sequence));
+        // 12 byte gap!
+        raw_data[16..20].copy_from_slice(&u32::to_be_bytes(expected_seconds));
+        raw_data[20..24].copy_from_slice(&u32::to_be_bytes(expected_fracs));
+        raw_data[24] = 0x80;
+        raw_data[25] = 0x02;
+        raw_data[26..28].copy_from_slice(&u16::to_be_bytes(expected_ssid));
+        raw_data[28..96].copy_from_slice([MBZ_VALUE; 68].as_slice());
+
+        let stamp_pkt: Result<StampMsg, StampError> = raw_data.as_slice().try_into();
+
+        if stamp_pkt.is_err() {
+            panic!(
+                "There was an error parsing the test message: {:?}",
+                stamp_pkt.unwrap_err()
+            )
+        }
+        let stamp_pkt = stamp_pkt.unwrap();
+
+        if stamp_pkt.time.seconds != expected_seconds {
+            panic!(
+                "Incorrect seconds. Got {}, wanted {}.",
+                stamp_pkt.time.seconds, expected_seconds
+            );
+        }
+        if stamp_pkt.time.fractions != expected_fracs {
+            panic!(
+                "Incorrect fractions. Got {}, wanted {}.",
+                stamp_pkt.time.fractions, expected_fracs
+            );
+        }
+        if stamp_pkt.sequence != expected_sequence {
+            panic!(
+                "Incorrect sequence. Got {}, wanted {}.",
+                stamp_pkt.sequence, expected_sequence
+            );
+        }
+
+        if stamp_pkt.error.scale != expected_scale {
+            panic!(
+                "Incorrect error scale. Got {}, wanted {}.",
+                stamp_pkt.error.scale, expected_scale
+            );
+        }
+
+        if stamp_pkt.error.multiple != expected_multiple {
+            panic!(
+                "Incorrect error multiple. Got {}, wanted {}.",
+                stamp_pkt.error.multiple, expected_multiple
+            );
+        }
+
+        if !stamp_pkt.error.synchronized {
+            panic!("Incorrect error synchronized status. Got false, wanted true.");
+        }
+
+        match stamp_pkt.ssid {
+            Ssid::Mbz(_) => panic!("Incorrect error synchronized status. Got false, wanted true."),
+            Ssid::Ssid(ssid) => {
+                if ssid != expected_ssid {
+                    panic!("Incorrect ssid. Wanted {}, got {}", expected_ssid, ssid);
+                }
+            }
+        }
+
+        assert!(!matches!(
+            stamp_pkt.body,
+            StampMsgBody::Response(StampResponseContents {
+                authenticated: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn simple_stamp_malformed_tlv_invalid_flags() {
         let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =
             [0; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)];
@@ -540,12 +739,6 @@ mod stamp_test {
             .as_slice()
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
-
-        assert!(stamp_pkt.tlvs.len() == 1);
-        assert!((stamp_pkt.malformed.is_some()));
-
-        let malformed = stamp_pkt.malformed.clone().unwrap();
-        assert!(malformed.bytes.len() == (1 + 1 + 2 + 8));
 
         stamp_pkt.handle_invalid_tlv_request_flags();
 
@@ -800,6 +993,7 @@ mod stamp_test {
             error: Default::default(),
             ssid: Default::default(),
             body: Default::default(),
+            hmac: None,
             tlvs: tlvs.to_vec(),
             malformed: None,
         };
@@ -839,6 +1033,7 @@ mod stamp_response_test {
             sent_error: Default::default(),
             received_ttl: 0x17,
             mbz_2: Default::default(),
+            authenticated: false,
         };
 
         let mut raw = vec![0u8; 28];
@@ -886,6 +1081,7 @@ mod stamp_response_test {
             mbz_1: Default::default(),
             received_ttl: 0x17,
             mbz_2: Default::default(),
+            authenticated: false,
         };
 
         let serialized_src = Into::<Vec<u8>>::into(&src);

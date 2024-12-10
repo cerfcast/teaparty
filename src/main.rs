@@ -15,8 +15,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#![feature(proc_macro_hygiene, decl_macro)]
-
 use clap::{Parser, Subcommand, ValueEnum};
 use monitor::Monitor;
 use core::fmt::Debug;
@@ -101,7 +99,11 @@ enum Commands {
 
         #[arg(long, default_value_t = 0)]
         src_port: u16,
+
+        #[arg(long, default_value_t = false)]
+        authenticated: bool,
     },
+
     Reflector {
         #[arg(
             long,
@@ -148,7 +150,7 @@ impl FromStr for HeartbeatConfiguration {
 
 fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, maybe_tlv_name, unrecognized, malformed, use_ecn, use_dscp, src_port) = match args.command
+    let (maybe_ssid, maybe_tlv_name, unrecognized, malformed, use_ecn, use_dscp, src_port, authenticated) = match args.command
     {
         Commands::Sender {
             ssid,
@@ -158,7 +160,8 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             ecn,
             dscp,
             src_port,
-        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, malformed, ecn, dscp, src_port),
+            authenticated,
+        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, malformed, ecn, dscp, src_port, authenticated),
         _ => panic!("The source port is somehow missing a value."),
     };
 
@@ -255,15 +258,25 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
     }
 
-    let client_msg = StampMsg {
+    let body = if authenticated {
+        TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68 + 16].as_slice())?
+    } else {
+        TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 28].as_slice())?
+    };
+
+    let mut client_msg = StampMsg {
         sequence: 0x22,
         time: NtpTime::now(),
         error: Default::default(),
         ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
-        body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice())?,
+        body: body,
+        hmac: None,
         tlvs,
         malformed: None,
     };
+
+    client_msg.authenticate();
+
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
     info!(
@@ -525,6 +538,7 @@ fn main() -> Result<(), StampError> {
             ecn: _,
             dscp: _,
             src_port: _,
+            authenticated: _,
         } => client(args, handlers, logger),
     }
 }

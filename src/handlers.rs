@@ -279,7 +279,9 @@ pub fn handler(
                 .get_parameter_value(TestArgumentKind::Ttl)
                 .unwrap(),
             mbz_2: Default::default(),
+            authenticated: false,
         }),
+        hmac: None,
         tlvs: tlv_response,
         // Copy any malformed Tlvs into the packet sent back.
         malformed: src_stamp_msg.malformed,
