@@ -490,11 +490,10 @@ impl TryFrom<&[u8]> for StampMsg {
 }
 
 #[cfg(test)]
-mod stamp_test {
-
-    use ntp::NtpTime;
+mod stamp_test_messages {
 
     use super::*;
+
     #[test]
     fn simple_stamp_from_bytes_test() {
         let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE] =
@@ -655,6 +654,11 @@ mod stamp_test {
         ));
     }
 
+}
+
+#[cfg(test)]
+mod stamp_test_messages_with_tlvs {
+    use super::*;
     #[test]
     fn simple_stamp_malformed_tlv_invalid_flags() {
         let mut raw_data: [u8; UNAUTHENTICATED_STAMP_PKT_SIZE + (1 + 1 + 2 + 8)] =

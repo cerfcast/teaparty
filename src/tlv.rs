@@ -330,6 +330,29 @@ impl TryFrom<&[u8]> for Tlv {
     }
 }
 
+#[cfg(test)]
+mod tlv_parse_test {
+    use crate::tlv::{Error, Tlv};
+
+    #[test]
+    fn simple_stamp_malformed_tlv_test_data_too_short() {
+        let mut raw_data: [u8; 1 + 1 + 2 + 8] = [0; 1 + 1 + 2 + 8];
+
+        // TLV Flag
+        raw_data[0] = 0x20;
+        // TLV Type
+        raw_data[1] = 0xfe;
+        // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+        raw_data[2..4].copy_from_slice(&u16::to_be_bytes(9));
+        // TLV Data
+        raw_data[4..12].copy_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        let tlv = TryInto::<Tlv>::try_into(raw_data.as_slice());
+
+        assert!(matches!(tlv, Err(Error::NotEnoughData)));
+    }
+}
+
 impl Tlv {
     pub const HEARTBEAT: u8 = 176;
     pub const DESTINATION_PORT: u8 = 177;
@@ -355,7 +378,7 @@ impl Tlv {
             flags: Flags::new_request(),
             tpe: Tlv::HEARTBEAT,
             length: 8,
-            value: macv
+            value: macv,
         }
     }
 
