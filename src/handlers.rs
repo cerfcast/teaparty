@@ -213,7 +213,6 @@ pub fn handler(
     if stateful {
         let mut sessions = sessions.sessions.lock().unwrap();
         if let Some(existing_session) = sessions.get_mut(&session.clone()) {
-
             existing_session.sequence += 1;
             existing_session.last = std::time::SystemTime::now();
 
@@ -259,7 +258,10 @@ pub fn handler(
             tlv_response.push(handler_result.unwrap());
         } else {
             // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
-            error!(logger, "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe);
+            error!(
+                logger,
+                "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe
+            );
             tlv.flags.set_unrecognized(true);
             tlv_response.push(tlv);
         }

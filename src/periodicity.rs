@@ -22,7 +22,6 @@ pub struct Periodicity {
     stale_joiner: std::sync::Arc<std::sync::Mutex<JoinHandle<()>>>,
 }
 
-
 #[derive(Clone, Serialize)]
 pub struct HeartbeatInfo {
     target: SocketAddr,
@@ -30,12 +29,17 @@ pub struct HeartbeatInfo {
 }
 
 impl Periodicity {
-    pub fn get_heartbeaters_info(
-        &self,
-    ) -> std::vec::Vec<HeartbeatInfo> {
-        self.heartbeaters_info.lock().unwrap().clone().into_iter().map(|(k, v)|  {
-            HeartbeatInfo{target: k, interval: v}
-        }).collect()
+    pub fn get_heartbeaters_info(&self) -> std::vec::Vec<HeartbeatInfo> {
+        self.heartbeaters_info
+            .lock()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .map(|(k, v)| HeartbeatInfo {
+                target: k,
+                interval: v,
+            })
+            .collect()
     }
 
     fn launch_heartbeater(

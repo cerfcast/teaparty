@@ -183,7 +183,10 @@ pub struct TestArguments {
 
 impl TestArguments {
     pub fn empty_arguments() -> Self {
-        TestArguments { arguments: [TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize].to_vec() }
+        TestArguments {
+            arguments: [TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize]
+                .to_vec(),
+        }
     }
 }
 

@@ -1,10 +1,12 @@
-use slog::Logger;
-use rocket::State;
 use crate::monitor::Monitor;
+use rocket::State;
+use slog::Logger;
 
 #[get("/sessions")]
 fn index(monitor: &State<Monitor>) -> String {
-    serde_json::to_string(&monitor.sessions).unwrap().to_string()
+    serde_json::to_string(&monitor.sessions)
+        .unwrap()
+        .to_string()
 }
 
 #[get("/heartbeats")]

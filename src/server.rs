@@ -35,7 +35,10 @@ pub struct SessionData {
 
 impl SessionData {
     pub fn new() -> SessionData {
-        Self { sequence: 0u32, last: std::time::SystemTime::now()}
+        Self {
+            sequence: 0u32,
+            last: std::time::SystemTime::now(),
+        }
     }
 }
 
@@ -63,11 +66,7 @@ impl Serialize for Session {
 
 impl Session {
     pub fn new(src: SockaddrIn, dst: SockaddrIn, ssid: Ssid) -> Self {
-        Self {
-            src,
-            dst,
-            ssid,
-        }
+        Self { src, dst, ssid }
     }
 }
 
@@ -95,10 +94,13 @@ impl Serialize for Sessions {
 
         let sessions = self.sessions.lock().unwrap();
 
-        let embedded_sessions: Vec<_> = sessions.iter().map(|v| EmbeddedSession {
-            id: v.0.clone(),
-            data: v.1.clone(),
-        }).collect();
+        let embedded_sessions: Vec<_> = sessions
+            .iter()
+            .map(|v| EmbeddedSession {
+                id: v.0.clone(),
+                data: v.1.clone(),
+            })
+            .collect();
         serde::Serialize::serialize(&embedded_sessions, serializer)
     }
 }

@@ -16,11 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 use clap::{Parser, Subcommand, ValueEnum};
-use monitor::Monitor;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
 use mio::{Interest, Token};
+use monitor::Monitor;
 use nix::errno::Errno;
 use nix::sys::socket::sockopt::Ipv4Tos;
 use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
@@ -150,8 +150,16 @@ impl FromStr for HeartbeatConfiguration {
 
 fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, maybe_tlv_name, unrecognized, malformed, use_ecn, use_dscp, src_port, authenticated) = match args.command
-    {
+    let (
+        maybe_ssid,
+        maybe_tlv_name,
+        unrecognized,
+        malformed,
+        use_ecn,
+        use_dscp,
+        src_port,
+        authenticated,
+    ) = match args.command {
         Commands::Sender {
             ssid,
             tlv,
@@ -161,7 +169,16 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             dscp,
             src_port,
             authenticated,
-        } => (ssid.map(Ssid::Ssid), tlv, unrecognized, malformed, ecn, dscp, src_port, authenticated),
+        } => (
+            ssid.map(Ssid::Ssid),
+            tlv,
+            unrecognized,
+            malformed,
+            ecn,
+            dscp,
+            src_port,
+            authenticated,
+        ),
         _ => panic!("The source port is somehow missing a value."),
     };
 
@@ -169,8 +186,6 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
     let server_socket =
         UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
-
-
 
     let mut test_arguments = TestArguments::empty_arguments();
 
@@ -228,9 +243,6 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         );
     }
 
-
-
-
     let mut tlvs = maybe_tlv_name.map_or(Ok(vec![]), |tlv_name| {
         if let Some(request_tlv) = handlers.get_request(tlv_name.clone(), Some(test_arguments)) {
             Ok(vec![request_tlv])
@@ -243,16 +255,18 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         }
     })?;
 
-    tlvs.extend(malformed.map(|o| {
-        match o {
-            MalformedWhy::BadFlags => {
-                vec![tlv::Tlv::malformed_request(22)]
-            },
-            MalformedWhy::BadLength => {
-                vec![tlv::Tlv::malformed_tlv(22)]
-            }
-        }
-    }).unwrap_or_default());
+    tlvs.extend(
+        malformed
+            .map(|o| match o {
+                MalformedWhy::BadFlags => {
+                    vec![tlv::Tlv::malformed_request(22)]
+                }
+                MalformedWhy::BadLength => {
+                    vec![tlv::Tlv::malformed_tlv(22)]
+                }
+            })
+            .unwrap_or_default(),
+    );
 
     if unrecognized {
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
@@ -393,7 +407,10 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     );
 
     {
-        let monitor = Monitor{sessions: sessions.clone(), periodic: periodical.clone()};
+        let monitor = Monitor {
+            sessions: sessions.clone(),
+            periodic: periodical.clone(),
+        };
         let logger = logger.clone();
         thread::spawn(move || {
             meta::launch_meta(monitor, logger);

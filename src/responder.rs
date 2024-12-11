@@ -16,20 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{
-    net::UdpSocket,
-    os::fd::AsRawFd,
-};
+use std::{net::UdpSocket, os::fd::AsRawFd};
 
 use nix::sys::socket::{sendto, MsgFlags, SockaddrIn};
 
-
-pub struct Responder {
-}
+pub struct Responder {}
 
 impl Responder {
     pub fn new() -> Self {
-        Responder { }
+        Responder {}
     }
 
     pub fn write(
