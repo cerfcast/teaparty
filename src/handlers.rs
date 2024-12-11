@@ -36,7 +36,7 @@ use crate::server::Sessions;
 use crate::stamp::StampError;
 use crate::stamp::StampMsg;
 use crate::stamp::StampMsgBody;
-use crate::stamp::StampResponseContents;
+use crate::stamp::StampResponseBody;
 use crate::tlv;
 use crate::tlv::Tlv;
 
@@ -269,7 +269,7 @@ pub fn handler(
         sequence: session_data.sequence,
         error: Default::default(),
         ssid: src_stamp_msg.ssid,
-        body: StampMsgBody::Response(StampResponseContents {
+        body: StampMsgBody::Response(StampResponseBody {
             received_time: received_time.into(),
             sent_sequence: src_stamp_msg.sequence,
             sent_time: src_stamp_msg.time,

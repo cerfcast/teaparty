@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use rocket::tokio::sync::oneshot::error;
 use serde::Serialize;
 use sha2::Digest;
 
@@ -111,38 +112,61 @@ impl<const L: usize, const V: u8> From<&Mbz<L, V>> for [u8; L] {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StampSendContents {
+pub enum StampSendBody {
     UnAuthenticated(Mbz<28, MBZ_VALUE>),
     Authenticated(Mbz<68, MBZ_VALUE>),
 }
 
-impl TryFrom<&[u8]> for StampSendContents {
+impl TryFrom<&[u8]> for StampSendBody {
     type Error = StampError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if let Ok(authenticated) = TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
-            Ok(StampSendContents::Authenticated(authenticated))
-        } else if let Ok(unauthenticated) = TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
-            Ok(StampSendContents::UnAuthenticated(unauthenticated))
-        } else {
-            Err(StampError::Other(
-                "Could not parse the bytes of the message's body into an MBZ or a stamp response."
-                    .to_string(),
-            ))
-        }
+        let error_msg = match TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
+            Ok(body) => return Ok(StampSendBody::Authenticated(body)),
+            Err(e) => Some(format!(
+                "Could not parse into an authenticated send body: {:?}",
+                e
+            )),
+        };
+
+        let error_msg = match TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
+            Ok(body) => return Ok(StampSendBody::UnAuthenticated(body)),
+            Err(e) => {
+                let this_err = Some(format!(
+                    "Could not parse into an unauthenticated send body: {:?}",
+                    e
+                ));
+                [error_msg, this_err]
+                    .iter()
+                    .flatten()
+                    .fold("".to_string(), |acc, n| {
+                        let base = if !acc.is_empty() {
+                            acc + "; "
+                        } else {
+                            "".into()
+                        };
+                        base + n
+                    })
+            }
+        };
+
+        Err(StampError::Other(format!(
+            "Could not parse the bytes of the message's body into a stamp send body: {}",
+            error_msg
+        )))
     }
 }
 
-impl From<&StampSendContents> for Vec<u8> {
-    fn from(value: &StampSendContents) -> Vec<u8> {
+impl From<&StampSendBody> for Vec<u8> {
+    fn from(value: &StampSendBody) -> Vec<u8> {
         match value {
-            StampSendContents::Authenticated(mbz) => Into::<Vec<u8>>::into(mbz),
-            StampSendContents::UnAuthenticated(mbz) => Into::<Vec<u8>>::into(mbz),
+            StampSendBody::Authenticated(mbz) => Into::<Vec<u8>>::into(mbz),
+            StampSendBody::UnAuthenticated(mbz) => Into::<Vec<u8>>::into(mbz),
         }
     }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct StampResponseContents {
+pub struct StampResponseBody {
     pub received_time: ntp::NtpTime,
     pub sent_sequence: u32,
     pub sent_time: ntp::NtpTime,
@@ -153,17 +177,17 @@ pub struct StampResponseContents {
     pub authenticated: bool,
 }
 
-impl TryFrom<&[u8]> for StampResponseContents {
+impl TryFrom<&[u8]> for StampResponseBody {
     type Error = StampError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() < 28 {
             return Err(StampError::Other(
-                "Could not parse a Stamp response contents with an invalid size.".to_string(),
+                "Could not parse a stamp response body because it has an invalid size.".to_string(),
             ));
         }
 
-        Ok(StampResponseContents {
+        Ok(StampResponseBody {
             received_time: ntp::NtpTime::try_from(&value[0..8]).map_err(Into::<NtpError>::into)?,
             sent_sequence: u32::from_be_bytes(
                 value[8..12]
@@ -184,8 +208,8 @@ impl TryFrom<&[u8]> for StampResponseContents {
     }
 }
 
-impl From<&StampResponseContents> for Vec<u8> {
-    fn from(value: &StampResponseContents) -> Self {
+impl From<&StampResponseBody> for Vec<u8> {
+    fn from(value: &StampResponseBody) -> Self {
         let mut result = vec![0u8; 28];
         result[0..8].copy_from_slice(&Into::<Vec<u8>>::into(&value.received_time));
         result[8..12].copy_from_slice(&value.sent_sequence.to_be_bytes());
@@ -205,8 +229,8 @@ pub struct RawStampHmac {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StampMsgBody {
-    Response(StampResponseContents),
-    Send(StampSendContents),
+    Response(StampResponseBody),
+    Send(StampSendBody),
 }
 
 impl StampMsgBody {
@@ -215,32 +239,51 @@ impl StampMsgBody {
     pub fn len(&self) -> usize {
         match self {
             Self::Response(_) => 28,
-            Self::Send(StampSendContents::Authenticated(_)) => 68,
-            Self::Send(StampSendContents::UnAuthenticated(_)) => 28,
+            Self::Send(StampSendBody::Authenticated(_)) => 68,
+            Self::Send(StampSendBody::UnAuthenticated(_)) => 28,
         }
     }
 }
 
 impl Default for StampMsgBody {
     fn default() -> Self {
-        StampMsgBody::Send(StampSendContents::UnAuthenticated(Default::default()))
+        StampMsgBody::Send(StampSendBody::UnAuthenticated(Default::default()))
     }
 }
 
 impl TryFrom<&[u8]> for StampMsgBody {
     type Error = StampError;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if let Ok(body) = TryInto::<StampSendContents>::try_into(value) {
-            // TODO
-            Ok(Self::Send(body))
-        } else if let Ok(body) = TryInto::<StampResponseContents>::try_into(value) {
-            Ok(Self::Response(body))
-        } else {
-            Err(StampError::Other(
-                "Could not parse the bytes of the message's body into an MBZ or a stamp response."
-                    .to_string(),
-            ))
-        }
+        let error_msg = match TryInto::<StampSendBody>::try_into(value) {
+            Ok(body) => {
+                return Ok(Self::Send(body));
+            }
+            Err(e) => Some(format!("Could not parse into a send body: {:?}", e)),
+        };
+
+        let error_msg = match TryInto::<StampResponseBody>::try_into(value) {
+            Ok(body) => {
+                return Ok(Self::Response(body));
+            }
+            Err(e) => {
+                let this_err = Some(format!("Could not parse into a response body: {:?}", e));
+                [error_msg, this_err]
+                    .iter()
+                    .flatten()
+                    .fold("".to_string(), |acc, n| {
+                        let base = if !acc.is_empty() {
+                            acc + "; "
+                        } else {
+                            "".into()
+                        };
+                        base + n
+                    })
+            }
+        };
+
+        Err(StampError::Other(
+            format!("Could not parse the bytes of the message's body into a stamp send or response body: {}", error_msg)
+        ))
     }
 }
 
@@ -325,7 +368,7 @@ impl StampMsg {
     pub fn authenticate(&mut self) -> Result<(), StampError> {
         match &self.body {
             StampMsgBody::Response(response) => Ok(()),
-            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+            StampMsgBody::Send(StampSendBody::Authenticated(_)) => {
                 let body_bytes: Vec<u8> = self.clone().into();
                 let mut hasher = sha2::Sha256::new();
                 hasher.update(body_bytes);
@@ -373,13 +416,13 @@ impl From<StampMsg> for Vec<u8> {
         result.extend(&value.sequence.to_be_bytes());
 
         match &value.body {
-            StampMsgBody::Response(StampResponseContents {
+            StampMsgBody::Response(StampResponseBody {
                 authenticated: true,
                 ..
             }) => {
                 result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE> {}));
             }
-            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+            StampMsgBody::Send(StampSendBody::Authenticated(_)) => {
                 result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE> {}));
             }
             _ => {}
@@ -408,7 +451,7 @@ impl From<StampMsg> for Vec<u8> {
 
 impl StampMsg {
     fn too_short<T>(destination: usize, len: usize, err: T) -> Result<(), T> {
-        if destination >= len {
+        if destination > len {
             Err(err)
         } else {
             Ok(())
@@ -423,7 +466,7 @@ impl TryFrom<&[u8]> for StampMsg {
         let mut raw_idx: usize = 0;
 
         StampMsg::too_short(
-            raw_idx,
+            raw_idx + 4,
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
@@ -439,37 +482,36 @@ impl TryFrom<&[u8]> for StampMsg {
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
-        let authenticated_pkt =
-            if TryInto::<Mbz<12, 0>>::try_into(&raw[raw_idx..raw_idx + 12]).is_ok() {
-                raw_idx += 12;
-                true
-            } else {
-                false
-            };
+        let authenticated_pkt = if TryInto::<Mbz<12, 0>>::try_into(&raw[raw_idx..]).is_ok() {
+            raw_idx += 12;
+            true
+        } else {
+            false
+        };
 
         StampMsg::too_short(
-            raw_idx,
+            raw_idx + NtpTime::RawSize,
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
         let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize].try_into()?;
-        raw_idx += 8;
+        raw_idx += NtpTime::RawSize;
 
         StampMsg::too_short(
-            raw_idx,
+            raw_idx + ErrorEstimate::RawSize,
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
         let ee: ErrorEstimate = raw[raw_idx..raw_idx + ErrorEstimate::RawSize].try_into()?;
-        raw_idx += 2;
+        raw_idx += ErrorEstimate::RawSize;
 
         StampMsg::too_short(
-            raw_idx,
+            raw_idx + Ssid::RawSize,
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
         let ssid: Ssid = raw[raw_idx..raw_idx + Ssid::RawSize].try_into()?;
-        raw_idx += 2;
+        raw_idx += Ssid::RawSize;
 
         // Let's see whether these bytes are 0s. If they are, then we move on.
         // Otherwise, we will have to parse a response message!
@@ -481,17 +523,22 @@ impl TryFrom<&[u8]> for StampMsg {
         let body = TryInto::<StampMsgBody>::try_into(&raw[raw_idx..])?;
         raw_idx += body.len();
 
-        if authenticated_pkt {
+        let hmac = if authenticated_pkt {
             StampMsg::too_short(
-                raw_idx,
+                raw_idx + 16,
                 raw.len(),
                 StampError::Other("Packet is too short".to_string()),
             )?;
             // TODO: Read the hmac!
+            let hmac = Some(RawStampHmac {
+                hmac: raw[raw_idx..raw_idx + 16].to_vec(),
+            });
             raw_idx += 16;
-        }
+            hmac
+        } else {
+            None
+        };
 
-        // Only now do we have to worry about not having enough data!
         let mut tlvs: Vec<tlv::Tlv> = vec![];
 
         let mut malformed: Option<MalformedTlv> = None;
@@ -528,7 +575,7 @@ impl TryFrom<&[u8]> for StampMsg {
             error: ee,
             ssid,
             body,
-            hmac: None,
+            hmac,
             tlvs,
             malformed,
         })
@@ -546,6 +593,10 @@ mod stamp_test_messages {
     pub const common_expected_scale: u8 = 0;
     pub const common_expected_multiple: u8 = 2;
     pub const common_expected_ssid: u16 = 254;
+    pub const common_expected_hmac: &[u8] = &[
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff,
+    ];
 
     pub fn simple_stamp_message_from_bytes(authenticated: bool) -> Vec<u8> {
         let mut raw_data = if authenticated {
@@ -576,6 +627,8 @@ mod stamp_test_messages {
 
         if authenticated {
             raw_data[index..index + 68].copy_from_slice([MBZ_VALUE; 68].as_slice());
+            index += 68;
+            raw_data[index..index + 16].copy_from_slice(common_expected_hmac);
         } else {
             raw_data[index..index + 28].copy_from_slice([MBZ_VALUE; 28].as_slice());
         }
@@ -644,15 +697,19 @@ mod stamp_test_messages {
         }
 
         match &stamp_pkt.body {
-            StampMsgBody::Send(StampSendContents::Authenticated(_)) => {
+            StampMsgBody::Send(StampSendBody::Authenticated(_)) => {
                 assert!(authenticated);
             }
-            StampMsgBody::Send(StampSendContents::UnAuthenticated(_)) => {
+            StampMsgBody::Send(StampSendBody::UnAuthenticated(_)) => {
                 assert!(!authenticated);
             }
             StampMsgBody::Response(response) => {
                 assert!(response.authenticated == authenticated);
             }
+        }
+
+        if authenticated {
+            assert!(stamp_pkt.hmac.is_some());
         }
     }
 
@@ -663,6 +720,20 @@ mod stamp_test_messages {
     #[test]
     fn simple_stamp_from_bytes_authenticated_test() {
         simple_stamp_from_bytes_test(true);
+    }
+}
+
+#[cfg(test)]
+mod stamp_test_messages_bad {
+    use super::*;
+    #[test]
+    fn simple_stamp_from_bytes_unauthenticated_test() {
+        let mut raw_data = super::stamp_test_messages::simple_stamp_message_from_bytes(false);
+
+        raw_data = raw_data[0..27].to_vec();
+        let stamp_pkt: Result<StampMsg, StampError> = raw_data.as_slice().try_into();
+
+        assert!(stamp_pkt.is_err());
     }
 }
 
@@ -1022,7 +1093,7 @@ mod stamp_response_test {
 
     #[test]
     fn simple_stamp_response_deserialize() {
-        let expected = StampResponseContents {
+        let expected = StampResponseBody {
             received_time: ntp::NtpTime {
                 seconds: 0x5,
                 fractions: 0x6,
@@ -1052,7 +1123,7 @@ mod stamp_response_test {
         raw[24] = 0x17;
         raw[25..28].copy_from_slice([MBZ_VALUE; 3].as_slice());
 
-        let deserialized = TryInto::<StampResponseContents>::try_into(raw.as_slice());
+        let deserialized = TryInto::<StampResponseBody>::try_into(raw.as_slice());
 
         if let Err(e) = deserialized {
             panic!("Did not deserialize properly: {}", e);
@@ -1066,7 +1137,7 @@ mod stamp_response_test {
 
     #[test]
     fn simple_stamp_response_roundtrip() {
-        let src = StampResponseContents {
+        let src = StampResponseBody {
             received_time: ntp::NtpTime {
                 seconds: 0x5,
                 fractions: 0x5,
@@ -1089,7 +1160,7 @@ mod stamp_response_test {
 
         let serialized_src = Into::<Vec<u8>>::into(&src);
 
-        let result = TryInto::<StampResponseContents>::try_into(serialized_src.as_slice());
+        let result = TryInto::<StampResponseBody>::try_into(serialized_src.as_slice());
 
         if let Err(e) = result {
             panic!("Did not deserialize properly: {}", e);
