@@ -16,9 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use rocket::tokio::sync::oneshot::error;
+use hmac::{Hmac, Mac};
 use serde::Serialize;
-use sha2::Digest;
+use sha2::{Digest, Sha256};
 
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
@@ -364,16 +364,22 @@ pub struct StampMsg {
     pub malformed: Option<tlv::MalformedTlv>,
 }
 
+const DEFAULT_KEY: &[u8] = &[0x00];
+
 impl StampMsg {
-    pub fn authenticate(&mut self) -> Result<(), StampError> {
+    pub fn authenticate(&mut self, key: Option<Vec<u8>>) -> Result<(), StampError> {
         match &self.body {
-            StampMsgBody::Response(response) => Ok(()),
+            StampMsgBody::Response(_) => Ok(()),
             StampMsgBody::Send(StampSendBody::Authenticated(_)) => {
+                let mut hmacer =
+                    Hmac::<Sha256>::new_from_slice(&key.unwrap_or(DEFAULT_KEY.to_vec()))
+                        .map_err(|e| StampError::Other(e.to_string()))?;
+
                 let body_bytes: Vec<u8> = self.clone().into();
-                let mut hasher = sha2::Sha256::new();
-                hasher.update(body_bytes);
+
+                hmacer.update(&body_bytes);
                 let hmac = RawStampHmac {
-                    hmac: hasher.finalize().to_vec(),
+                    hmac: hmacer.finalize().into_bytes()[0..16].to_vec(),
                 };
                 self.hmac = Some(hmac);
                 Ok(())

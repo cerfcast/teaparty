@@ -259,7 +259,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     }
 
     let body = if authenticated {
-        TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68 + 16].as_slice())?
+        TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68].as_slice())?
     } else {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 28].as_slice())?
     };
@@ -269,13 +269,13 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         time: NtpTime::now(),
         error: Default::default(),
         ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
-        body: body,
+        body,
         hmac: None,
         tlvs,
         malformed: None,
     };
 
-    client_msg.authenticate();
+    client_msg.authenticate(None)?;
 
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;

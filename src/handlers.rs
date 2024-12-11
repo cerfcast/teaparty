@@ -194,6 +194,8 @@ pub fn handler(
 
     let mut src_stamp_msg = maybe_stamp_msg.unwrap();
 
+    info!(logger, "Handling a STAMP packet: {:?}", src_stamp_msg);
+
     let server_address = if let SocketAddr::V4(v4) = server.socket_addr {
         v4
     } else {
