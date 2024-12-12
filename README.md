@@ -131,12 +131,13 @@ Options:
       --ecn                    Enable a non-default ECN for testing (ECT0)
       --dscp                   Enable a non-default DSCP for testing (EF)
       --src-port <SRC_PORT>    [default: 0]
+      --authenticated          
   -h, --help                   Print help
 ```
 
 The `--src-port` option is useful for testing the statefulness of the Reflector. The `--unrecognized` and `--malformed` options are useful
 for testing the Reflector's error handling. The `--ecn` and `--dscp` will set the TOS fields of the IP packet of the test packet (with the values [ECT0](https://www.juniper.net/documentation/us/en/software/junos/cos/topics/concept/cos-qfx-series-explicit-congestion-notification-understanding.html#understanding-cos-explicit-congestion-notification__subsection_anp_p5j_w5b)
-and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service.
+and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Setting the `--authenticated` flag will cause the sender to operate in [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3).
 
 The `--tlv` option will put TLVs into the test packet. The following values for `<TLV>` are currently supported:
 
@@ -167,8 +168,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | -- | -- |
 | Unauthenticated STAMP messages (reflector) | &#9989;  |
 | Unauthenticated STAMP messages (sender) | &#9989; |
-| Authenticated STAMP messages (reflector) | &#10060; |
-| Authenticated STAMP messages (sender) | &#10060; |
+| Authenticated STAMP messages (reflector) | &#9989;  |
+| Authenticated STAMP messages (sender) | &#9989; |
 | Stateful (reflector) | &#9989; |
 
 #### RFC 8972
