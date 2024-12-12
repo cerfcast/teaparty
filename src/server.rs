@@ -27,10 +27,11 @@ use serde::{ser::SerializeStruct, Serialize};
 
 use crate::stamp::Ssid;
 
-#[derive(Serialize, Debug, Copy, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SessionData {
     pub sequence: u32,
     pub last: std::time::SystemTime,
+    pub key: Option<Vec<u8>>,
 }
 
 impl SessionData {
@@ -38,6 +39,7 @@ impl SessionData {
         Self {
             sequence: 0u32,
             last: std::time::SystemTime::now(),
+            key: None,
         }
     }
 }
