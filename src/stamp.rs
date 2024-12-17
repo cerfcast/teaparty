@@ -39,6 +39,7 @@ pub enum StampError {
     Ntp(NtpError),
     Io(std::io::Error),
     MalformedTlv(tlv::Error),
+    InvalidSignature,
 }
 
 impl From<NtpError> for StampError {
@@ -63,6 +64,7 @@ impl Display for StampError {
                 write!(f, "An argument for a test was missing: {:?}", arg)
             }
             StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {:?}", e),
+            StampError::InvalidSignature => write!(f, "Stamp message had an invalid signature"),
         }
     }
 }
@@ -585,24 +587,23 @@ pub struct StampMsg {
 const DEFAULT_KEY: &[u8] = &[0x00];
 
 impl StampMsg {
-    pub fn authenticate(&mut self, key: Option<Vec<u8>>) -> Result<(), StampError> {
+    pub fn authenticate(&self, key: &Option<Vec<u8>>) -> Result<Option<RawStampHmac>, StampError> {
         match &self.body {
             StampMsgBody::Response(StampResponseBodyType::Authenticated(_))
             | StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => {
                 let mut hmacer =
-                    Hmac::<Sha256>::new_from_slice(&key.unwrap_or(DEFAULT_KEY.to_vec()))
+                    Hmac::<Sha256>::new_from_slice(key.as_ref().unwrap_or(&DEFAULT_KEY.to_vec()))
                         .map_err(|e| StampError::Other(e.to_string()))?;
 
-                let body_bytes: Vec<u8> = self.clone().into();
+                let body_bytes: Vec<u8> = self.base_into_bytes();
 
                 hmacer.update(&body_bytes);
                 let hmac = RawStampHmac {
                     hmac: hmacer.finalize().into_bytes()[0..16].to_vec(),
                 };
-                self.hmac = Some(hmac);
-                Ok(())
+                Ok(Some(hmac))
             }
-            _ => Ok(()),
+            _ => Ok(None),
         }
     }
 
@@ -632,14 +633,12 @@ impl StampMsg {
             }
         });
     }
-}
 
-impl From<StampMsg> for Vec<u8> {
-    fn from(value: StampMsg) -> Self {
+    fn base_into_bytes(&self) -> Vec<u8> {
         let mut result = vec![0u8; 0];
-        result.extend(&value.sequence.to_be_bytes());
+        result.extend(&self.sequence.to_be_bytes());
 
-        match &value.body {
+        match self.body {
             StampMsgBody::Response(StampResponseBodyType::Authenticated(_))
             | StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => {
                 result.extend(&Into::<Vec<u8>>::into(&Mbz::<12, MBZ_VALUE> {}));
@@ -647,10 +646,18 @@ impl From<StampMsg> for Vec<u8> {
             _ => {}
         };
 
-        result.extend(&Into::<Vec<u8>>::into(&value.time));
-        result.extend(&Into::<Vec<u8>>::into(value.error));
-        result.extend(&Into::<Vec<u8>>::into(value.ssid));
-        result.extend(&Into::<Vec<u8>>::into(value.body));
+        result.extend(&Into::<Vec<u8>>::into(&self.time));
+        result.extend(&Into::<Vec<u8>>::into(&self.error));
+        result.extend(&Into::<Vec<u8>>::into(self.ssid.clone()));
+        result.extend(&Into::<Vec<u8>>::into(self.body.clone()));
+
+        result
+    }
+}
+
+impl From<StampMsg> for Vec<u8> {
+    fn from(value: StampMsg) -> Self {
+        let mut result = value.base_into_bytes();
 
         // If there is an HMAC, add it now.
         if let Some(hmac) = value.hmac {

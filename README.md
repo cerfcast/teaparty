@@ -116,6 +116,21 @@ Sample output:
 
 More endpoints are planned. Endpoints that _control_ and not just monitor the Reflector are planned, too.
 
+**Configuring**
+
+`/session`
+
+Will add a new active session, if possible. A request to create a new session (a _session request_) requires
+- a source of test packets: `src_ip`: a string; `src_port`: a number
+- a destination of test packets (i.e., the reflector): `src_ip`: a string; `src_port`: a number
+- a key used for validating authenticated test packets: `key`: a string
+- a session ID: `ssid`: a number
+
+Upon `POST`ing a JSON object with the fields above, the server will respond with:
+
+- 500: The session could not be created (most likely because a session with the requested parameters exists)
+- 200: The sesion was created (and the body of the response will be the `POST`ed JSON for confirmation)
+
 #### Sender
 
 The Sender has a variety of options, but they are mostly for the purposes of testing the Reflector:
@@ -124,20 +139,20 @@ The Sender has a variety of options, but they are mostly for the purposes of tes
 Usage: teaparty sender [OPTIONS]
 
 Options:
-      --ssid <SSID>            
-      --tlv <TLV>              
-      --unrecognized           Include an unrecognized Tlv in the test packet
-      --malformed <MALFORMED>  Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
-      --ecn                    Enable a non-default ECN for testing (ECT0)
-      --dscp                   Enable a non-default DSCP for testing (EF)
-      --src-port <SRC_PORT>    [default: 0]
-      --authenticated          
-  -h, --help                   Print help
+      --ssid <SSID>                    
+      --tlv <TLV>                      
+      --unrecognized                   Include an unrecognized Tlv in the test packet
+      --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
+      --ecn                            Enable a non-default ECN for testing (ECT0)
+      --dscp                           Enable a non-default DSCP for testing (EF)
+      --src-port <SRC_PORT>            [default: 0]
+      --authenticated <AUTHENTICATED>  
+  -h, --help                           Print help
 ```
 
 The `--src-port` option is useful for testing the statefulness of the Reflector. The `--unrecognized` and `--malformed` options are useful
 for testing the Reflector's error handling. The `--ecn` and `--dscp` will set the TOS fields of the IP packet of the test packet (with the values [ECT0](https://www.juniper.net/documentation/us/en/software/junos/cos/topics/concept/cos-qfx-series-explicit-congestion-notification-understanding.html#understanding-cos-explicit-congestion-notification__subsection_anp_p5j_w5b)
-and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Setting the `--authenticated` flag will cause the sender to operate in [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3).
+and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Setting the `--authenticated` flag will cause the sender to operate in [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3) and use `<AUTHENTICATED>` as the key for generating the test packet's HMAC.
 
 The `--tlv` option will put TLVs into the test packet. The following values for `<TLV>` are currently supported:
 

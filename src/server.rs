@@ -107,6 +107,11 @@ impl Serialize for Sessions {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum SessionError {
+    SessionExists,
+}
+
 impl Sessions {
     pub fn new() -> Self {
         Self {
@@ -116,6 +121,16 @@ impl Sessions {
             >::new(
             ))),
         }
+    }
+
+    pub fn maybe_new(&self, new: Session, new_sd: SessionData) -> Result<(), SessionError> {
+        let mut sessions = self.sessions.lock().unwrap();
+        if sessions.keys().any(|e| *e == new) {
+            return Err(SessionError::SessionExists);
+        }
+
+        sessions.insert(new, new_sd);
+        Ok(())
     }
 }
 

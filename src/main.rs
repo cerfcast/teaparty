@@ -100,8 +100,8 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         src_port: u16,
 
-        #[arg(long, default_value_t = false)]
-        authenticated: bool,
+        #[arg(long)]
+        authenticated: Option<String>,
     },
 
     Reflector {
@@ -272,7 +272,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
     }
 
-    let body = if authenticated {
+    let body = if authenticated.is_some() {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68].as_slice())?
     } else {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 28].as_slice())?
@@ -289,7 +289,9 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         malformed: None,
     };
 
-    client_msg.authenticate(None)?;
+    let client_keymat = authenticated.map(|f| f.as_bytes().to_vec());
+
+    client_msg.hmac = client_msg.authenticate(&client_keymat)?;
 
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
@@ -323,13 +325,37 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
     if let Err(e) = deserialized_response {
         error!(logger, "Could not deserialize the server's response: {}", e);
+        return Err(e);
+    }
+
+    let deserialized_response = deserialized_response.unwrap();
+    info!(logger, "Deserialized response: {:?}", deserialized_response);
+
+    let authentication_result = match deserialized_response.authenticate(&client_keymat) {
+        Ok(checked_hash) => {
+            if checked_hash == deserialized_response.hmac {
+                Ok(())
+            } else {
+                info!(
+                    logger,
+                    "Wanted HMAC {:x?} and got HMAC {:?} (used {:x?} for keymat)",
+                    checked_hash,
+                    client_msg.hmac,
+                    client_keymat
+                );
+                Err(StampError::InvalidSignature)
+            }
+        }
+        Err(e) => Err(e),
+    };
+
+    if let Err(e) = authentication_result {
+        warn!(
+            logger,
+            "An authenticated packet arrived which could not be validated: {}", e
+        );
         Err(e)
     } else {
-        info!(
-            logger,
-            "Deserialized response: {:?}",
-            deserialized_response.unwrap()
-        );
         Ok(())
     }
 }

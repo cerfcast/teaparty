@@ -222,8 +222,8 @@ pub fn handler(
     };
 
     let session = Session::new(
-        Into::<SockaddrIn>::into(server_address),
         client_address,
+        Into::<SockaddrIn>::into(server_address),
         src_stamp_msg.ssid.clone(),
     );
 
@@ -256,6 +256,37 @@ pub fn handler(
     } else {
         None
     };
+
+    let keymat = session_data.as_ref().and_then(|sd| sd.key.clone());
+    let authentication_result = if client_authenticated {
+        match src_stamp_msg.authenticate(&keymat) {
+            Ok(checked_hash) => {
+                if checked_hash == src_stamp_msg.hmac {
+                    Ok(())
+                } else {
+                    info!(
+                        logger,
+                        "Wanted HMAC {:x?} and got HMAC {:?} (used {:x?} for keymat)",
+                        checked_hash,
+                        src_stamp_msg.hmac,
+                        keymat
+                    );
+                    Err(StampError::InvalidSignature)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    } else {
+        Ok(())
+    };
+
+    if let Err(e) = authentication_result {
+        warn!(
+            logger,
+            "An authenticated packet arrived which could not be validated: {}", e
+        );
+        return;
+    }
 
     // It's possible that one of the Tlvs does not have their flags set correctly. If that
     // is the case, then we need to make some adjustments.
@@ -319,9 +350,12 @@ pub fn handler(
     };
 
     if client_authenticated {
-        if let Err(e) = response_stamp_msg.authenticate(session_data.and_then(|sd| sd.key)) {
-            error!(logger, "Failed to authenticate the response packet: {}", e);
-            return;
+        match response_stamp_msg.authenticate(&session_data.and_then(|sd| sd.key)) {
+            Ok(key) => response_stamp_msg.hmac = key,
+            Err(e) => {
+                error!(logger, "Failed to authenticate the response packet: {}", e);
+                return;
+            }
         }
     }
 
@@ -404,7 +438,7 @@ pub fn handler(
         let write_result = responder.write(
             &Into::<Vec<u8>>::into(response_stamp_msg.clone()),
             &locked_socket_to_prepare,
-            session.dst,
+            session.src,
         );
 
         // If the handlers changed the socket in some way, they are responsible for setting it back!
