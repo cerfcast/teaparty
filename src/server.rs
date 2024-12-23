@@ -18,11 +18,10 @@
 
 use std::{
     collections::HashMap,
-    net::{self, UdpSocket},
+    net::{self, SocketAddr, UdpSocket},
     sync::{Arc, Mutex},
 };
 
-use nix::sys::socket::SockaddrIn;
 use serde::{ser::SerializeStruct, Serialize};
 
 use crate::stamp::Ssid;
@@ -46,8 +45,8 @@ impl SessionData {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Session {
-    pub src: SockaddrIn,
-    pub dst: SockaddrIn,
+    pub src: SocketAddr,
+    pub dst: SocketAddr,
     pub ssid: Ssid,
 }
 
@@ -67,7 +66,7 @@ impl Serialize for Session {
 }
 
 impl Session {
-    pub fn new(src: SockaddrIn, dst: SockaddrIn, ssid: Ssid) -> Self {
+    pub fn new(src: SocketAddr, dst: SocketAddr, ssid: Ssid) -> Self {
         Self { src, dst, ssid }
     }
 }

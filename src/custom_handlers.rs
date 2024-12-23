@@ -3,12 +3,9 @@ use std::sync::{Arc, Mutex};
 use crate::handlers;
 
 pub mod ch {
-    use std::{
-        net::{SocketAddrV4, UdpSocket},
-        thread,
-    };
+    use std::net::{SocketAddr, UdpSocket};
 
-    use nix::sys::socket::{sockopt::Ipv4Tos, SetSockOpt, SockaddrIn};
+    use nix::sys::socket::{sockopt::Ipv4Tos, SetSockOpt};
     use slog::{error, info, Logger};
 
     use crate::{
@@ -42,7 +39,7 @@ pub mod ch {
             &self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
-            _client: SockaddrIn,
+            _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Ecn TLV handler!");
@@ -74,9 +71,9 @@ pub mod ch {
         fn prepare_response_target(
             &self,
             _: &mut StampMsg,
-            address: SockaddrIn,
+            address: SocketAddr,
             logger: Logger,
-        ) -> SockaddrIn {
+        ) -> SocketAddr {
             info!(logger, "Preparing the response target in the Dscp Ecn Tlv.");
             address
         }
@@ -161,7 +158,7 @@ pub mod ch {
             &self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
-            _client: SockaddrIn,
+            _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a timestamp Tlv.");
@@ -182,9 +179,9 @@ pub mod ch {
         fn prepare_response_target(
             &self,
             _: &mut StampMsg,
-            address: SockaddrIn,
+            address: SocketAddr,
             logger: Logger,
-        ) -> SockaddrIn {
+        ) -> SocketAddr {
             info!(
                 logger,
                 "Preparing the response target in the Timestamp Tlv."
@@ -244,7 +241,7 @@ pub mod ch {
             &self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
-            _client: SockaddrIn,
+            _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a destination port Tlv.");
@@ -254,9 +251,9 @@ pub mod ch {
         fn prepare_response_target(
             &self,
             response: &mut StampMsg,
-            address: SockaddrIn,
+            address: SocketAddr,
             logger: Logger,
-        ) -> SockaddrIn {
+        ) -> SocketAddr {
             info!(
                 logger,
                 "Preparing the response target in the destination port Tlv."
@@ -264,9 +261,9 @@ pub mod ch {
             for tlv in response.tlvs.iter() {
                 if tlv.tpe == self.tlv_type() {
                     let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
-                    let mut ipv4: SocketAddrV4 = address.into();
+                    let mut ipv4= address.clone();
                     ipv4.set_port(new_port);
-                    return ipv4.into();
+                    return ipv4;
                 }
             }
             address
@@ -327,7 +324,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             parameters: &TestArguments,
-            _client: SockaddrIn,
+            _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Class of Service TLV handler!");
@@ -372,9 +369,9 @@ pub mod ch {
         fn prepare_response_target(
             &self,
             _: &mut StampMsg,
-            address: SockaddrIn,
+            address: SocketAddr,
             logger: Logger,
-        ) -> SockaddrIn {
+        ) -> SocketAddr {
             info!(logger, "Preparing the response target in the CoS Tlv.");
             address
         }

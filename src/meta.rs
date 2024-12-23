@@ -3,7 +3,6 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use crate::monitor::Monitor;
 use crate::server::{Session, SessionData, SessionError};
 use crate::stamp::Ssid;
-use nix::sys::socket::SockaddrIn;
 use rocket::http::Status;
 use rocket::serde::{json::Json, Deserialize};
 use rocket::State;
@@ -32,8 +31,8 @@ fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<St
     let sessions = &monitor.sessions;
 
     let s = Session::new(
-        Into::<SockaddrIn>::into(SocketAddrV4::new(request.src_ip, request.src_port)),
-        Into::<SockaddrIn>::into(SocketAddrV4::new(request.dst_ip, request.dst_port)),
+        SocketAddrV4::new(request.src_ip, request.src_port).into(),
+        SocketAddrV4::new(request.dst_ip, request.dst_port).into(),
         Ssid::Ssid(request.ssid),
     );
 

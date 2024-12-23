@@ -29,9 +29,9 @@ use parameters::{DscpValue, EcnValue, TestArgument, TestArguments, TestParameter
 use periodicity::Periodicity;
 use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
-use stamp::{Ssid, StampError, StampMsg, StampMsgBody, MBZ_VALUE};
+use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::IoSliceMut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr,UdpSocket};
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -502,7 +502,9 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 
             let arguments = arguments.unwrap();
 
-            let client_address = recv_data.address;
+            let client_address = recv_data
+                .address
+                .map(|f| Into::<SocketAddr>::into((f.ip(), f.port())));
 
             if client_address.is_none() {
                 warn!(

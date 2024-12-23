@@ -18,7 +18,6 @@
 
 use chrono::prelude::Utc;
 use chrono::TimeZone;
-use clap::Error;
 
 use std::fmt::Debug;
 use std::fmt::Display;

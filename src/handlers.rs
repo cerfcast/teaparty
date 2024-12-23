@@ -17,11 +17,11 @@
  */
 
 use std::net::SocketAddr;
+use std::net::SocketAddrV4;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use nix::sys::socket::SockaddrIn;
 use slog::Logger;
 use slog::{debug, error, info, warn};
 
@@ -73,7 +73,7 @@ pub trait TlvHandler {
         &self,
         tlv: &tlv::Tlv,
         parameters: &TestArguments,
-        client: SockaddrIn,
+        client: SocketAddr,
         logger: slog::Logger,
     ) -> Result<Tlv, StampError>;
 
@@ -94,9 +94,9 @@ pub trait TlvHandler {
     fn prepare_response_target(
         &self,
         response: &mut StampMsg,
-        address: SockaddrIn,
+        address: SocketAddr,
         logger: Logger,
-    ) -> SockaddrIn;
+    ) -> SocketAddr;
 
     /// Customize the socket used to send the reflected STAMP packet.
     ///
@@ -167,7 +167,7 @@ pub fn handler(
     handlers: Handlers,
     responder: Arc<responder::Responder>,
     server: ServerSocket,
-    client_address: SockaddrIn,
+    client_address: SocketAddr,
     logger: slog::Logger,
 ) {
     debug!(
@@ -222,8 +222,8 @@ pub fn handler(
     };
 
     let session = Session::new(
-        client_address,
-        Into::<SockaddrIn>::into(server_address),
+        client_address.into(),
+        server_address.into(),
         src_stamp_msg.ssid.clone(),
     );
 
@@ -435,11 +435,21 @@ pub fn handler(
             "Responding with stamp msg: {:x?}", response_stamp_msg
         );
 
-        let write_result = responder.write(
-            &Into::<Vec<u8>>::into(response_stamp_msg.clone()),
-            &locked_socket_to_prepare,
-            session.src,
-        );
+        let write_result = {
+
+            let destination_ip = match session.src {
+                SocketAddr::V4(v4) => v4,
+                _ => {
+                    error!(logger, "Could not convert the session's src IP address into a V4 destination address");
+                    return;
+                }
+            };
+            responder.write(
+                &Into::<Vec<u8>>::into(response_stamp_msg.clone()),
+                &locked_socket_to_prepare,
+                destination_ip
+            )
+        };
 
         // If the handlers changed the socket in some way, they are responsible for setting it back!
         for response_tlv in response_stamp_msg.tlvs.iter() {
