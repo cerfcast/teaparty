@@ -78,6 +78,7 @@ impl Display for Flags {
         Debug::fmt(self, f)
     }
 }
+
 impl Flags {
     pub fn new() -> Self {
         Self {
@@ -238,10 +239,19 @@ mod test {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct MalformedTlv {
     pub reason: Error,
     pub bytes: Vec<u8>,
+}
+
+impl Debug for MalformedTlv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MalformedTlv")
+            .field("reason", &self.reason)
+            .field("bytes", &format_args!("{:x?}", self.bytes))
+            .finish()
+    }
 }
 
 impl From<&MalformedTlv> for Vec<u8> {
@@ -262,13 +272,25 @@ impl MalformedTlv {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Tlv {
     pub flags: Flags,
     pub tpe: u8,
     pub length: u16,
     pub value: Vec<u8>,
 }
+
+impl Debug for Tlv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tlv")
+            .field("flags", &self.flags)
+            .field("type", &format_args!("0x{:x?}", self.tpe))
+            .field("length", &self.length)
+            .field("value", &format_args!("{:x?}", self.value))
+            .finish()
+    }
+}
+
 
 impl Tlv {
     pub const FtlSize: usize = 1 + 1 + 2;

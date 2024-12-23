@@ -173,13 +173,28 @@ pub enum StampResponseBodyType {
     UnAuthenticated(StampResponseBody),
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct StampResponseBody {
     pub received_time: ntp::NtpTime,
     pub sent_sequence: u32,
     pub sent_time: ntp::NtpTime,
     pub sent_error: ntp::ErrorEstimate,
     pub received_ttl: u8,
+}
+
+impl Debug for StampResponseBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StampResponseBody")
+            .field("received_time", &self.received_time)
+            .field(
+                "sent_sequence",
+                &format_args!("0x{:x?}", self.sent_sequence),
+            )
+            .field("sent_time", &self.sent_time)
+            .field("sent_error", &self.received_time)
+            .field("received_ttl", &format_args!("0x{:x?}", self.received_ttl))
+            .finish()
+    }
 }
 
 impl StampResponseBodyType {

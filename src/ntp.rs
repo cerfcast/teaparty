@@ -40,12 +40,20 @@ impl Display for NtpError {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct NtpTime {
     pub seconds: u32,
     pub fractions: u32,
 }
 
+impl Debug for NtpTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NtpTime")
+            .field("seconds", &format_args!("0x{:x?}", self.seconds))
+            .field("fractions", &format_args!("0x{:x?}", self.fractions))
+            .finish()
+    }
+}
 const NANOSECONDS_PER_SECOND: u64 = 1000000000u64;
 
 impl NtpTime {

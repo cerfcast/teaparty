@@ -338,7 +338,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             } else {
                 info!(
                     logger,
-                    "Wanted HMAC {:x?} and got HMAC {:?} (used {:x?} for keymat)",
+                    "Wanted HMAC {:x?} and got HMAC {:x?} (used {:x?} for keymat)",
                     checked_hash,
                     client_msg.hmac,
                     client_keymat
