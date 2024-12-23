@@ -72,12 +72,6 @@ impl Session {
     }
 }
 
-impl ToString for Session {
-    fn to_string(&self) -> String {
-        self.ssid.to_string()
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Sessions {
     pub sessions: Arc<Mutex<HashMap<Session, SessionData>>>,
