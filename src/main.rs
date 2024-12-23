@@ -354,10 +354,51 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             logger,
             "An authenticated packet arrived which could not be validated: {}", e
         );
-        Err(e)
-    } else {
-        Ok(())
+        return Err(e);
     }
+
+    // Let's compare what we got back to what we sent!
+
+    let reflected_time = match &deserialized_response.body {
+        StampMsgBody::Response(StampResponseBodyType::Authenticated(body)) => &body.sent_time,
+        StampMsgBody::Response(StampResponseBodyType::UnAuthenticated(body)) => &body.sent_time,
+        _ => unreachable!(),
+    };
+    if reflected_time != &client_msg.time {
+        warn!(
+            logger,
+            "The reflected packet did not contain the time that was sent (expected {:?} but got {:?})",client_msg.time, reflected_time
+        );
+        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+    }
+
+    let reflected_error = match &deserialized_response.body {
+        StampMsgBody::Response(StampResponseBodyType::Authenticated(body)) => &body.sent_error,
+        StampMsgBody::Response(StampResponseBodyType::UnAuthenticated(body)) => &body.sent_error,
+        _ => unreachable!(),
+    };
+    if reflected_error != &client_msg.error {
+        warn!(
+            logger,
+            "The reflected packet did not contain the error estimate that was sent (expected {:?} but got {:?})",client_msg.error, reflected_error
+        );
+        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+    }
+
+    let reflected_sequenceno = match &deserialized_response.body {
+        StampMsgBody::Response(StampResponseBodyType::Authenticated(body)) => &body.sent_sequence,
+        StampMsgBody::Response(StampResponseBodyType::UnAuthenticated(body)) => &body.sent_sequence,
+        _ => unreachable!(),
+    };
+    if reflected_sequenceno != &client_msg.sequence {
+        warn!(
+            logger,
+            "The reflected packet did not contain the sequence number that was sent (expected {:?} but got {:?})",client_msg.sequence, reflected_sequenceno
+        );
+        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+    }
+
+    Ok(())
 }
 
 fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
