@@ -57,6 +57,7 @@ impl Debug for NtpTime {
 const NANOSECONDS_PER_SECOND: u64 = 1000000000u64;
 
 impl NtpTime {
+    #[allow(non_upper_case_globals)]
     pub const RawSize: usize = 8;
 
     pub fn now() -> Self {
@@ -197,6 +198,7 @@ pub struct ErrorEstimate {
 }
 
 impl ErrorEstimate {
+    #[allow(non_upper_case_globals)]
     pub const RawSize: usize = 2;
 }
 

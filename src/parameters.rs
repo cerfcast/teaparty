@@ -196,7 +196,7 @@ impl TestArguments {
         parameter: TestArgumentKind,
     ) -> Result<T, StampError> {
         if parameter < TestArgumentKind::MaxParameterKind {
-            match self.arguments[parameter as usize].clone() {
+            match self.arguments[parameter as usize] {
                 TestArgument::Invalid => Err(StampError::MissingRequiredArgument(parameter)),
                 e => Ok(Into::<T>::into(e)),
             }

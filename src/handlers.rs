@@ -17,7 +17,6 @@
  */
 
 use std::net::SocketAddr;
-use std::net::SocketAddrV4;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;

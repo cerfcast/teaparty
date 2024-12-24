@@ -18,7 +18,6 @@
 
 use std::{
     fmt::Debug,
-    fmt::Display,
     ops::{BitAnd, BitOr},
     result::Result,
 };
@@ -70,12 +69,6 @@ impl Debug for Flags {
             self.get_integrity(),
             self.get_malformed()
         )
-    }
-}
-
-impl Display for Flags {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
     }
 }
 
@@ -293,6 +286,7 @@ impl Debug for Tlv {
 
 
 impl Tlv {
+    #[allow(non_upper_case_globals)]
     pub const FtlSize: usize = 1 + 1 + 2;
 }
 

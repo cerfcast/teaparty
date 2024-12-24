@@ -12,6 +12,7 @@ use std::sync::mpsc::{Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+#[allow(clippy::type_complexity, unused)]
 #[derive(Debug, Clone)]
 pub struct Periodicity {
     heartbeaters: std::sync::Arc<
@@ -19,7 +20,7 @@ pub struct Periodicity {
     >,
     heartbeaters_info: std::sync::Arc<std::sync::Mutex<HashMap<SocketAddr, std::time::Duration>>>,
     stale_sender: Sender<bool>,
-    stale_joiner: std::sync::Arc<std::sync::Mutex<JoinHandle<()>>>,
+    stale_joiner: std::sync::Arc<std::sync::Mutex<Option<JoinHandle<()>>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -140,41 +141,42 @@ impl Periodicity {
         });
 
         let (stale_sender, stale_receiver) = std::sync::mpsc::channel::<bool>();
-        let stale_joiner = thread::spawn(move || loop {
-            let mut is_cancelled = false;
-            match stale_receiver.try_recv() {
-                Err(TryRecvError::Disconnected) => {
-                    info!(
-                        logger,
-                        "Sender disconnected from thread sender; cancelling."
-                    );
-                    is_cancelled = true;
-                }
-                Err(TryRecvError::Empty) => {
-                    // Don't do anything ... this is not really an error.
-                }
-                Ok(_) => {
-                    info!(logger, "Sender sent cancellation message.");
-                    is_cancelled = true;
-                }
-            };
-
-            if is_cancelled {
-                break;
-            }
-
-            thread::sleep(std::time::Duration::from_secs(1));
-            info!(logger, "Checking for stale sessions.");
-            {
-                let mut sessions = sessions.sessions.lock().unwrap();
-                for (session, data) in sessions.clone().iter() {
-                    info!(logger, "Session last referenced at: {:?}", data.last);
-                    if std::time::SystemTime::now()
-                        .duration_since(data.last)
-                        .unwrap()
-                        > sessions_cleanup_duration
-                    {
+        let stale_joiner = thread::spawn(move || {
+            loop {
+                let mut is_cancelled = false;
+                match stale_receiver.try_recv() {
+                    Err(TryRecvError::Disconnected) => {
                         info!(
+                            logger,
+                            "Sender disconnected from thread sender; cancelling."
+                        );
+                        is_cancelled = true;
+                    }
+                    Err(TryRecvError::Empty) => {
+                        // Don't do anything ... this is not really an error.
+                    }
+                    Ok(_) => {
+                        info!(logger, "Sender sent cancellation message.");
+                        is_cancelled = true;
+                    }
+                };
+
+                if is_cancelled {
+                    break;
+                }
+
+                thread::sleep(std::time::Duration::from_secs(1));
+                info!(logger, "Checking for stale sessions.");
+                {
+                    let mut sessions = sessions.sessions.lock().unwrap();
+                    for (session, data) in sessions.clone().iter() {
+                        info!(logger, "Session last referenced at: {:?}", data.last);
+                        if std::time::SystemTime::now()
+                            .duration_since(data.last)
+                            .unwrap()
+                            > sessions_cleanup_duration
+                        {
+                            info!(
                         logger,
                         "Session (source ip: {}, dst ip: {}, ssid: {:?}, sequence: {}) is too old, removing it.",
                         session.src,
@@ -182,7 +184,8 @@ impl Periodicity {
                         session.ssid,
                         sessions.get(session).unwrap().sequence
                     );
-                        sessions.remove(session);
+                            sessions.remove(session);
+                        }
                     }
                 }
             }
@@ -192,11 +195,12 @@ impl Periodicity {
             heartbeaters: std::sync::Arc::new(std::sync::Mutex::new(heartbeaters)),
             heartbeaters_info: std::sync::Arc::new(std::sync::Mutex::new(heartbeaters_info)),
             stale_sender,
-            stale_joiner: std::sync::Arc::new(std::sync::Mutex::new(stale_joiner)),
+            stale_joiner: std::sync::Arc::new(std::sync::Mutex::new(Some(stale_joiner))),
         }
     }
 
-    pub fn stop_heartbeater(&self, addr: SocketAddr) -> Result<(), std::io::Error> {
+    #[allow(unused)]
+    pub fn stop_heartbeater(&mut self, addr: SocketAddr) -> Result<(), std::io::Error> {
         let mut heartbeaters = self.heartbeaters.lock().unwrap();
 
         let (_, (sender, handle)) = heartbeaters
@@ -208,6 +212,23 @@ impl Periodicity {
         handle
             .join()
             .map_err(|_| Into::<std::io::Error>::into(std::io::ErrorKind::InvalidData))?;
+
+        Ok(())
+    }
+
+    #[allow(unused)]
+    pub fn stop(&mut self) -> Result<(), std::io::Error> {
+        self.stale_sender
+            .send(true)
+            .map_err(|_| Into::<std::io::Error>::into(std::io::ErrorKind::InvalidData))?;
+
+        let mut r = self
+            .stale_joiner
+            .lock()
+            .map_err(|_| Into::<std::io::Error>::into(std::io::ErrorKind::InvalidData))?;
+
+        r.take().map(|f| Some(f.join()));
+
         Ok(())
     }
 }

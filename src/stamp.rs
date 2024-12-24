@@ -18,7 +18,7 @@
 
 use hmac::{Hmac, Mac};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
@@ -26,10 +26,6 @@ use crate::tlv::{self, MalformedTlv, Tlv};
 
 use std::fmt::{Debug, Display};
 use std::io::Error;
-
-pub const MINIMUM_STAMP_PKT_SIZE: usize = 16; // in octets
-pub const UNAUTHENTICATED_STAMP_PKT_SIZE: usize = 44; // in octets
-pub const AUTHENTICATED_STAMP_PKT_SIZE: usize = 112; // in octets
 
 pub const MBZ_VALUE: u8 = 0x00;
 
@@ -468,6 +464,7 @@ pub enum StampMsgBody {
 }
 
 impl StampMsgBody {
+    #[allow(non_upper_case_globals)]
     pub const RawSize: usize = 28;
 
     pub fn len(&self) -> usize {
@@ -538,16 +535,8 @@ pub enum Ssid {
 }
 
 impl Ssid {
+    #[allow(non_upper_case_globals)]
     pub const RawSize: usize = 2;
-}
-
-impl ToString for Ssid {
-    fn to_string(&self) -> String {
-        match self {
-            Ssid::Mbz(_) => "Zero".to_string(),
-            Ssid::Ssid(s) => s.to_string(),
-        }
-    }
 }
 
 impl Default for Ssid {
@@ -828,19 +817,22 @@ mod stamp_test_messages {
 
     use super::*;
 
-    pub const common_expected_sequence: u32 = 5;
-    pub const common_expected_seconds: u32 = 6;
-    pub const common_expected_fractions: u32 = 7;
-    pub const common_expected_sent_seconds: u32 = 8;
-    pub const common_expected_sent_fractions: u32 = 9;
-    pub const common_expected_scale: u8 = 0;
-    pub const common_expected_multiple: u8 = 2;
-    pub const common_expected_ssid: u16 = 254;
-    pub const common_expected_hmac: &[u8] = &[
+    pub const UNAUTHENTICATED_STAMP_PKT_SIZE: usize = 44; // in octets
+    pub const AUTHENTICATED_STAMP_PKT_SIZE: usize = 112; // in octets
+
+    pub const COMMON_EXPECTED_SEQUENCE: u32 = 5;
+    pub const COMMON_EXPECTED_SECONDS: u32 = 6;
+    pub const COMMON_EXPECTED_FRACTIONS: u32 = 7;
+    pub const COMMON_EXPECTED_SENT_SECONDS: u32 = 8;
+    pub const COMMON_EXPECTED_SENT_FRACTIONS: u32 = 9;
+    pub const COMMON_EXPECTED_SCALE: u8 = 0;
+    pub const COMMON_EXPECTED_MULTIPLE: u8 = 2;
+    pub const COMMON_EXPECTED_SSID: u16 = 254;
+    pub const COMMON_EXPECTED_HMAC: &[u8] = &[
         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
         0xff,
     ];
-    pub const common_expected_ttl: u8 = 0x17;
+    pub const COMMON_EXPECTED_TTL: u8 = 0x17;
 
     pub fn simple_stamp_message_from_bytes(authenticated: bool) -> Vec<u8> {
         let mut raw_data = if authenticated {
@@ -850,29 +842,29 @@ mod stamp_test_messages {
         };
 
         let mut index = 0;
-        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_sequence));
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(COMMON_EXPECTED_SEQUENCE));
         index += 4;
 
         if authenticated {
             index += 12;
         }
 
-        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_seconds));
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(COMMON_EXPECTED_SECONDS));
         index += 4;
-        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(common_expected_fractions));
+        raw_data[index..index + 4].copy_from_slice(&u32::to_be_bytes(COMMON_EXPECTED_FRACTIONS));
         index += 4;
 
         raw_data[index] = 0x80;
         index += 1;
         raw_data[index] = 0x02;
         index += 1;
-        raw_data[index..index + 2].copy_from_slice(&u16::to_be_bytes(common_expected_ssid));
+        raw_data[index..index + 2].copy_from_slice(&u16::to_be_bytes(COMMON_EXPECTED_SSID));
         index += 2;
 
         if authenticated {
             raw_data[index..index + 68].copy_from_slice([MBZ_VALUE; 68].as_slice());
             index += 68;
-            raw_data[index..index + 16].copy_from_slice(common_expected_hmac);
+            raw_data[index..index + 16].copy_from_slice(COMMON_EXPECTED_HMAC);
         } else {
             raw_data[index..index + 28].copy_from_slice([MBZ_VALUE; 28].as_slice());
         }
@@ -891,36 +883,36 @@ mod stamp_test_messages {
         }
         let stamp_pkt = stamp_pkt.unwrap();
 
-        if stamp_pkt.time.seconds != common_expected_seconds {
+        if stamp_pkt.time.seconds != COMMON_EXPECTED_SECONDS {
             panic!(
                 "Incorrect seconds. Got {}, wanted {}.",
-                stamp_pkt.time.seconds, common_expected_seconds
+                stamp_pkt.time.seconds, COMMON_EXPECTED_SECONDS
             );
         }
-        if stamp_pkt.time.fractions != common_expected_fractions {
+        if stamp_pkt.time.fractions != COMMON_EXPECTED_FRACTIONS {
             panic!(
                 "Incorrect fractions. Got {}, wanted {}.",
-                stamp_pkt.time.fractions, common_expected_fractions
+                stamp_pkt.time.fractions, COMMON_EXPECTED_FRACTIONS
             );
         }
-        if stamp_pkt.sequence != common_expected_sequence {
+        if stamp_pkt.sequence != COMMON_EXPECTED_SEQUENCE {
             panic!(
                 "Incorrect sequence. Got {}, wanted {}.",
-                stamp_pkt.sequence, common_expected_sequence
+                stamp_pkt.sequence, COMMON_EXPECTED_SEQUENCE
             );
         }
 
-        if stamp_pkt.error.scale != common_expected_scale {
+        if stamp_pkt.error.scale != COMMON_EXPECTED_SCALE {
             panic!(
                 "Incorrect error scale. Got {}, wanted {}.",
-                stamp_pkt.error.scale, common_expected_scale
+                stamp_pkt.error.scale, COMMON_EXPECTED_SCALE
             );
         }
 
-        if stamp_pkt.error.multiple != common_expected_multiple {
+        if stamp_pkt.error.multiple != COMMON_EXPECTED_MULTIPLE {
             panic!(
                 "Incorrect error multiple. Got {}, wanted {}.",
-                stamp_pkt.error.multiple, common_expected_multiple
+                stamp_pkt.error.multiple, COMMON_EXPECTED_MULTIPLE
             );
         }
 
@@ -931,10 +923,10 @@ mod stamp_test_messages {
         match &stamp_pkt.ssid {
             Ssid::Mbz(_) => panic!("Incorrect error synchronized status. Got false, wanted true."),
             Ssid::Ssid(ssid) => {
-                if *ssid != common_expected_ssid {
+                if *ssid != COMMON_EXPECTED_SSID {
                     panic!(
                         "Incorrect ssid. Wanted {}, got {}",
-                        common_expected_ssid, ssid
+                        COMMON_EXPECTED_SSID, ssid
                     );
                 }
             }
@@ -986,6 +978,8 @@ mod stamp_test_messages_bad {
 
 #[cfg(test)]
 mod stamp_test_messages_with_tlvs {
+    use stamp_test_messages::UNAUTHENTICATED_STAMP_PKT_SIZE;
+
     use super::*;
 
     fn do_simple_stamp_malformed_tlv_invalid_flags(authenticated: bool) {
@@ -1274,7 +1268,7 @@ mod stamp_test_messages_with_tlvs {
 
         let parsed_tlv = stamp_pkt.tlvs[0].clone();
         if parsed_tlv.flags.get_raw() != 0x20 {
-            panic!("Got {} flags, expected 0x20", parsed_tlv.flags);
+            panic!("Got {:?} flags, expected 0x20", parsed_tlv.flags);
         }
         if parsed_tlv.tpe != 0xfe {
             panic!("Got {} type, expected 0xfe", parsed_tlv.tpe);
@@ -1335,8 +1329,8 @@ mod stamp_test_messages_with_tlvs {
 mod stamp_response_test {
 
     use stamp_test_messages::{
-        common_expected_fractions, common_expected_seconds, common_expected_sent_fractions,
-        common_expected_sent_seconds, common_expected_sequence, common_expected_ttl,
+        COMMON_EXPECTED_FRACTIONS, COMMON_EXPECTED_SECONDS, COMMON_EXPECTED_SENT_FRACTIONS,
+        COMMON_EXPECTED_SENT_SECONDS, COMMON_EXPECTED_SEQUENCE, COMMON_EXPECTED_TTL,
     };
 
     use super::*;
@@ -1344,16 +1338,16 @@ mod stamp_response_test {
     fn do_simple_stamp_response_deserialize(authenticated: bool) {
         let body = StampResponseBody {
             received_time: ntp::NtpTime {
-                seconds: common_expected_seconds,
-                fractions: common_expected_fractions,
+                seconds: COMMON_EXPECTED_SECONDS,
+                fractions: COMMON_EXPECTED_FRACTIONS,
             },
-            sent_sequence: common_expected_sequence,
+            sent_sequence: COMMON_EXPECTED_SEQUENCE,
             sent_time: ntp::NtpTime {
-                seconds: common_expected_sent_seconds,
-                fractions: common_expected_sent_fractions,
+                seconds: COMMON_EXPECTED_SENT_SECONDS,
+                fractions: COMMON_EXPECTED_SENT_FRACTIONS,
             },
             sent_error: Default::default(),
-            received_ttl: common_expected_ttl,
+            received_ttl: COMMON_EXPECTED_TTL,
         };
 
         let expected = if authenticated {
@@ -1366,17 +1360,17 @@ mod stamp_response_test {
         if authenticated {
             raw.extend_from_slice([MBZ_VALUE; 4].as_slice());
         }
-        raw.extend_from_slice(&common_expected_seconds.to_be_bytes());
-        raw.extend_from_slice(&common_expected_fractions.to_be_bytes());
+        raw.extend_from_slice(&COMMON_EXPECTED_SECONDS.to_be_bytes());
+        raw.extend_from_slice(&COMMON_EXPECTED_FRACTIONS.to_be_bytes());
         if authenticated {
             raw.extend_from_slice([MBZ_VALUE; 8].as_slice());
         }
-        raw.extend_from_slice(&common_expected_sequence.to_be_bytes());
+        raw.extend_from_slice(&COMMON_EXPECTED_SEQUENCE.to_be_bytes());
         if authenticated {
             raw.extend_from_slice([MBZ_VALUE; 12].as_slice());
         }
-        raw.extend_from_slice(&common_expected_sent_seconds.to_be_bytes());
-        raw.extend_from_slice(&common_expected_sent_fractions.to_be_bytes());
+        raw.extend_from_slice(&COMMON_EXPECTED_SENT_SECONDS.to_be_bytes());
+        raw.extend_from_slice(&COMMON_EXPECTED_SENT_FRACTIONS.to_be_bytes());
         raw.extend_from_slice(&[0x0]);
         raw.extend_from_slice(&[0x1]);
         if authenticated {
@@ -1416,16 +1410,16 @@ mod stamp_response_test {
     fn do_simple_stamp_response_roundtrip(authenticated: bool) {
         let body = StampResponseBody {
             received_time: ntp::NtpTime {
-                seconds: common_expected_seconds,
-                fractions: common_expected_fractions,
+                seconds: COMMON_EXPECTED_SECONDS,
+                fractions: COMMON_EXPECTED_FRACTIONS,
             },
-            sent_sequence: common_expected_sequence,
+            sent_sequence: COMMON_EXPECTED_SEQUENCE,
             sent_time: ntp::NtpTime {
-                seconds: common_expected_sent_seconds,
-                fractions: common_expected_sent_fractions,
+                seconds: COMMON_EXPECTED_SENT_SECONDS,
+                fractions: COMMON_EXPECTED_SENT_FRACTIONS,
             },
             sent_error: Default::default(),
-            received_ttl: common_expected_ttl,
+            received_ttl: COMMON_EXPECTED_TTL,
         };
 
         let src = if authenticated {
