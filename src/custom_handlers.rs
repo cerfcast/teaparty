@@ -261,7 +261,7 @@ pub mod ch {
             for tlv in response.tlvs.iter() {
                 if tlv.tpe == self.tlv_type() {
                     let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
-                    let mut ipv4= address;
+                    let mut ipv4 = address;
                     ipv4.set_port(new_port);
                     return ipv4;
                 }

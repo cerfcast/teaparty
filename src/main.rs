@@ -31,7 +31,7 @@ use server::{ServerSocket, Sessions};
 use slog::{debug, error, info, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::IoSliceMut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr,UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -369,7 +369,9 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             logger,
             "The reflected packet did not contain the time that was sent (expected {:?} but got {:?})",client_msg.time, reflected_time
         );
-        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+        return Err(StampError::Other(
+            "Reflected contents are wrong.".to_string(),
+        ));
     }
 
     let reflected_error = match &deserialized_response.body {
@@ -382,7 +384,9 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             logger,
             "The reflected packet did not contain the error estimate that was sent (expected {:?} but got {:?})",client_msg.error, reflected_error
         );
-        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+        return Err(StampError::Other(
+            "Reflected contents are wrong.".to_string(),
+        ));
     }
 
     let reflected_sequenceno = match &deserialized_response.body {
@@ -395,7 +399,9 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             logger,
             "The reflected packet did not contain the sequence number that was sent (expected {:?} but got {:?})",client_msg.sequence, reflected_sequenceno
         );
-        return Err(StampError::Other("Reflected contents are wrong.".to_string()))
+        return Err(StampError::Other(
+            "Reflected contents are wrong.".to_string(),
+        ));
     }
 
     Ok(())

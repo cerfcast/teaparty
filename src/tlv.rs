@@ -284,7 +284,6 @@ impl Debug for Tlv {
     }
 }
 
-
 impl Tlv {
     #[allow(non_upper_case_globals)]
     pub const FtlSize: usize = 1 + 1 + 2;

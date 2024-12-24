@@ -435,7 +435,6 @@ pub fn handler(
         );
 
         let write_result = {
-
             let destination_ip = match session.src {
                 SocketAddr::V4(v4) => v4,
                 _ => {
@@ -446,7 +445,7 @@ pub fn handler(
             responder.write(
                 &Into::<Vec<u8>>::into(response_stamp_msg.clone()),
                 &locked_socket_to_prepare,
-                destination_ip
+                destination_ip,
             )
         };
 

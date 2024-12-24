@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{net::{SocketAddrV4, UdpSocket}, os::fd::AsRawFd};
+use std::{
+    net::{SocketAddrV4, UdpSocket},
+    os::fd::AsRawFd,
+};
 
 use nix::sys::socket::{sendto, MsgFlags, SockaddrIn};
 
@@ -33,7 +36,12 @@ impl Responder {
         socket: &UdpSocket,
         addr: SocketAddrV4,
     ) -> Result<usize, std::io::Error> {
-        sendto(socket.as_raw_fd(), data, &Into::<SockaddrIn>::into(addr), MsgFlags::empty())
-            .map_err(|e| std::io::Error::other(e.to_string()))
+        sendto(
+            socket.as_raw_fd(),
+            data,
+            &Into::<SockaddrIn>::into(addr),
+            MsgFlags::empty(),
+        )
+        .map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
