@@ -506,7 +506,7 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             let mut recv_buffer = [0u8; MSS];
             let recv_buffer_iov = IoSliceMut::new(&mut recv_buffer);
 
-            let mut cmsg = Vec::<u8>::with_capacity(test_argument_space_required);
+            let mut cmsg = vec![0u8; test_argument_space_required];
             let mut iovs = [recv_buffer_iov];
 
             // Even though we know that there is data waiting, we cannot go after it directly. We still

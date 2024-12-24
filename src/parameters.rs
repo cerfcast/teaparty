@@ -293,7 +293,7 @@ impl TestParameter for TtlTestParameter {
                 std::io::ErrorKind::ConnectionRefused,
             ))
         })?;
-        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u32>() as libc::c_uint) as usize) }
+        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u8>() as libc::c_uint) as usize) }
     }
 
     fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
