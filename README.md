@@ -162,6 +162,7 @@ The `--tlv` option will put TLVs into the test packet. The following values for 
 | dscpecn | DSCP ECN | When used with the `--dscp` and `--ecn` option, the `DSCP1` and `ECN1` fields contain EF and ECT0, respectively.
 | timestamp | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destinationport | Destination Port| 983 |
+| location | Location | A Source IP Address sub-TLV |
 
 _Example_:
 
@@ -193,8 +194,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | -- | -- |
 | Extra Padding (reflector) | &#10060; |
 | Extra Padding (sender) | &#9989; |
-| Location (reflector) | &#10060; |
-| Location (sender) | &#10060; |
+| Location (reflector) | &#10060; (in progress, as of [353dd10](https://github.com/cerfcast/teaparty/commit/353dd100bd42b14267bbcad6e127180f2c8b4185)) |
+| Location (sender) | &#10060; (in progress, as of [353dd10](https://github.com/cerfcast/teaparty/commit/353dd100bd42b14267bbcad6e127180f2c8b4185)) |
 | Timestamp (reflector) | &#9989; |
 | Timestamp (sender) |  &#9989;  |
 | Class of service (reflector) | &#9989; |
