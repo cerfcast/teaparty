@@ -25,9 +25,45 @@ use crate::parameters::TestArgumentKind;
 use crate::tlv::{self, MalformedTlv, Tlv};
 
 use std::fmt::{Debug, Display};
-use std::io::Error;
 
 pub const MBZ_VALUE: u8 = 0x00;
+
+#[derive(Clone)]
+pub enum StampParseAttemptType {
+    MessageBody,
+    Basic,
+    Mbz,
+    Sender,
+    SenderUnauthenticated,
+    SenderAuthenticated,
+    Response,
+    ResponseUnauthenticated,
+    ResponseAuthenticated,
+}
+
+impl Debug for StampParseAttemptType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StampParseAttemptType::MessageBody => write!(f, "STAMP message body"),
+            StampParseAttemptType::Basic => write!(f, "STAMP basic message fields"),
+            StampParseAttemptType::Mbz => write!(f, "STAMP Must-be-zero bytes"),
+            StampParseAttemptType::Sender => write!(f, "STAMP sender message body"),
+            StampParseAttemptType::SenderAuthenticated => {
+                write!(f, "STAMP authenticated sender message body")
+            }
+            StampParseAttemptType::SenderUnauthenticated => {
+                write!(f, "STAMP unauthenticated sender message body")
+            }
+            StampParseAttemptType::Response => write!(f, "STAMP response message body"),
+            StampParseAttemptType::ResponseAuthenticated => {
+                write!(f, "STAMP authenticated response message body")
+            }
+            StampParseAttemptType::ResponseUnauthenticated => {
+                write!(f, "STAMP unauthenticated response message body")
+            }
+        }
+    }
+}
 
 pub enum StampError {
     Other(String),
@@ -36,19 +72,18 @@ pub enum StampError {
     Io(std::io::Error),
     MalformedTlv(tlv::Error),
     InvalidSignature,
-}
-
-impl From<NtpError> for StampError {
-    fn from(value: NtpError) -> Self {
-        Self::Ntp(value)
-    }
+    Malformed(StampParseAttemptType, String),
 }
 
 impl From<std::io::Error> for StampError {
     fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
+        StampError::Io(value)
     }
 }
+
+// Note: Although it may be useful, there is no From between
+// NtpError and StampError because an NtpError can occur in
+// different contexts.
 
 impl Display for StampError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,6 +96,9 @@ impl Display for StampError {
             }
             StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {:?}", e),
             StampError::InvalidSignature => write!(f, "Stamp message had an invalid signature"),
+            StampError::Malformed(tpe, message) => {
+                write!(f, "Error parsing {:?}: {}", tpe, message)
+            }
         }
     }
 }
@@ -79,12 +117,14 @@ impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if !value.iter().take(L).all(|b| *b == V) {
-            return Err(StampError::Other(
+            return Err(StampError::Malformed(
+                StampParseAttemptType::Mbz,
                 format!("MBZ bytes were not all {}", V).to_string(),
             ));
         }
         if value.len() < L {
-            return Err(StampError::Other(
+            return Err(StampError::Malformed(
+                StampParseAttemptType::Mbz,
                 format!(
                     "MBZ bytes were not the proper size ({} vs {})",
                     L,
@@ -120,19 +160,13 @@ impl TryFrom<&[u8]> for StampSendBodyType {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let error_msg = match TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
             Ok(body) => return Ok(StampSendBodyType::Authenticated(body)),
-            Err(e) => Some(format!(
-                "Could not parse into an authenticated send body: {:?}",
-                e
-            )),
+            Err(e) => Some(format!("Authenticated send body parsing failed: {:?}", e)),
         };
 
         let error_msg = match TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
             Ok(body) => return Ok(StampSendBodyType::UnAuthenticated(body)),
             Err(e) => {
-                let this_err = Some(format!(
-                    "Could not parse into an unauthenticated send body: {:?}",
-                    e
-                ));
+                let this_err = Some(format!("Unauthenticated send body parsing failed: {:?}", e));
                 [error_msg, this_err]
                     .iter()
                     .flatten()
@@ -147,10 +181,9 @@ impl TryFrom<&[u8]> for StampSendBodyType {
             }
         };
 
-        Err(StampError::Other(format!(
-            "Could not parse the bytes of the message's body into a stamp send body: {}",
-            error_msg
-        )))
+        Err(StampError::Malformed(StampParseAttemptType::Sender,
+            format!("Could not parse the bytes of the message's body into a stamp send body -- the following errors occurred while trying to parse the bytes into a send body: {}", error_msg)
+        ))
     }
 }
 
@@ -201,7 +234,10 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + 4,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<4, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 4])?;
         raw_index += 4;
@@ -210,17 +246,25 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + NtpTime::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let received_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])
-            .map_err(Into::<StampError>::into)?;
+            .map_err(|e| {
+                StampError::Malformed(StampParseAttemptType::ResponseAuthenticated, e.to_string())
+            })?;
         raw_index += NtpTime::RawSize;
 
         // 8 MBZ
         StampMsg::too_short(
             raw_index + 8,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<8, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 8])?;
         raw_index += 8;
@@ -229,20 +273,22 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + 4,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
-        let sent_sequence = u32::from_be_bytes(
-            value[raw_index..raw_index + 4]
-                .try_into()
-                .map_err(|_| Error::from(std::io::ErrorKind::InvalidData))?,
-        );
+        let sent_sequence = u32::from_be_bytes(value[raw_index..raw_index + 4].try_into().unwrap());
         raw_index += 4;
 
         // 12 MBZ
         StampMsg::too_short(
             raw_index + 12,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<12, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 12])?;
         raw_index += 12;
@@ -251,26 +297,44 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + NtpTime::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
-        let sent_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])?;
+        let sent_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])
+            .map_err(|e| {
+                StampError::Malformed(StampParseAttemptType::ResponseAuthenticated, e.to_string())
+            })?;
         raw_index += NtpTime::RawSize;
 
         // Sent Error Estimate
         StampMsg::too_short(
             raw_index + ErrorEstimate::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let sent_error =
-            ntp::ErrorEstimate::try_from(&value[raw_index..raw_index + ErrorEstimate::RawSize])?;
+            ntp::ErrorEstimate::try_from(&value[raw_index..raw_index + ErrorEstimate::RawSize])
+                .map_err(|e| {
+                    StampError::Malformed(
+                        StampParseAttemptType::ResponseAuthenticated,
+                        format!("{:?}", e),
+                    )
+                })?;
         raw_index += ErrorEstimate::RawSize;
 
         // 6 MBZ
         StampMsg::too_short(
             raw_index + 6,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<6, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 6])?;
         raw_index += 6;
@@ -279,7 +343,10 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let received_ttl = value[raw_index];
         raw_index += 1;
@@ -288,7 +355,10 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + 15,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseAuthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<15, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 15])?;
 
@@ -307,45 +377,72 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + NtpTime::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let received_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])
-            .map_err(Into::<StampError>::into)?;
+            .map_err(|e| {
+                StampError::Malformed(
+                    StampParseAttemptType::ResponseUnauthenticated,
+                    e.to_string(),
+                )
+            })?;
         raw_index += NtpTime::RawSize;
 
         StampMsg::too_short(
             raw_index + 4,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
-        let sent_sequence = u32::from_be_bytes(
-            value[raw_index..raw_index + 4]
-                .try_into()
-                .map_err(|_| Error::from(std::io::ErrorKind::InvalidData))?,
-        );
+        let sent_sequence = u32::from_be_bytes(value[raw_index..raw_index + 4].try_into().unwrap());
         raw_index += 4;
 
         StampMsg::too_short(
             raw_index + NtpTime::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
-        let sent_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])?;
+        let sent_time = ntp::NtpTime::try_from(&value[raw_index..raw_index + NtpTime::RawSize])
+            .map_err(|e| {
+                StampError::Malformed(
+                    StampParseAttemptType::ResponseUnauthenticated,
+                    e.to_string(),
+                )
+            })?;
         raw_index += NtpTime::RawSize;
 
         StampMsg::too_short(
             raw_index + ErrorEstimate::RawSize,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let sent_error =
-            ntp::ErrorEstimate::try_from(&value[raw_index..raw_index + ErrorEstimate::RawSize])?;
+            ntp::ErrorEstimate::try_from(&value[raw_index..raw_index + ErrorEstimate::RawSize])
+                .map_err(|e| match e {
+                    NtpError::InvalidData(e) => {
+                        StampError::Malformed(StampParseAttemptType::ResponseUnauthenticated, e)
+                    }
+                })?;
         raw_index += ErrorEstimate::RawSize;
 
         StampMsg::too_short(
             raw_index + 2,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<2, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 2])?;
         raw_index += 2;
@@ -361,7 +458,10 @@ impl StampResponseBodyType {
         StampMsg::too_short(
             raw_index + 3,
             value.len(),
-            StampError::Other("Packet is too short".to_string()),
+            StampError::Malformed(
+                StampParseAttemptType::ResponseUnauthenticated,
+                "Packet is too short".to_string(),
+            ),
         )?;
         let _ = Mbz::<3, MBZ_VALUE>::try_from(&value[raw_index..raw_index + 3])?;
 
@@ -382,16 +482,16 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
         let err_msg = match StampResponseBodyType::try_from_authenticated_raw(value) {
             Ok(body) => return Ok(StampResponseBodyType::Authenticated(body)),
             Err(e) => Some(format!(
-                "Could not parse into an authenticated response body: {:?}",
+                "Authenticated response body parsing failed: {:?}",
                 e
             )),
         };
 
-        let err_msg = match StampResponseBodyType::try_from_unauthenticated_raw(value) {
+        let error_msg = match StampResponseBodyType::try_from_unauthenticated_raw(value) {
             Ok(body) => return Ok(StampResponseBodyType::UnAuthenticated(body)),
             Err(e) => {
                 let this_err = Some(format!(
-                    "Could not parse into an unauthenticated response body: {:?}",
+                    "Unauthenticated response body parsing failed: {:?}",
                     e
                 ));
                 [err_msg, this_err]
@@ -408,8 +508,9 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
             }
         };
 
-        Err(StampError::Other(
-            format!("Could not parse the bytes of the message's body into a stamp send or response body: {}", err_msg)
+        Err(StampError::Malformed(
+            StampParseAttemptType::Response,
+                format!("Could not parse the bytes of the message's body into a stamp response body -- the following errors occurred while trying to parse the bytes into a send body: {}", error_msg)
         ))
     }
 }
@@ -513,8 +614,8 @@ impl TryFrom<&[u8]> for StampMsgBody {
             }
         };
 
-        Err(StampError::Other(
-            format!("Could not parse the bytes of the message's body into a stamp send or response body: {}", error_msg)
+        Err(StampError::Malformed(StampParseAttemptType::MessageBody,
+            format!("Could not parse the bytes of the message's body into a STAMP send or response body: {}", error_msg)
         ))
     }
 }
@@ -724,7 +825,11 @@ impl TryFrom<&[u8]> for StampMsg {
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
-        let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize].try_into()?;
+        let time: NtpTime = raw[raw_idx..raw_idx + NtpTime::RawSize]
+            .try_into()
+            .map_err(|e: NtpError| {
+                StampError::Malformed(StampParseAttemptType::ResponseAuthenticated, e.to_string())
+            })?;
         raw_idx += NtpTime::RawSize;
 
         StampMsg::too_short(
@@ -732,7 +837,14 @@ impl TryFrom<&[u8]> for StampMsg {
             raw.len(),
             StampError::Other("Packet is too short".to_string()),
         )?;
-        let ee: ErrorEstimate = raw[raw_idx..raw_idx + ErrorEstimate::RawSize].try_into()?;
+        let ee: ErrorEstimate = raw[raw_idx..raw_idx + ErrorEstimate::RawSize]
+            .try_into()
+            .map_err(|e: NtpError| match e {
+                NtpError::InvalidData(e) => {
+                    StampError::Malformed(StampParseAttemptType::ResponseUnauthenticated, e)
+                }
+            })?;
+
         raw_idx += ErrorEstimate::RawSize;
 
         StampMsg::too_short(
