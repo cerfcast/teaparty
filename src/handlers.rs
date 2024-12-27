@@ -320,7 +320,10 @@ pub fn handler(
         }
     }
 
-    let tlv_response = Tlvs{tlvs: tlv_response, malformed: src_stamp_msg.tlvs.malformed};
+    let tlv_response = Tlvs {
+        tlvs: tlv_response,
+        malformed: src_stamp_msg.tlvs.malformed,
+    };
 
     let body = StampResponseBody {
         received_time: received_time.into(),

@@ -435,12 +435,12 @@ pub mod ch {
         pub const DESTINATION_IP_LENGTH: u16 = 16;
         pub const DESTINATION_IP_TYPE: u8 = 5;
         pub const IPV4_DESTINATION_IP_TYPE: u8 = 6;
-        pub const IPV6_DESTINATION_IP_TYPE: u8 = 7;
+        pub const _IPV6_DESTINATION_IP_TYPE: u8 = 7;
 
         pub const SOURCE_IP_LENGTH: u16 = 16;
         pub const SOURCE_IP_TYPE: u8 = 7;
         pub const IPV4_SOURCE_IP_TYPE: u8 = 8;
-        pub const IPV6_SOURCE_IP_TYPE: u8 = 9;
+        pub const _IPV6_SOURCE_IP_TYPE: u8 = 9;
     }
 
     impl TlvHandler for LocationTlv {
@@ -527,7 +527,7 @@ pub mod ch {
                                 info!(logger, "The location TLV is requesting a source IP address; responding with {}", v4);
                                 sub_tlv.value[0..4].copy_from_slice(&v4.octets());
                             }
-                            IpAddr::V6(v6) => {
+                            IpAddr::V6(_) => {
                                 panic!("Ipv6 is not yet supported");
                             }
                         }
@@ -552,7 +552,7 @@ pub mod ch {
                             IpAddr::V4(_) => {
                                 // See above.
                             }
-                            IpAddr::V6(v6) => {
+                            IpAddr::V6(_) => {
                                 panic!("Ipv6 is not yet supported");
                             }
                         }
@@ -599,7 +599,8 @@ pub mod ch {
             for tlv in response.tlvs.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
                     let start_offset = 4usize;
-                    let mut sub_tlvs: Tlvs = TryFrom::<&[u8]>::try_from(&tlv.value[start_offset..])?;
+                    let mut sub_tlvs: Tlvs =
+                        TryFrom::<&[u8]>::try_from(&tlv.value[start_offset..])?;
 
                     for sub_tlv in sub_tlvs.tlvs.iter_mut() {
                         // We can skip all error checking! We know that we have been sanitized.

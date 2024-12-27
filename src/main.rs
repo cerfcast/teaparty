@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 use clap::{Parser, Subcommand, ValueEnum};
-use tlv::Tlvs;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -37,6 +36,7 @@ use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
+use tlv::Tlvs;
 
 #[macro_use]
 extern crate rocket;
@@ -273,7 +273,10 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
     }
 
-    let tlvs = Tlvs{tlvs, malformed: None};
+    let tlvs = Tlvs {
+        tlvs,
+        malformed: None,
+    };
 
     let body = if authenticated.is_some() {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68].as_slice())?

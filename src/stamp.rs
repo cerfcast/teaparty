@@ -713,7 +713,8 @@ impl StampMsg {
 
     pub fn handle_invalid_tlv_request_flags(&mut self) {
         let invalid_tlvs = if let Some(first_bad) = self
-            .tlvs.tlvs
+            .tlvs
+            .tlvs
             .clone()
             .into_iter()
             .position(|tlv| !tlv.is_valid_request())
@@ -884,7 +885,7 @@ impl TryFrom<&[u8]> for StampMsg {
             ssid,
             body,
             hmac,
-            tlvs
+            tlvs,
         })
     }
 }
@@ -1375,7 +1376,10 @@ mod stamp_test_messages_with_tlvs {
         tlvs_bytes[1] = 0x1;
         tlvs_bytes[2..4].copy_from_slice(&12u16.to_be_bytes());
 
-        let tlvs = Tlvs{tlvs: [tlv::Tlv::extra_padding(12)].to_vec(), malformed: None};
+        let tlvs = Tlvs {
+            tlvs: [tlv::Tlv::extra_padding(12)].to_vec(),
+            malformed: None,
+        };
         let msg = StampMsg {
             time: NtpTime {
                 seconds: 0x5,
@@ -1386,7 +1390,7 @@ mod stamp_test_messages_with_tlvs {
             ssid: Default::default(),
             body: Default::default(),
             hmac: None,
-            tlvs
+            tlvs,
         };
 
         let serialized_msg = Into::<Vec<u8>>::into(msg);

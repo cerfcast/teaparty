@@ -78,7 +78,10 @@ impl Periodicity {
 
                 thread::sleep(interval);
 
-                let tlvs = Tlvs{tlvs: vec![tlv::Tlv::heartbeat(mac.clone())], malformed: None};
+                let tlvs = Tlvs {
+                    tlvs: vec![tlv::Tlv::heartbeat(mac.clone())],
+                    malformed: None,
+                };
 
                 let heartbeat = StampMsg {
                     sequence: 0x22,
