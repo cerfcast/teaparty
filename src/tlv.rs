@@ -22,13 +22,14 @@ use std::{
     result::Result,
 };
 
-use crate::os::MacAddr;
+use crate::{os::MacAddr, stamp::StampError};
 
 #[derive(Clone, PartialEq)]
 pub enum Error {
     InvalidFlag(String),
     NotEnoughData,
     FieldNotZerod(String),
+    FieldWrongSized(String, usize, usize),
 }
 
 impl Debug for Error {
@@ -37,6 +38,11 @@ impl Debug for Error {
             Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {}", r),
             Error::NotEnoughData => write!(f, "TLV length exceeded available data"),
             Error::FieldNotZerod(field) => write!(f, "TLV field named {} was not zerod.", field),
+            Error::FieldWrongSized(field, wanted, got) => write!(
+                f,
+                "TLV field named {} was the wrong size: wanted {} but got {}.",
+                field, wanted, got
+            ),
         }
     }
 }
@@ -373,6 +379,7 @@ impl Tlv {
     pub const DESTINATION_PORT: u8 = 177;
     pub const DSCPECN: u8 = 179;
     pub const PADDING: u8 = 1;
+    pub const LOCATION: u8 = 2;
     pub const TIMESTAMP: u8 = 3;
     pub const COS: u8 = 4;
 
