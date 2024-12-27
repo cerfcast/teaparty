@@ -419,3 +419,63 @@ impl Tlv {
         self.flags.get_unrecognized() && !self.flags.get_integrity() && !self.flags.get_malformed()
     }
 }
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Tlvs {
+    pub tlvs: Vec<Tlv>,
+    pub malformed: Option<MalformedTlv>,
+}
+
+impl TryFrom<&[u8]> for Tlvs {
+    type Error = StampError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let mut tlvs: Vec<Tlv> = vec![];
+
+        let mut malformed: Option<MalformedTlv> = None;
+        let mut raw_idx = 0usize;
+        while raw_idx < value.len() {
+            match TryInto::<Tlv>::try_into(&value[raw_idx..]) {
+                Ok(tlv) => {
+                    // We are _not_ safe: The malformed flag may be set.
+                    if !tlv.flags.get_malformed() {
+                        raw_idx += tlv.length as usize + Tlv::FtlSize;
+                        tlvs.push(tlv);
+                    } else {
+                        // Even if we were able to parse the TLV, if the
+                        // malformed flag is set, we have to bail out.
+                        malformed = Some(MalformedTlv {
+                            reason: Error::InvalidFlag("Malformed is indicated.".to_string()),
+                            bytes: value[raw_idx..].to_vec(),
+                        });
+                        break;
+                    }
+                }
+                Err(reason) => {
+                    malformed = Some(MalformedTlv {
+                        reason,
+                        bytes: value[raw_idx..].to_vec(),
+                    });
+                    break;
+                }
+            }
+        }
+        Ok(Tlvs { tlvs, malformed })
+    }
+}
+
+impl From<Tlvs> for Vec<u8> {
+    fn from(value: Tlvs) -> Self {
+        let mut result: Vec<u8> = vec![];
+
+        for tlv in value.tlvs {
+            result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
+        }
+        value
+            .malformed
+            .iter()
+            .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
+
+        result
+    }
+}

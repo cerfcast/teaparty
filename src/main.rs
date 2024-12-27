@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 use clap::{Parser, Subcommand, ValueEnum};
+use tlv::Tlvs;
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -272,6 +273,8 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
     }
 
+    let tlvs = Tlvs{tlvs, malformed: None};
+
     let body = if authenticated.is_some() {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68].as_slice())?
     } else {
@@ -286,7 +289,6 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         body,
         hmac: None,
         tlvs,
-        malformed: None,
     };
 
     let client_keymat = authenticated.map(|f| f.as_bytes().to_vec());

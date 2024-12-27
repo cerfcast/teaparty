@@ -39,6 +39,7 @@ use crate::stamp::StampResponseBody;
 use crate::stamp::StampSendBodyType;
 use crate::tlv;
 use crate::tlv::Tlv;
+use crate::tlv::Tlvs;
 
 /// An object that participates in handling STAMP messages
 /// with certain TLVs.
@@ -295,14 +296,14 @@ pub fn handler(
     // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
     // test packet.
     let mut tlv_response: Vec<tlv::Tlv> = vec![];
-    for mut tlv in src_stamp_msg.tlvs {
+    for mut tlv in src_stamp_msg.tlvs.tlvs {
         let handler = handlers.get_handler(tlv.tpe);
         if let Some(handler) = handler {
             let handler_result =
                 handler
                     .lock()
                     .unwrap()
-                    .handle(&tlv, &test_arguments, session.dst, logger.clone());
+                    .handle(&tlv, &test_arguments, session.src, logger.clone());
             if let Err(e) = handler_result {
                 error!(logger, "There was an error from the tlv-specific handler: {}. No response will be generated.", e);
                 return;
@@ -318,6 +319,8 @@ pub fn handler(
             tlv_response.push(tlv);
         }
     }
+
+    let tlv_response = Tlvs{tlvs: tlv_response, malformed: src_stamp_msg.tlvs.malformed};
 
     let body = StampResponseBody {
         received_time: received_time.into(),
@@ -344,8 +347,6 @@ pub fn handler(
         },
         hmac: None,
         tlvs: tlv_response,
-        // Copy any malformed Tlvs into the packet sent back.
-        malformed: src_stamp_msg.malformed,
     };
 
     if client_authenticated {
@@ -361,7 +362,7 @@ pub fn handler(
     let mut response_src_socket_addr = session.src.clone();
 
     // Let each of the handlers have the chance to modify the socket from which the response will be sent.
-    for response_tlv in response_stamp_msg.tlvs.clone().iter() {
+    for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
         if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
             response_src_socket_addr = response_tlv_handler
                 .lock()
@@ -412,7 +413,7 @@ pub fn handler(
 
         let locked_socket_to_prepare = unlocked_socket_to_prepare.lock().unwrap();
 
-        for response_tlv in response_stamp_msg.tlvs.clone().iter() {
+        for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
             if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
                 if let Err(e) = response_tlv_handler
                     .lock()
@@ -450,7 +451,7 @@ pub fn handler(
         };
 
         // If the handlers changed the socket in some way, they are responsible for setting it back!
-        for response_tlv in response_stamp_msg.tlvs.iter() {
+        for response_tlv in response_stamp_msg.tlvs.tlvs.iter() {
             if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
                 if let Err(e) = response_tlv_handler
                     .lock()

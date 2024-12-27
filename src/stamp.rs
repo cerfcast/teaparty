@@ -22,7 +22,7 @@ use sha2::Sha256;
 
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
-use crate::tlv::{self, MalformedTlv, Tlv};
+use crate::tlv::{self, MalformedTlv, Tlvs};
 
 use std::fmt::{Debug, Display};
 
@@ -685,8 +685,7 @@ pub struct StampMsg {
     pub ssid: Ssid,
     pub body: StampMsgBody,
     pub hmac: Option<RawStampHmac>,
-    pub tlvs: Vec<tlv::Tlv>,
-    pub malformed: Option<tlv::MalformedTlv>,
+    pub tlvs: Tlvs,
 }
 
 const DEFAULT_KEY: &[u8] = &[0x00];
@@ -714,24 +713,24 @@ impl StampMsg {
 
     pub fn handle_invalid_tlv_request_flags(&mut self) {
         let invalid_tlvs = if let Some(first_bad) = self
-            .tlvs
+            .tlvs.tlvs
             .clone()
             .into_iter()
             .position(|tlv| !tlv.is_valid_request())
         {
-            self.tlvs.split_off(first_bad)
+            self.tlvs.tlvs.split_off(first_bad)
         } else {
             vec![]
         };
 
         invalid_tlvs.into_iter().for_each(|invalid| {
-            if let Some(malformed) = self.malformed.as_mut() {
+            if let Some(malformed) = self.tlvs.malformed.as_mut() {
                 malformed.add_malformed_tlv(invalid);
             } else {
                 let mut malformed_tlv = invalid.clone();
                 malformed_tlv.flags.set_malformed(true);
 
-                self.malformed = Some(MalformedTlv {
+                self.tlvs.malformed = Some(MalformedTlv {
                     reason: tlv::Error::InvalidFlag(format!("{:?}", invalid.flags).to_string()),
                     bytes: malformed_tlv.into(),
                 });
@@ -769,13 +768,8 @@ impl From<StampMsg> for Vec<u8> {
             result.extend_from_slice(&hmac.hmac);
         }
 
-        for tlv in value.tlvs {
-            result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
-        }
-        value
-            .malformed
-            .iter()
-            .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
+        result.extend_from_slice(&Into::<Vec<u8>>::into(value.tlvs));
+
         result
     }
 }
@@ -881,35 +875,7 @@ impl TryFrom<&[u8]> for StampMsg {
             None
         };
 
-        let mut tlvs: Vec<tlv::Tlv> = vec![];
-
-        let mut malformed: Option<MalformedTlv> = None;
-        while raw_idx < raw.len() {
-            match TryInto::<tlv::Tlv>::try_into(&raw[raw_idx..]) {
-                Ok(tlv) => {
-                    // We are _not_ safe: The malformed flag may be set.
-                    if !tlv.flags.get_malformed() {
-                        raw_idx += tlv.length as usize + Tlv::FtlSize;
-                        tlvs.push(tlv);
-                    } else {
-                        // Even if we were able to parse the TLV, if the
-                        // malformed flag is set, we have to bail out.
-                        malformed = Some(MalformedTlv {
-                            reason: tlv::Error::InvalidFlag("Malformed is indicated.".to_string()),
-                            bytes: raw[raw_idx..].to_vec(),
-                        });
-                        break;
-                    }
-                }
-                Err(reason) => {
-                    malformed = Some(MalformedTlv {
-                        reason,
-                        bytes: raw[raw_idx..].to_vec(),
-                    });
-                    break;
-                }
-            }
-        }
+        let tlvs: Tlvs = raw[raw_idx..].try_into()?;
 
         Ok(StampMsg {
             sequence,
@@ -918,8 +884,7 @@ impl TryFrom<&[u8]> for StampMsg {
             ssid,
             body,
             hmac,
-            tlvs,
-            malformed,
+            tlvs
         })
     }
 }
@@ -1112,12 +1077,12 @@ mod stamp_test_messages_with_tlvs {
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
 
-        assert!((stamp_pkt.malformed.is_none()));
+        assert!((stamp_pkt.tlvs.malformed.is_none()));
 
         stamp_pkt.handle_invalid_tlv_request_flags();
 
-        assert!((stamp_pkt.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.is_empty());
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
+        assert!(stamp_pkt.tlvs.tlvs.is_empty());
     }
 
     #[test]
@@ -1159,9 +1124,9 @@ mod stamp_test_messages_with_tlvs {
 
         stamp_pkt.handle_invalid_tlv_request_flags();
 
-        assert!((stamp_pkt.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.is_empty());
-        let malformed = stamp_pkt.malformed.unwrap();
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
+        assert!(stamp_pkt.tlvs.tlvs.is_empty());
+        let malformed = stamp_pkt.tlvs.malformed.unwrap();
         assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
     }
 
@@ -1207,9 +1172,9 @@ mod stamp_test_messages_with_tlvs {
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
 
-        assert!((stamp_pkt.malformed.is_some()));
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
 
-        let malformed = stamp_pkt.malformed.unwrap();
+        let malformed = stamp_pkt.tlvs.malformed.unwrap();
 
         assert!(malformed.bytes.len() == (1 + 1 + 2 + 8));
     }
@@ -1238,9 +1203,9 @@ mod stamp_test_messages_with_tlvs {
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
 
-        assert!((stamp_pkt.malformed.is_some()));
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
 
-        let malformed = stamp_pkt.malformed.unwrap();
+        let malformed = stamp_pkt.tlvs.malformed.unwrap();
 
         assert!(malformed.bytes.len() == 1);
     }
@@ -1271,9 +1236,9 @@ mod stamp_test_messages_with_tlvs {
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
 
-        assert!((stamp_pkt.malformed.is_some()));
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
 
-        let malformed = stamp_pkt.malformed.unwrap();
+        let malformed = stamp_pkt.tlvs.malformed.unwrap();
 
         assert!(malformed.bytes.len() == 2);
     }
@@ -1307,9 +1272,9 @@ mod stamp_test_messages_with_tlvs {
             .try_into()
             .expect("Stamp packet parsing unexpectedly failed");
 
-        assert!((stamp_pkt.malformed.is_some()));
+        assert!((stamp_pkt.tlvs.malformed.is_some()));
 
-        let malformed = stamp_pkt.malformed.unwrap();
+        let malformed = stamp_pkt.tlvs.malformed.unwrap();
 
         assert!(malformed.bytes.len() == (1 + 1 + 1));
     }
@@ -1374,11 +1339,11 @@ mod stamp_test_messages_with_tlvs {
             panic!("Should have gotten mbz in ssid!");
         }
 
-        if stamp_pkt.tlvs.len() != 1 {
-            panic!("Got {} tlvs, expected 1", stamp_pkt.tlvs.len());
+        if stamp_pkt.tlvs.tlvs.len() != 1 {
+            panic!("Got {} tlvs, expected 1", stamp_pkt.tlvs.tlvs.len());
         }
 
-        let parsed_tlv = stamp_pkt.tlvs[0].clone();
+        let parsed_tlv = stamp_pkt.tlvs.tlvs[0].clone();
         if parsed_tlv.flags.get_raw() != 0x20 {
             panic!("Got {:?} flags, expected 0x20", parsed_tlv.flags);
         }
@@ -1410,7 +1375,7 @@ mod stamp_test_messages_with_tlvs {
         tlvs_bytes[1] = 0x1;
         tlvs_bytes[2..4].copy_from_slice(&12u16.to_be_bytes());
 
-        let tlvs = [tlv::Tlv::extra_padding(12)];
+        let tlvs = Tlvs{tlvs: [tlv::Tlv::extra_padding(12)].to_vec(), malformed: None};
         let msg = StampMsg {
             time: NtpTime {
                 seconds: 0x5,
@@ -1421,8 +1386,7 @@ mod stamp_test_messages_with_tlvs {
             ssid: Default::default(),
             body: Default::default(),
             hmac: None,
-            tlvs: tlvs.to_vec(),
-            malformed: None,
+            tlvs
         };
 
         let serialized_msg = Into::<Vec<u8>>::into(msg);

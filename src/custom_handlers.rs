@@ -12,7 +12,7 @@ pub mod ch {
         handlers::TlvHandler,
         parameters::{DscpValue, EcnValue, TestArgumentKind, TestArguments},
         stamp::{StampError, StampMsg},
-        tlv::{self, Flags, Tlv},
+        tlv::{self, Flags, Tlv, Tlvs},
     };
 
     pub struct DscpEcnTlv {}
@@ -86,7 +86,7 @@ pub mod ch {
         ) -> Result<(), StampError> {
             info!(logger, "Preparing the response socket in the Dscp Ecn Tlv.");
 
-            for tlv in response.tlvs.iter_mut() {
+            for tlv in response.tlvs.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
                     // TODO: Decide whether multiple handlers that may set the same byte of the header
                     // are cumulative.
@@ -258,7 +258,7 @@ pub mod ch {
                 logger,
                 "Preparing the response target in the destination port Tlv."
             );
-            for tlv in response.tlvs.iter() {
+            for tlv in response.tlvs.tlvs.iter() {
                 if tlv.tpe == self.tlv_type() {
                     let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
                     let mut ipv4 = address;
@@ -384,7 +384,7 @@ pub mod ch {
         ) -> Result<(), StampError> {
             info!(logger, "Preparing the response socket in the CoS Tlv.");
 
-            for tlv in response.tlvs.iter_mut() {
+            for tlv in response.tlvs.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
                     // TODO: Decide whether multiple handlers that may set the same byte of the header
                     // are cumulative.

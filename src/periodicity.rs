@@ -4,6 +4,7 @@ use slog::{error, info, Logger};
 use crate::os::{get_mac_address, MacAddr};
 use crate::server::Sessions;
 use crate::stamp::{StampMsgBody, MBZ_VALUE};
+use crate::tlv::Tlvs;
 use crate::{server::ServerSocket, stamp::StampMsg, HeartbeatConfiguration};
 use crate::{tlv, NtpTime};
 use std::collections::HashMap;
@@ -77,6 +78,8 @@ impl Periodicity {
 
                 thread::sleep(interval);
 
+                let tlvs = Tlvs{tlvs: vec![tlv::Tlv::heartbeat(mac.clone())], malformed: None};
+
                 let heartbeat = StampMsg {
                     sequence: 0x22,
                     time: NtpTime::now(),
@@ -84,8 +87,7 @@ impl Periodicity {
                     ssid: Default::default(),
                     body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice()).unwrap(),
                     hmac: None,
-                    tlvs: vec![tlv::Tlv::heartbeat(mac.clone())],
-                    malformed: None,
+                    tlvs,
                 };
 
                 info!(logger, "Sending heartbeat to {:?}", addr);
