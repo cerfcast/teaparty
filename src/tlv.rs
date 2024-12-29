@@ -377,7 +377,7 @@ mod tlv_parse_test {
 
     #[test]
     fn simple_stamp_malformed_tlv_test_data_too_short() {
-        let mut raw_data: [u8; 1 + 1 + 2 + 8] = [0; 1 + 1 + 2 + 8];
+        let mut raw_data: [u8; Tlv::FtlSize + 8] = [0; Tlv::FtlSize + 8];
 
         // TLV Flag
         raw_data[0] = 0x20;
