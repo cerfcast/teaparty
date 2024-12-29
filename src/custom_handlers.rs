@@ -648,6 +648,71 @@ pub mod ch {
             Ok(())
         }
     }
+
+    #[cfg(test)]
+    mod stamp_handler_test_support {
+        use slog::{Drain, Logger};
+
+        pub fn create_test_logger() -> Logger {
+            let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
+            let drain = slog_term::FullFormat::new(decorator)
+                .build()
+                .filter_level(slog::Level::Debug)
+                .fuse();
+            slog::Logger::root(drain, slog::o!("version" => "0.5"))
+        }
+    }
+    #[cfg(test)]
+    mod stamp_location_tlv_handler {
+        use std::net::{Ipv4Addr, SocketAddrV4};
+
+        use crate::{
+            custom_handlers::ch::LocationTlv,
+            handlers::TlvHandler,
+            parameters::TestArguments,
+            tlv::{self, Tlv},
+        };
+
+        use super::stamp_handler_test_support::create_test_logger;
+
+        #[test]
+        fn parse_sub_tlv() {
+            let mut outter_raw_data: [u8; 2 * Tlv::FtlSize + 12] = [0; 2 * Tlv::FtlSize + 12];
+            outter_raw_data[0] = 0x20;
+            outter_raw_data[1] = 0x02;
+            outter_raw_data[2..4].copy_from_slice(&u16::to_be_bytes((Tlv::FtlSize + 12) as u16));
+
+            let mut inner_raw_data: [u8; Tlv::FtlSize + 12] = [0; Tlv::FtlSize + 12];
+
+            // TLV Flag
+            inner_raw_data[4] = 0x20;
+            // TLV Type
+            inner_raw_data[5] = 0xfe;
+            // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+            inner_raw_data[6..8].copy_from_slice(&u16::to_be_bytes(9));
+            // TLV Data
+            inner_raw_data[8..16].copy_from_slice(&u64::to_be_bytes(0));
+
+            outter_raw_data[4..].copy_from_slice(&inner_raw_data);
+
+            let handler = LocationTlv {};
+            let arguments = TestArguments::empty_arguments();
+            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
+            let tlv = TryInto::<Tlv>::try_into(outter_raw_data.as_slice())
+                .expect("Outter TLV should parse");
+
+            let logger = create_test_logger();
+            let handled = handler
+                .handle(&tlv, &arguments, address.into(), logger)
+                .expect("Inner TLV should parse");
+
+            let reparsed_sub_tlv = TryInto::<Tlv>::try_into(&handled.value.as_slice()[4..])
+                .expect_err("Handled TLV should _not_ reparse");
+
+            assert!(matches!(reparsed_sub_tlv, tlv::Error::NotEnoughData));
+            assert!(handled.value[4] & 0x40 != 0);
+        }
+    }
 }
 
 pub struct CustomHandlers {}
