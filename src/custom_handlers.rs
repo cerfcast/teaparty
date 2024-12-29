@@ -568,6 +568,10 @@ pub mod ch {
                 result_value.extend_from_slice(&Into::<Vec<u8>>::into(sub_tlv));
             }
 
+            if let Some(malformed) = sub_tlvs.malformed {
+                result_value.extend_from_slice(&malformed.bytes);
+            }
+
             assert!(result_value.len() == tlv.value.len());
 
             Ok(Tlv {
