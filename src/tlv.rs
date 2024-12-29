@@ -503,3 +503,32 @@ impl From<Tlvs> for Vec<u8> {
         result
     }
 }
+
+#[cfg(test)]
+mod tlvs_parse_test {
+    use crate::tlv::{Tlv, Tlvs};
+
+    #[test]
+    fn simple_stamp_tlvs_test_one_malformed_tlv() {
+        let mut inner_raw_data: [u8; Tlv::FtlSize + 8] = [0; Tlv::FtlSize + 8];
+
+        // TLV Flag
+        inner_raw_data[0] = 0x20;
+        // TLV Type
+        inner_raw_data[1] = 0xfe;
+        // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+        inner_raw_data[2..4].copy_from_slice(&u16::to_be_bytes(9));
+        // TLV Data
+        inner_raw_data[4..12].copy_from_slice(&u64::to_be_bytes(0));
+
+        let tlvs = TryInto::<Tlvs>::try_into(inner_raw_data.as_slice())
+            .expect("Bytes with bad TLV should still parse into TLVs");
+
+        assert!(tlvs.tlvs.len() == 0);
+
+        assert!(tlvs.malformed.is_some());
+
+        let malformed = tlvs.malformed.unwrap();
+        assert!(malformed.bytes[0] & 0x40 != 0);
+    }
+}
