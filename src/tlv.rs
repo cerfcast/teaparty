@@ -244,6 +244,26 @@ pub struct MalformedTlv {
     pub bytes: Vec<u8>,
 }
 
+impl MalformedTlv {
+    pub fn new(reason: Error, bytes: Vec<u8>) -> Self {
+        let mut mtv = Self { reason, bytes };
+        mtv.make_bytes_parseable();
+        mtv
+    }
+    pub fn make_bytes_parseable(&mut self) {
+        let mut malformed_flag = Flags::new();
+        malformed_flag.set_malformed(true);
+        self.bytes[0] |= Into::<u8>::into(malformed_flag);
+
+        /*
+        if self.bytes.len() > Tlv::FtlSize {
+            let tlv_length_field_value = (self.bytes.len() - Tlv::FtlSize) as u16;
+            self.bytes[2..4].copy_from_slice(&tlv_length_field_value.to_be_bytes());
+        }
+        */
+    }
+}
+
 impl Debug for MalformedTlv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MalformedTlv")
@@ -451,18 +471,15 @@ impl TryFrom<&[u8]> for Tlvs {
                     } else {
                         // Even if we were able to parse the TLV, if the
                         // malformed flag is set, we have to bail out.
-                        malformed = Some(MalformedTlv {
-                            reason: Error::InvalidFlag("Malformed is indicated.".to_string()),
-                            bytes: value[raw_idx..].to_vec(),
-                        });
+                        malformed = Some(MalformedTlv::new(
+                            Error::InvalidFlag("Malformed is indicated.".to_string()),
+                            value[raw_idx..].to_vec(),
+                        ));
                         break;
                     }
                 }
                 Err(reason) => {
-                    malformed = Some(MalformedTlv {
-                        reason,
-                        bytes: value[raw_idx..].to_vec(),
-                    });
+                    malformed = Some(MalformedTlv::new(reason, value[raw_idx..].to_vec()));
                     break;
                 }
             }
