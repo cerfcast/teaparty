@@ -21,6 +21,8 @@ use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use clap::ArgMatches;
+use clap::Command;
 use slog::Logger;
 use slog::{debug, error, info, warn};
 
@@ -40,6 +42,8 @@ use crate::stamp::StampSendBodyType;
 use crate::tlv;
 use crate::tlv::Tlv;
 use crate::tlv::Tlvs;
+
+pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 
 /// An object that participates in handling STAMP messages
 /// with certain TLVs.
@@ -64,6 +68,8 @@ use crate::tlv::Tlvs;
 /// > the socket unchanged with respect to its configuration before it was
 /// > first [`TlvHandler::prepare_response_socket`]'d by this handler.
 pub trait TlvHandler {
+    fn tlv_cli_command(&self, command: Command) -> Command;
+
     /// The type of the TLV for which this object will respond.
     fn tlv_type(&self) -> u8;
 
@@ -77,15 +83,12 @@ pub trait TlvHandler {
         logger: slog::Logger,
     ) -> Result<Tlv, StampError>;
 
-    /// The name of this TLV.
-    ///
-    /// The value returned from this method will be used to enable the
-    /// user to include one of these TLVs in a test packet when the
-    /// application is run in client mode.
-    fn tlv_name(&self) -> String;
-
     /// Generate a TLV to include a STAMP test packet.
-    fn request(&self, arguments: Option<TestArguments>) -> Tlv;
+    fn request(
+        &self,
+        arguments: Option<TestArguments>,
+        matches: &mut ArgMatches,
+    ) -> TlvRequestResult;
 
     /// Customize the IP/port of the destination of the reflected STAMP packet.
     ///
@@ -144,16 +147,55 @@ impl Handlers {
     pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvHandler + Send>>> {
         self.handlers
             .iter()
-            .find(|e| e.lock().unwrap().tlv_type() == tlv_id)
+            .find(|e| {
+                let handler_type = e.lock().unwrap().tlv_type();
+                handler_type != 0 && handler_type == tlv_id
+            })
             .cloned()
     }
 
-    /// Given the name of a Tlv, find a request, if one is available.
-    pub fn get_request(&self, tlv_name: String, args: Option<TestArguments>) -> Option<Tlv> {
+    pub fn get_cli_commands(&self) -> Command {
+        let command = Command::new("tlvs");
         self.handlers
             .iter()
-            .find(|v| tlv_name == v.lock().unwrap().tlv_name())
-            .map(|h| h.lock().unwrap().request(args))
+            .fold(command, |e, tlv| tlv.lock().unwrap().tlv_cli_command(e))
+    }
+
+    pub fn get_requests(&self, args: Option<TestArguments>, matches: &mut ArgMatches) -> Vec<Tlv> {
+        let matches = matches.subcommand_matches("sender");
+        if matches.is_none() {
+            return vec![];
+        }
+
+        let matches = matches.unwrap().subcommand_matches("tlvs");
+        if matches.is_none() {
+            return vec![];
+        }
+
+        let mut tlvs: Vec<Tlv> = vec![];
+
+        let mut matches = matches.unwrap().clone();
+        loop {
+            let command = self
+                .handlers
+                .iter()
+                .find_map(|h| h.lock().unwrap().request(args.clone(), &mut matches));
+
+            if let Some((tlv, _)) = &command {
+                tlvs.push(tlv.clone());
+            }
+
+            let remainder = if let Some((_, Some(remainder))) = command {
+                remainder
+            } else {
+                break;
+            };
+
+            matches = self
+                .get_cli_commands()
+                .get_matches_from(remainder.split(" "));
+        }
+        tlvs
     }
 }
 

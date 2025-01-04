@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, ValueEnum};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -62,9 +62,6 @@ struct Cli {
 
     #[arg(default_value_t = 862)]
     port: u16,
-
-    #[command(subcommand)]
-    command: Commands,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -73,49 +70,47 @@ enum MalformedWhy {
     BadLength,
 }
 
+#[derive(Args, Debug)]
+struct SenderArgs {
+    #[arg(long)]
+    ssid: Option<u16>,
+
+    /// Include a malformed Tlv in the test packet.
+    #[arg(long)]
+    malformed: Option<MalformedWhy>,
+
+    /// Enable a non-default ECN for testing (ECT0)
+    #[arg(long, default_value_t = false)]
+    ecn: bool,
+
+    /// Enable a non-default DSCP for testing (EF)
+    #[arg(long, default_value_t = false)]
+    dscp: bool,
+
+    #[arg(long, default_value_t = 0)]
+    src_port: u16,
+
+    #[arg(long)]
+    authenticated: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ReflectorArgs {
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Run teaparty in stateless mode."
+    )]
+    stateless: bool,
+
+    #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
+    heartbeat: Vec<HeartbeatConfiguration>,
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Sender {
-        #[arg(long)]
-        ssid: Option<u16>,
-
-        #[arg(long)]
-        tlv: Option<String>,
-
-        /// Include an unrecognized Tlv in the test packet.
-        #[arg(long, default_value_t = false)]
-        unrecognized: bool,
-
-        /// Include a malformed Tlv in the test packet.
-        #[arg(long)]
-        malformed: Option<MalformedWhy>,
-
-        /// Enable a non-default ECN for testing (ECT0)
-        #[arg(long, default_value_t = false)]
-        ecn: bool,
-
-        /// Enable a non-default DSCP for testing (EF)
-        #[arg(long, default_value_t = false)]
-        dscp: bool,
-
-        #[arg(long, default_value_t = 0)]
-        src_port: u16,
-
-        #[arg(long)]
-        authenticated: Option<String>,
-    },
-
-    Reflector {
-        #[arg(
-            long,
-            default_value_t = false,
-            help = "Run teaparty in stateless mode."
-        )]
-        stateless: bool,
-
-        #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
-        heartbeat: Vec<HeartbeatConfiguration>,
-    },
+    Sender(SenderArgs),
+    Reflector(ReflectorArgs),
 }
 
 #[derive(Debug, Clone)]
@@ -149,31 +144,24 @@ impl FromStr for HeartbeatConfiguration {
     }
 }
 
-fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
+fn client(
+    args: Cli,
+    command: Commands,
+    mut extra_args: ArgMatches,
+    handlers: Handlers,
+    logger: slog::Logger,
+) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (
-        maybe_ssid,
-        maybe_tlv_name,
-        unrecognized,
-        malformed,
-        use_ecn,
-        use_dscp,
-        src_port,
-        authenticated,
-    ) = match args.command {
-        Commands::Sender {
+    let (maybe_ssid, malformed, use_ecn, use_dscp, src_port, authenticated) = match command {
+        Commands::Sender(SenderArgs {
             ssid,
-            tlv,
-            unrecognized,
             malformed,
             ecn,
             dscp,
             src_port,
             authenticated,
-        } => (
+        }) => (
             ssid.map(Ssid::Ssid),
-            tlv,
-            unrecognized,
             malformed,
             ecn,
             dscp,
@@ -244,17 +232,7 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
         );
     }
 
-    let mut tlvs = maybe_tlv_name.map_or(Ok(vec![]), |tlv_name| {
-        if let Some(request_tlv) = handlers.get_request(tlv_name.clone(), Some(test_arguments)) {
-            Ok(vec![request_tlv])
-        } else {
-            error!(logger, "Cannot send request for unknown Tlv {}", tlv_name);
-            Err(StampError::Other(format!(
-                "No Tlv available with name {}",
-                tlv_name
-            )))
-        }
-    })?;
+    let mut tlvs = handlers.get_requests(Some(test_arguments), &mut extra_args);
 
     tlvs.extend(
         malformed
@@ -268,10 +246,6 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
             })
             .unwrap_or_default(),
     );
-
-    if unrecognized {
-        tlvs.extend(vec![tlv::Tlv::unrecognized(52)]);
-    }
 
     let tlvs = Tlvs {
         tlvs,
@@ -412,14 +386,19 @@ fn client(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
     Ok(())
 }
 
-fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), StampError> {
+fn server(
+    args: Cli,
+    command: Commands,
+    handlers: Handlers,
+    logger: slog::Logger,
+) -> Result<(), StampError> {
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let (stateless, heartbeats) = match args.command {
-        Commands::Reflector {
+    let (stateless, heartbeats) = match command {
+        Commands::Reflector(ReflectorArgs {
             stateless,
             heartbeat,
-        } => (stateless, heartbeat),
+        }) => (stateless, heartbeat),
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
@@ -611,8 +590,6 @@ fn server(args: Cli, handlers: Handlers, logger: slog::Logger) -> Result<(), Sta
 }
 
 fn main() -> Result<(), StampError> {
-    let args = Cli::parse();
-
     let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
     let drain = slog_term::FullFormat::new(decorator)
         .build()
@@ -620,22 +597,39 @@ fn main() -> Result<(), StampError> {
         .fuse();
     let logger = slog::Logger::root(drain, slog::o!("version" => "0.5"));
 
-    let handlers = CustomHandlers::build();
+    let tlv_handlers = CustomHandlers::build();
+    let tlvs_command = tlv_handlers.get_cli_commands();
 
-    match args.command {
-        Commands::Reflector {
+    let sender_command = Command::new("sender");
+    let sender_command = SenderArgs::augment_args(sender_command);
+    let sender_command = sender_command.subcommand(tlvs_command);
+
+    let reflector_command = Command::new("reflector");
+    let reflector_command = ReflectorArgs::augment_args(reflector_command);
+
+    let command = Command::new("Commands")
+        .subcommand(sender_command)
+        .subcommand(reflector_command);
+
+    let basic_cli_parser = Cli::augment_args(command);
+
+    let matches = basic_cli_parser.get_matches();
+    let args = Cli::from_arg_matches(&matches).unwrap();
+
+    let given_command = Commands::from_arg_matches(&matches).unwrap();
+
+    match &given_command {
+        Commands::Reflector(ReflectorArgs {
             stateless: _,
             heartbeat: _,
-        } => server(args, handlers, logger),
-        Commands::Sender {
+        }) => server(args, given_command, tlv_handlers, logger),
+        Commands::Sender(SenderArgs {
             ssid: _,
-            tlv: _,
-            unrecognized: _,
             malformed: _,
             ecn: _,
             dscp: _,
             src_port: _,
             authenticated: _,
-        } => client(args, handlers, logger),
+        }) => client(args, given_command, matches, tlv_handlers, logger),
     }
 }

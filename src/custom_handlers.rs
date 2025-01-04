@@ -5,11 +5,12 @@ use crate::handlers;
 pub mod ch {
     use std::net::{IpAddr, SocketAddr, UdpSocket};
 
+    use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
     use nix::sys::socket::{sockopt::Ipv4Tos, SetSockOpt};
     use slog::{error, info, warn, Logger};
 
     use crate::{
-        handlers::TlvHandler,
+        handlers::{TlvHandler, TlvRequestResult},
         parameters::{DscpValue, EcnValue, TestArgumentKind, TestArguments},
         stamp::{StampError, StampMsg},
         tlv::{self, Flags, Tlv, Tlvs},
@@ -17,22 +18,45 @@ pub mod ch {
 
     pub struct DscpEcnTlv {}
 
+    #[derive(Subcommand, Clone, Debug)]
+    enum DscpEcnTlvCommand {
+        DscpEcn {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
     impl TlvHandler for DscpEcnTlv {
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            DscpEcnTlvCommand::augment_subcommands(command)
+        }
+
         fn tlv_type(&self) -> u8 {
             Tlv::DSCPECN
         }
 
-        fn tlv_name(&self) -> String {
-            "dscpecn".into()
-        }
-
-        fn request(&self, _: Option<TestArguments>) -> Tlv {
-            Tlv {
-                flags: Flags::new_request(),
-                tpe: self.tlv_type(),
-                length: 4,
-                value: vec![(0x2e << 2) | 1u8, 0, 0, 0],
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = DscpEcnTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
             }
+            let our_command = maybe_our_command.unwrap();
+            let DscpEcnTlvCommand::DscpEcn { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: 4,
+                    value: vec![(0x2e << 2) | 1u8, 0, 0, 0],
+                },
+                remainder,
+            ))
         }
 
         fn handle(
@@ -136,22 +160,45 @@ pub mod ch {
 
     pub struct TimeTlv {}
 
+    #[derive(Subcommand, Clone, Debug)]
+    enum TimeTlvCommand {
+        Time {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
     impl TlvHandler for TimeTlv {
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            TimeTlvCommand::augment_subcommands(existing)
+        }
+
         fn tlv_type(&self) -> u8 {
             Tlv::TIMESTAMP
         }
 
-        fn tlv_name(&self) -> String {
-            "timestamp".into()
-        }
-
-        fn request(&self, _: Option<TestArguments>) -> Tlv {
-            Tlv {
-                flags: Flags::new_request(),
-                tpe: 0x3,
-                length: 4,
-                value: vec![0u8; 4],
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = TimeTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
             }
+            let our_command = maybe_our_command.unwrap();
+            let TimeTlvCommand::Time { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: 0x3,
+                    length: 4,
+                    value: vec![0u8; 4],
+                },
+                remainder,
+            ))
         }
 
         fn handle(
@@ -215,26 +262,48 @@ pub mod ch {
 
     pub struct DestinationPort {}
 
+    #[derive(Subcommand, Clone, Debug)]
+    enum DestinationPortTlvCommand {
+        DestinationPort {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
     impl TlvHandler for DestinationPort {
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            DestinationPortTlvCommand::augment_subcommands(existing)
+        }
         fn tlv_type(&self) -> u8 {
             Tlv::DESTINATION_PORT
         }
 
-        fn tlv_name(&self) -> String {
-            "destinationport".into()
-        }
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = DestinationPortTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let DestinationPortTlvCommand::DestinationPort { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
 
-        fn request(&self, _: Option<TestArguments>) -> Tlv {
             let mut data = [0u8; 4];
 
             data[0..2].copy_from_slice(&983u16.to_be_bytes());
 
-            Tlv {
-                flags: Flags::new_request(),
-                tpe: self.tlv_type(),
-                length: 4,
-                value: data.to_vec(),
-            }
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: 4,
+                    value: data.to_vec(),
+                },
+                remainder,
+            ))
         }
 
         fn handle(
@@ -292,16 +361,40 @@ pub mod ch {
 
     pub struct ClassOfServiceTlv {}
 
+    #[derive(Subcommand, Clone, Debug)]
+    enum ClassOfServiceTlvCommand {
+        ClassOfService {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
     impl TlvHandler for ClassOfServiceTlv {
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            ClassOfServiceTlvCommand::augment_subcommands(existing)
+        }
+
         fn tlv_type(&self) -> u8 {
             Tlv::COS
         }
 
-        fn tlv_name(&self) -> String {
-            "classofservice".into()
-        }
+        fn request(
+            &self,
+            args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = ClassOfServiceTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let ClassOfServiceTlvCommand::ClassOfService { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
 
-        fn request(&self, args: Option<TestArguments>) -> Tlv {
             let data = if let Some(tas) = args {
                 let mut data = [0u8; 4];
                 if let Ok(dscp_value) = tas.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
@@ -312,12 +405,15 @@ pub mod ch {
                 [0u8; 4]
             };
 
-            Tlv {
-                flags: Flags::new_request(),
-                tpe: Tlv::COS,
-                length: 4,
-                value: data.to_vec(),
-            }
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::COS,
+                    length: 4,
+                    value: data.to_vec(),
+                },
+                remainder,
+            ))
         }
 
         fn handle(
@@ -443,16 +539,40 @@ pub mod ch {
         pub const _IPV6_SOURCE_IP_TYPE: u8 = 9;
     }
 
+    #[derive(Subcommand, Clone, Debug)]
+    enum LocationTlvCommand {
+        Location {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
     impl TlvHandler for LocationTlv {
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            LocationTlvCommand::augment_subcommands(existing)
+        }
+
         fn tlv_type(&self) -> u8 {
             Tlv::LOCATION
         }
 
-        fn tlv_name(&self) -> String {
-            "location".into()
-        }
+        fn request(
+            &self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = LocationTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let LocationTlvCommand::Location { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
 
-        fn request(&self, _: Option<TestArguments>) -> Tlv {
             let sub_tlv = Tlv {
                 flags: Flags::new_request(),
                 tpe: Self::SOURCE_IP_TYPE,
@@ -464,12 +584,15 @@ pub mod ch {
             let sub_tlv_value: Vec<u8> = sub_tlv.into();
             request_value.extend_from_slice(&sub_tlv_value);
 
-            Tlv {
-                flags: Flags::new_request(),
-                tpe: self.tlv_type(),
-                length: 4 + 20,
-                value: request_value,
-            }
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: 4 + 20,
+                    value: request_value,
+                },
+                remainder,
+            ))
         }
 
         fn handle(
@@ -713,6 +836,92 @@ pub mod ch {
             assert!(handled.value[4] & 0x40 != 0);
         }
     }
+
+    pub struct UnrecognizedTlv {}
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum UnrecognizedTlvCommand {
+        Unrecognized {
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for UnrecognizedTlv {
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            UnrecognizedTlvCommand::augment_subcommands(command)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            0
+        }
+
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = UnrecognizedTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let UnrecognizedTlvCommand::Unrecognized { remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
+
+            Some((Tlv::unrecognized(32), remainder))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _client: SocketAddr,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am in the Unrecognized TLV handler!");
+            Ok(tlv.clone())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(
+                logger,
+                "Preparing the response target in the Unrecognized Ecn Tlv."
+            );
+            address
+        }
+
+        fn prepare_response_socket(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(
+                logger,
+                "Preparing the response socket in the Unrecognized Tlv."
+            );
+            Ok(())
+        }
+
+        fn unprepare_response_socket(
+            &self,
+            _: &StampMsg,
+            _socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(
+                logger,
+                "Unpreparing the response socket in the Unrecognized Tlv."
+            );
+            Ok(())
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -730,6 +939,8 @@ impl CustomHandlers {
         handlers.add(cos_handler);
         let location_handler = Arc::new(Mutex::new(ch::LocationTlv {}));
         handlers.add(location_handler);
+        let unrecognized_handler = Arc::new(Mutex::new(ch::UnrecognizedTlv {}));
+        handlers.add(unrecognized_handler);
 
         handlers
     }
