@@ -136,12 +136,14 @@ Upon `POST`ing a JSON object with the fields above, the server will respond with
 The Sender has a variety of options, but they are mostly for the purposes of testing the Reflector:
 
 ```console
-Usage: teaparty sender [OPTIONS]
+Usage: teaparty sender [OPTIONS] [COMMAND]
+
+Commands:
+  tlvs  
+  help  Print this message or the help of the given subcommand(s)
 
 Options:
       --ssid <SSID>                    
-      --tlv <TLV>                      
-      --unrecognized                   Include an unrecognized Tlv in the test packet
       --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
       --ecn                            Enable a non-default ECN for testing (ECT0)
       --dscp                           Enable a non-default DSCP for testing (EF)
@@ -150,27 +152,52 @@ Options:
   -h, --help                           Print help
 ```
 
-The `--src-port` option is useful for testing the statefulness of the Reflector. The `--unrecognized` and `--malformed` options are useful
+The `--src-port` option is useful for testing the statefulness of the Reflector. The `--malformed` option is useful
 for testing the Reflector's error handling. The `--ecn` and `--dscp` will set the TOS fields of the IP packet of the test packet (with the values [ECT0](https://www.juniper.net/documentation/us/en/software/junos/cos/topics/concept/cos-qfx-series-explicit-congestion-notification-understanding.html#understanding-cos-explicit-congestion-notification__subsection_anp_p5j_w5b)
 and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Setting the `--authenticated` flag will cause the sender to operate in [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3) and use `<AUTHENTICATED>` as the key for generating the test packet's HMAC.
 
-The `--tlv` option will put TLVs into the test packet. The following values for `<TLV>` are currently supported:
+The `tlvs` subcommand will put TLVs into the test packet.
 
-| Name | TLV | Defaults |
+```console
+Usage: teaparty sender tlvs [COMMAND]
+
+Commands:
+  dscp-ecn          
+  time              
+  destination-port  
+  class-of-service  
+  location          
+  unrecognized      
+  help              Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+``` 
+
+| Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
-| classofservice | Class of Service | When used with `--dscp` option, `DSCP1` field contains EF. |
-| dscpecn | DSCP ECN | When used with the `--dscp` and `--ecn` option, the `DSCP1` and `ECN1` fields contain EF and ECT0, respectively.
-| timestamp | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
-| destinationport | Destination Port| 983 |
+| class-of-service | Class of Service | When used with `--dscp` option, `DSCP1` field contains EF. |
+| dscp-ecn | DSCP ECN | When used with the `--dscp` and `--ecn` option, the `DSCP1` and `ECN1` fields contain EF and ECT0, respectively.
+| time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
+| destination-port | Destination Port| 983 |
 | location | Location | A Source IP Address sub-TLV |
+| unrecognized | _Special_| Will include a TLV whose type is unrecognized |
+
+
+
+It is possible to put more than one TLV into a test packet by separating multiple instances of the `tlvs` subcommand with the `--`.
 
 _Example_:
 
 ```console
-$ teaparty  127.0.0.1 sender  --tlv classofservice --dscp 
+$ teaparty 127.0.0.1 sender  --dscp tlvs class-of-service 
 ```
-
 will send a STAMP test packet to a Reflector running on localhost that contains a Class of Service TLV (with the `DSCP1` field set to EF) with the IP packet's DSCP value set to EF.
+
+```console
+$ 127.0.0.1 sender --ecn --dscp tlvs time -- tlvs dscp-ecn  -- tlvs class-of-service 
+```
+will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a DSCP ECN TLV (with the the `DSCP1` and `ECN1` fields set to EF and ECT0, respectively), a Class of Service TLV (with the `DSCP1` field set to EF) and with the IP packet's ECN and DSCP values set to ECT0 and EF, respectively.
 
 ### Contributing
 
