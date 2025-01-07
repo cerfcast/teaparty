@@ -22,7 +22,7 @@ use std::{
     result::Result,
 };
 
-use crate::{os::MacAddr, stamp::StampError};
+use crate::{custom_handlers::CustomHandlers, os::MacAddr, stamp::StampError};
 
 #[derive(Clone, PartialEq)]
 pub enum Error {
@@ -301,9 +301,19 @@ pub struct Tlv {
 
 impl Debug for Tlv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tlv")
-            .field("flags", &self.flags)
-            .field("type", &format_args!("0x{:x?}", self.tpe))
+        let handlers = CustomHandlers::build();
+
+        let mut printable = f.debug_struct("Tlv");
+        printable.field("flags", &self.flags);
+
+        if let Some(handler) = handlers.get_handler(self.tpe) {
+            let handler = handler.lock().unwrap();
+            printable.field("type", &format_args!("{:?}", handler.tlv_name()));
+        } else {
+            printable.field("type", &format_args!("{:x?}", self.tpe));
+        }
+
+        printable
             .field("length", &self.length)
             .field("value", &format_args!("{:x?}", self.value))
             .finish()

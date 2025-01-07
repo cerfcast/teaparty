@@ -27,6 +27,10 @@ pub mod ch {
     }
 
     impl TlvHandler for DscpEcnTlv {
+        fn tlv_name(&self) -> String {
+            "DSCP ECN".into()
+        }
+
         fn tlv_cli_command(&self, command: Command) -> Command {
             DscpEcnTlvCommand::augment_subcommands(command)
         }
@@ -169,6 +173,10 @@ pub mod ch {
     }
 
     impl TlvHandler for TimeTlv {
+        fn tlv_name(&self) -> String {
+            "Time".into()
+        }
+
         fn tlv_cli_command(&self, existing: Command) -> Command {
             TimeTlvCommand::augment_subcommands(existing)
         }
@@ -271,6 +279,10 @@ pub mod ch {
     }
 
     impl TlvHandler for DestinationPort {
+        fn tlv_name(&self) -> String {
+            "Destination Port".into()
+        }
+
         fn tlv_cli_command(&self, existing: Command) -> Command {
             DestinationPortTlvCommand::augment_subcommands(existing)
         }
@@ -370,6 +382,10 @@ pub mod ch {
     }
 
     impl TlvHandler for ClassOfServiceTlv {
+        fn tlv_name(&self) -> String {
+            "Class of Service".into()
+        }
+
         fn tlv_cli_command(&self, existing: Command) -> Command {
             ClassOfServiceTlvCommand::augment_subcommands(existing)
         }
@@ -548,6 +564,10 @@ pub mod ch {
     }
 
     impl TlvHandler for LocationTlv {
+        fn tlv_name(&self) -> String {
+            "Location".into()
+        }
+
         fn tlv_cli_command(&self, existing: Command) -> Command {
             LocationTlvCommand::augment_subcommands(existing)
         }
@@ -848,6 +868,10 @@ pub mod ch {
     }
 
     impl TlvHandler for UnrecognizedTlv {
+        fn tlv_name(&self) -> String {
+            "Unrecognized".into()
+        }
+
         fn tlv_cli_command(&self, command: Command) -> Command {
             UnrecognizedTlvCommand::augment_subcommands(command)
         }
