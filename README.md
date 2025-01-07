@@ -195,7 +195,7 @@ $ teaparty 127.0.0.1 sender  --dscp tlvs class-of-service
 will send a STAMP test packet to a Reflector running on localhost that contains a Class of Service TLV (with the `DSCP1` field set to EF) with the IP packet's DSCP value set to EF.
 
 ```console
-$ 127.0.0.1 sender --ecn --dscp tlvs time -- tlvs dscp-ecn  -- tlvs class-of-service 
+$ 127.0.0.1 sender --ecn --dscp tlvs time -- dscp-ecn  -- class-of-service 
 ```
 will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a DSCP ECN TLV (with the the `DSCP1` and `ECN1` fields set to EF and ECT0, respectively), a Class of Service TLV (with the `DSCP1` field set to EF) and with the IP packet's ECN and DSCP values set to ECT0 and EF, respectively.
 

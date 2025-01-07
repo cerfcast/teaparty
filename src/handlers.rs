@@ -68,6 +68,8 @@ pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 /// > the socket unchanged with respect to its configuration before it was
 /// > first [`TlvHandler::prepare_response_socket`]'d by this handler.
 pub trait TlvHandler {
+    fn tlv_name(&self) -> String;
+
     fn tlv_cli_command(&self, command: Command) -> Command;
 
     /// The type of the TLV for which this object will respond.
@@ -155,7 +157,7 @@ impl Handlers {
     }
 
     pub fn get_cli_commands(&self) -> Command {
-        let command = Command::new("tlvs");
+        let command = Command::new("tlvs").no_binary_name(true);
         self.handlers
             .iter()
             .fold(command, |e, tlv| tlv.lock().unwrap().tlv_cli_command(e))
