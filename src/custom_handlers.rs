@@ -946,6 +946,107 @@ pub mod ch {
             Ok(())
         }
     }
+
+    pub struct PaddingTlv {}
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum PaddingTlvCommand {
+        Padding {
+            #[arg(short, default_value_t=64)]
+            size: u16,
+
+            #[arg(last = true)]
+            remainder: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for PaddingTlv {
+        fn tlv_name(&self) -> String {
+            "Padding".into()
+        }
+
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            PaddingTlvCommand::augment_subcommands(existing)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::PADDING
+        }
+
+        fn request(
+            &self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = PaddingTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let PaddingTlvCommand::Padding { size, remainder } = our_command;
+            let remainder = if !remainder.is_empty() {
+                Some(remainder.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: 4 + size,
+                    value: vec![0u8; 4 + size as usize],
+                },
+                remainder,
+            ))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _client: SocketAddr,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "Handling the response in the Padding Tlv.");
+            let mut response = tlv.clone();
+            response.flags = Flags::new_response();
+            Ok(tlv.clone())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(logger, "Preparing the response target in the Padding Tlv.");
+            address
+        }
+
+        fn prepare_response_socket(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(logger, "Preparing the response socket in the Padding Tlv.");
+            Ok(())
+        }
+
+        fn unprepare_response_socket(
+            &self,
+            _: &StampMsg,
+            _socket: &UdpSocket,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(
+                logger,
+                "Unpreparing the response socket in the Padding Tlv."
+            );
+            Ok(())
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -965,6 +1066,8 @@ impl CustomHandlers {
         handlers.add(location_handler);
         let unrecognized_handler = Arc::new(Mutex::new(ch::UnrecognizedTlv {}));
         handlers.add(unrecognized_handler);
+        let padding_handler = Arc::new(Mutex::new(ch::PaddingTlv {}));
+        handlers.add(padding_handler);
 
         handlers
     }
