@@ -850,8 +850,6 @@ impl TryFrom<&[u8]> for StampMsg {
         let ssid: Ssid = raw[raw_idx..raw_idx + Ssid::RawSize].try_into()?;
         raw_idx += Ssid::RawSize;
 
-        // Let's see whether these bytes are 0s. If they are, then we move on.
-        // Otherwise, we will have to parse a response message!
         StampMsg::too_short(
             raw_idx,
             raw.len(),
