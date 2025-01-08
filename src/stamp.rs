@@ -22,7 +22,7 @@ use sha2::Sha256;
 
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
-use crate::tlv::{self, MalformedTlv, Tlvs};
+use crate::tlv::{self, Tlvs};
 
 use std::fmt::{Debug, Display};
 
@@ -711,34 +711,6 @@ impl StampMsg {
         }
     }
 
-    pub fn handle_invalid_tlv_request_flags(&mut self) {
-        let invalid_tlvs = if let Some(first_bad) = self
-            .tlvs
-            .tlvs
-            .clone()
-            .into_iter()
-            .position(|tlv| !tlv.is_valid_request())
-        {
-            self.tlvs.tlvs.split_off(first_bad)
-        } else {
-            vec![]
-        };
-
-        invalid_tlvs.into_iter().for_each(|invalid| {
-            if let Some(malformed) = self.tlvs.malformed.as_mut() {
-                malformed.add_malformed_tlv(invalid);
-            } else {
-                let mut malformed_tlv = invalid.clone();
-                malformed_tlv.flags.set_malformed(true);
-
-                self.tlvs.malformed = Some(MalformedTlv {
-                    reason: tlv::Error::InvalidFlag(format!("{:?}", invalid.flags).to_string()),
-                    bytes: malformed_tlv.into(),
-                });
-            }
-        });
-    }
-
     fn base_into_bytes(&self) -> Vec<u8> {
         let mut result = vec![0u8; 0];
         result.extend(&self.sequence.to_be_bytes());
@@ -1057,87 +1029,6 @@ mod stamp_test_messages_with_tlvs {
     use stamp_test_messages::UNAUTHENTICATED_STAMP_PKT_SIZE;
 
     use super::*;
-
-    fn do_simple_stamp_malformed_tlv_invalid_flags(authenticated: bool) {
-        let mut raw_data =
-            super::stamp_test_messages::simple_stamp_message_from_bytes(authenticated);
-
-        // TLV Flag
-        raw_data.extend_from_slice(&[0x20]);
-        // TLV Type
-        raw_data.extend_from_slice(&[0xfe]);
-        // TLV Length
-        raw_data.extend_from_slice(&u16::to_be_bytes(8));
-        // TLV Data
-        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
-
-        let mut stamp_pkt: StampMsg = raw_data
-            .as_slice()
-            .try_into()
-            .expect("Stamp packet parsing unexpectedly failed");
-
-        assert!((stamp_pkt.tlvs.malformed.is_none()));
-
-        stamp_pkt.handle_invalid_tlv_request_flags();
-
-        assert!((stamp_pkt.tlvs.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.tlvs.is_empty());
-    }
-
-    #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags_authenticated() {
-        do_simple_stamp_malformed_tlv_invalid_flags(true);
-    }
-
-    #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags_unauthenticated() {
-        do_simple_stamp_malformed_tlv_invalid_flags(false);
-    }
-
-    fn do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(authenticated: bool) {
-        let mut raw_data =
-            super::stamp_test_messages::simple_stamp_message_from_bytes(authenticated);
-
-        // TLV Flag
-        raw_data.extend_from_slice(&[0x40]);
-        // TLV Type
-        raw_data.extend_from_slice(&[0xfe]);
-        // TLV Length
-        raw_data.extend_from_slice(&u16::to_be_bytes(8));
-        // TLV Data
-        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
-
-        // TLV Flag
-        raw_data.extend_from_slice(&[0x20]);
-        // TLV Type
-        raw_data.extend_from_slice(&[0xfe]);
-        // TLV Length
-        raw_data.extend_from_slice(&u16::to_be_bytes(9));
-        // TLV Data
-        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
-
-        let mut stamp_pkt: StampMsg = raw_data
-            .as_slice()
-            .try_into()
-            .expect("Stamp packet parsing unexpectedly failed");
-
-        stamp_pkt.handle_invalid_tlv_request_flags();
-
-        assert!((stamp_pkt.tlvs.malformed.is_some()));
-        assert!(stamp_pkt.tlvs.tlvs.is_empty());
-        let malformed = stamp_pkt.tlvs.malformed.unwrap();
-        assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
-    }
-
-    #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv_authenticated() {
-        do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(true);
-    }
-
-    #[test]
-    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv_unauthenticated() {
-        do_simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv(false);
-    }
 
     #[test]
     fn simple_stamp_malformed_tlv_test_data_too_short() {

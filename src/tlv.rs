@@ -463,6 +463,35 @@ pub struct Tlvs {
     pub malformed: Option<MalformedTlv>,
 }
 
+impl Tlvs {
+    pub fn handle_invalid_request_flags(&mut self) {
+        let invalid_tlvs = if let Some(first_bad) = self
+            .tlvs
+            .clone()
+            .into_iter()
+            .position(|tlv| !tlv.is_valid_request())
+        {
+            self.tlvs.split_off(first_bad)
+        } else {
+            vec![]
+        };
+
+        invalid_tlvs.into_iter().for_each(|invalid| {
+            if let Some(malformed) = self.malformed.as_mut() {
+                malformed.add_malformed_tlv(invalid);
+            } else {
+                let mut malformed_tlv = invalid.clone();
+                malformed_tlv.flags.set_malformed(true);
+
+                self.malformed = Some(MalformedTlv {
+                    reason: Error::InvalidFlag(format!("{:?}", invalid.flags).to_string()),
+                    bytes: malformed_tlv.into(),
+                });
+            }
+        });
+    }
+}
+
 impl TryFrom<&[u8]> for Tlvs {
     type Error = StampError;
 
@@ -534,11 +563,77 @@ mod tlvs_parse_test {
         let tlvs = TryInto::<Tlvs>::try_into(inner_raw_data.as_slice())
             .expect("Bytes with bad TLV should still parse into TLVs");
 
-        assert!(tlvs.tlvs.len() == 0);
+        assert!(tlvs.tlvs.is_empty());
 
         assert!(tlvs.malformed.is_some());
 
         let malformed = tlvs.malformed.unwrap();
         assert!(malformed.bytes[0] & 0x40 != 0);
+    }
+}
+
+#[cfg(test)]
+mod tlvs_invalid_flags_test {
+    use crate::tlv::Tlvs;
+
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags() {
+        let mut raw_data: Vec<u8> = vec![];
+
+        // TLV Flag
+        raw_data.extend_from_slice(&[0x20]);
+        // TLV Type
+        raw_data.extend_from_slice(&[0xfe]);
+        // TLV Length
+        raw_data.extend_from_slice(&u16::to_be_bytes(8));
+        // TLV Data
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        let mut tlvs: Tlvs = raw_data
+            .as_slice()
+            .try_into()
+            .expect("TLV parsing unexpectedly failed");
+
+        assert!((tlvs.malformed.is_none()));
+
+        tlvs.handle_invalid_request_flags();
+
+        assert!((tlvs.malformed.is_some()));
+        assert!(tlvs.tlvs.is_empty());
+    }
+
+    #[test]
+    fn simple_stamp_malformed_tlv_invalid_flags_before_malformed_tlv() {
+        let mut raw_data: Vec<u8> = vec![];
+
+        // TLV Flag
+        raw_data.extend_from_slice(&[0x40]);
+        // TLV Type
+        raw_data.extend_from_slice(&[0xfe]);
+        // TLV Length
+        raw_data.extend_from_slice(&u16::to_be_bytes(8));
+        // TLV Data
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        // TLV Flag
+        raw_data.extend_from_slice(&[0x20]);
+        // TLV Type
+        raw_data.extend_from_slice(&[0xfe]);
+        // TLV Length
+        raw_data.extend_from_slice(&u16::to_be_bytes(9));
+        // TLV Data
+        raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
+
+        let mut tlvs: Tlvs = raw_data
+            .as_slice()
+            .try_into()
+            .expect("TLV parsing unexpectedly failed");
+
+        tlvs.handle_invalid_request_flags();
+
+        assert!((tlvs.malformed.is_some()));
+        assert!(tlvs.tlvs.is_empty());
+        let malformed = tlvs.malformed.unwrap();
+        assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
     }
 }

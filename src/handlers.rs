@@ -334,8 +334,7 @@ pub fn handler(
 
     // It's possible that one of the Tlvs does not have their flags set correctly. If that
     // is the case, then we need to make some adjustments.
-
-    src_stamp_msg.handle_invalid_tlv_request_flags();
+    src_stamp_msg.tlvs.handle_invalid_request_flags();
 
     // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
     // test packet.

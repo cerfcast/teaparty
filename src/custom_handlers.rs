@@ -952,7 +952,7 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum PaddingTlvCommand {
         Padding {
-            #[arg(short, default_value_t=64)]
+            #[arg(short, default_value_t = 64)]
             size: u16,
 
             #[arg(last = true)]
