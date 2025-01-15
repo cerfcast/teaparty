@@ -79,7 +79,7 @@ impl Periodicity {
                 thread::sleep(interval);
 
                 let tlvs = Tlvs {
-                    tlvs: vec![tlv::Tlv::heartbeat(mac.clone())],
+                    tlvs: vec![tlv::Tlv::heartbeat(mac)],
                     malformed: None,
                 };
 

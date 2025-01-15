@@ -2,9 +2,17 @@ use crate::server::ServerSocket;
 use slog::Logger;
 use std::net::SocketAddr;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Copy)]
 pub struct MacAddr {
     pub mac: [u8; 6],
+}
+
+impl From<pnet::util::MacAddr> for MacAddr {
+    fn from(value: pnet::util::MacAddr) -> Self {
+        Self {
+            mac: [value.0, value.1, value.2, value.3, value.4, value.5],
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -150,7 +158,7 @@ mod linux_support {
 
                     if (*hdr).tpe == RTA_OIF {
                         let ofi: *const i32 = iov[rta_start as usize + 4..].as_ptr() as *const i32;
-                        info!(logger, "outgoing interface index (when getting MAC address for heartbeats): {}", *ofi);
+                        info!(logger, "outgoing interface index: {}", *ofi);
                         return Ok(*ofi);
                     }
 
@@ -207,6 +215,30 @@ pub fn get_mac_address(
             .enumerate()
             .for_each(|(i, v)| mac[i] = *v as u8);
         Ok(MacAddr { mac })
+    }
+}
+
+#[cfg(all(target_os = "linux", test))]
+mod test_get_mac_address {
+    use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+
+    use crate::os::get_mac_address;
+    use crate::server::ServerSocket;
+    use crate::test::stamp_handler_test_support::create_test_logger;
+
+    #[test]
+    fn get_mac_address_no_fail_test() {
+        let bind_socket_addr = SocketAddr::from(("0.0.0.0".parse::<Ipv4Addr>().unwrap(), 0));
+        let target_socket_addr = SocketAddr::from(("8.8.8.8".parse::<Ipv4Addr>().unwrap(), 0));
+        let test_logger = create_test_logger();
+
+        let socket = UdpSocket::bind(bind_socket_addr).expect("Could not bind to test address.");
+        let socket = ServerSocket::new(socket, bind_socket_addr);
+
+        let mac_address = get_mac_address(socket, target_socket_addr, test_logger)
+            .expect("Could not get the localhost's mac address");
+
+        println!("Mac Address: {:?}", mac_address);
     }
 }
 
