@@ -221,8 +221,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | -- | -- |
 | Extra Padding (reflector) | &#10060; |
 | Extra Padding (sender) | &#9989; |
-| Location (reflector) | &#10060; (in progress, as of [353dd10](https://github.com/cerfcast/teaparty/commit/353dd100bd42b14267bbcad6e127180f2c8b4185)) |
-| Location (sender) | &#10060; (in progress, as of [353dd10](https://github.com/cerfcast/teaparty/commit/353dd100bd42b14267bbcad6e127180f2c8b4185)) |
+| Location (reflector) |  &#9989;|
+| Location (sender) | &#9989; |
 | Timestamp (reflector) | &#9989; |
 | Timestamp (sender) |  &#9989;  |
 | Class of service (reflector) | &#9989; |
