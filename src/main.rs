@@ -697,7 +697,7 @@ fn main() -> Result<(), StampError> {
 
     if given_command.is_err() {
         let parsing_error = given_command.unwrap_err();
-        println!("{}\n", parsing_error.to_string());
+        println!("{}\n", parsing_error);
         println!("{}", basic_cli_parser.render_help().ansi());
         return Err(StampError::Other(parsing_error.to_string()));
     }
