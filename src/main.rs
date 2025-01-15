@@ -688,12 +688,21 @@ fn main() -> Result<(), StampError> {
         .subcommand(sender_command)
         .subcommand(reflector_command);
 
-    let basic_cli_parser = Cli::augment_args(command);
+    let mut basic_cli_parser = Cli::augment_args(command);
 
-    let matches = basic_cli_parser.get_matches();
+    let matches = basic_cli_parser.clone().get_matches();
     let args = Cli::from_arg_matches(&matches).unwrap();
 
-    let given_command = Commands::from_arg_matches(&matches).unwrap();
+    let given_command = Commands::from_arg_matches(&matches);
+
+    if given_command.is_err() {
+        let parsing_error = given_command.unwrap_err();
+        println!("{}\n", parsing_error.to_string());
+        println!("{}", basic_cli_parser.render_help().ansi());
+        return Err(StampError::Other(parsing_error.to_string()));
+    }
+
+    let given_command = given_command.unwrap();
 
     match &given_command {
         Commands::Reflector(ReflectorArgs {
