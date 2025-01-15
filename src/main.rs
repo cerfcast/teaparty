@@ -19,23 +19,27 @@ use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, V
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
-use mio::{Interest, Token};
 use monitor::Monitor;
-use nix::errno::Errno;
 use nix::sys::socket::sockopt::Ipv4Tos;
-use nix::sys::socket::{recvmsg, MsgFlags, SetSockOpt, SockaddrIn};
+use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
 use parameters::{DscpValue, EcnValue, TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
-use server::{ServerSocket, Sessions};
-use slog::{debug, error, info, warn, Drain};
+use pnet::datalink::{self, Channel, Config};
+use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
+use pnet::packet::ip::IpNextHeaderProtocols::Udp;
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::udp::UdpPacket;
+use pnet::packet::{self, Packet};
+use server::{ServerCancellation, ServerSocket, Sessions};
+use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
-use std::io::IoSliceMut;
+use std::io::ErrorKind::TimedOut;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
-use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use tlv::Tlvs;
 
 #[macro_use]
@@ -52,6 +56,7 @@ mod periodicity;
 mod responder;
 mod server;
 mod stamp;
+mod test;
 mod tlv;
 
 #[derive(Parser, Debug)]
@@ -386,6 +391,50 @@ fn client(
     Ok(())
 }
 
+fn extract_packets(pkt: &[u8]) -> Option<(EthernetPacket, Ipv4Packet, UdpPacket)> {
+    let ethernet_pkt = packet::ethernet::EthernetPacket::owned(pkt.to_vec())?;
+
+    if ethernet_pkt.get_ethertype() != EtherTypes::Ipv4 {
+        return None;
+    }
+
+    let ip_pkt = packet::ipv4::Ipv4Packet::owned(ethernet_pkt.payload().to_vec())?;
+
+    if ip_pkt.get_next_level_protocol() != Udp {
+        return None;
+    }
+
+    let udp_packet = packet::udp::UdpPacket::owned(ip_pkt.payload().to_vec())?;
+    Some((ethernet_pkt, ip_pkt, udp_packet))
+}
+
+fn packet_filter(
+    ip_pkt: &Ipv4Packet,
+    udp_packet: &UdpPacket,
+    address: SocketAddr,
+    logger: slog::Logger,
+) -> bool {
+    if !address.ip().is_unspecified() && ip_pkt.get_destination() != address.ip() {
+        trace!(
+            logger,
+            "Got a udp packet that was not for our IP (expected {}, got {}). Skipping",
+            ip_pkt.get_destination(),
+            address.ip()
+        );
+        return false;
+    }
+
+    if udp_packet.get_destination() != address.port() {
+        trace!(
+            logger,
+            "Got a udp packet that was not for our port ({}). Skipping",
+            udp_packet.get_destination()
+        );
+        return false;
+    }
+    true
+}
+
 fn server(
     args: Cli,
     command: Commands,
@@ -406,7 +455,42 @@ fn server(
         }
     };
 
+    let server_cancellation = ServerCancellation::new();
+    ctrlc::set_handler({
+        let mut server_cancellation = server_cancellation.clone();
+        move || {
+            // It would be nice to log something here, but we have to be careful
+            // about what can and cannot be done in a signal handler.
+            server_cancellation.cancel();
+        }
+    })
+    .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
+
+    // Find the interfaces that contain the IP address on which the user wants the
+    // reflector to listen.
+    let listening_interfaces: Vec<_> = datalink::interfaces()
+        .into_iter()
+        .filter(|iface| {
+            if args.ip_addr.is_unspecified() {
+                true
+            } else {
+                iface.ips.iter().any(|ip| ip.contains(args.ip_addr))
+            }
+        })
+        .collect();
+
+    info!(
+        logger,
+        "Listening on {:?} interfaces.", listening_interfaces
+    );
+
+    if listening_interfaces.iter().any(|iface| iface.is_loopback()) {
+        warn!(logger, "Reflector listening on loopback; duplicate response messages will be generated for connections on that interface.");
+    }
+
     let bind_socket_addr = SocketAddr::from((args.ip_addr, args.port));
+    info!(logger, "Bound to the server socket: {}", bind_socket_addr);
+
     let bind_result = UdpSocket::bind(bind_socket_addr).map_err(|e| {
         error!(
             logger,
@@ -426,29 +510,6 @@ fn server(
         Into::<StampError>::into(e)
     })?;
 
-    info!(
-        logger,
-        "About to configure the test parameters on the server socket."
-    );
-
-    let mut parameters = TestParameters::new();
-    let test_argument_space_required = parameters.configure_parameters(&socket, logger.clone())?;
-    info!(
-        logger,
-        "Done configuring the test parameters on the server socket."
-    );
-
-    let mut poller = mio::Poll::new().unwrap();
-    let mut events = mio::Events::with_capacity(128);
-    poller
-        .registry()
-        .register::<mio::unix::SourceFd>(
-            &mut mio::unix::SourceFd(&socket.as_raw_fd()),
-            Token(0),
-            Interest::READABLE,
-        )
-        .unwrap();
-
     let socket = ServerSocket::new(socket, bind_socket_addr);
 
     let responder = Arc::new(responder::Responder::new());
@@ -463,130 +524,146 @@ fn server(
         logger.clone(),
     );
 
+    let mut server_threads: Vec<JoinHandle<()>> = vec![];
+
     {
         let monitor = Monitor {
             sessions: sessions.clone(),
             periodic: periodical.clone(),
         };
         let logger = logger.clone();
+        let _server_cancellation = server_cancellation.clone();
         thread::spawn(move || {
-            meta::launch_meta(monitor, logger);
-        });
-    }
+            meta::launch_meta(monitor, _server_cancellation, logger);
+        })
+    };
 
-    loop {
-        poller.poll(&mut events, None)?;
+    for iface in listening_interfaces {
+        let socket = socket.clone();
+        server_threads.push({
+            let logger = logger.clone();
+            let responder = responder.clone();
+            let sessions = sessions.clone();
+            let handlers = handlers.clone();
+            let server_cancellation = server_cancellation.clone();
+            thread::spawn(move || {
+                info!(
+                    logger,
+                    "Started thread {:?} to listen on interface {}.",
+                    thread::current(),
+                    iface.name
+                );
 
-        for event in events.iter() {
-            // We have an event. It's terribly unlikely that it is _not_ for us,
-            // but we should check that anyways.
-            if event.token() != Token(0) {
-                continue;
-            }
-
-            // TODO: Dynamically determine MSS
-            const MSS: usize = 1500;
-
-            let mut recv_buffer = [0u8; MSS];
-            let recv_buffer_iov = IoSliceMut::new(&mut recv_buffer);
-
-            let mut cmsg = vec![0u8; test_argument_space_required];
-            let mut iovs = [recv_buffer_iov];
-
-            // Even though we know that there is data waiting, we cannot go after it directly. We still
-            // need to lock the socket so that we can be sure we are the only one reading!
-            let recv_result = {
-                let server_socket = socket.socket.lock().unwrap();
-
-                recvmsg::<SockaddrIn>(
-                    server_socket.as_raw_fd(),
-                    &mut iovs,
-                    Some(&mut cmsg),
-                    MsgFlags::empty(),
+                let (_, mut pkt_receiver) = match datalink::channel(
+                    &iface,
+                    Config {
+                        read_timeout: Some(Duration::from_micros(3)),
+                        ..Default::default()
+                    },
                 )
-            };
+                .unwrap()
+                {
+                    Channel::Ethernet(sender, receiver) => (sender, receiver),
+                    _ => panic!("Bad channel received!"),
+                };
 
-            if let Err(e) = recv_result {
-                // Special case: Don't error if it is EAGAIN
-                if e != Errno::EAGAIN {
-                    error!(logger, "There was an error on recv msg: {:?}", e);
+                loop {
+                    if server_cancellation.is_cancelled() {
+                        info!(
+                            logger,
+                            "Stopping thread {:?} that was listening on interface {}.",
+                            thread::current(),
+                            iface.name
+                        );
+                        break;
+                    }
+                    match pkt_receiver.next() {
+                        Ok(pkt) => {
+                                if let Some((ethernet_pkt, ip_pkt, udp_pkt)) = extract_packets(pkt) {
+                                    if !packet_filter(
+                                        &ip_pkt,
+                                        &udp_pkt,
+                                        bind_socket_addr,
+                                        logger.clone(),
+                                    ) {
+                                        trace!(
+                                            logger,
+                                            "Skipping a received packet because it was filtered."
+                                        );
+                                        continue;
+                                    }
+
+                                    let client_address: SocketAddr =
+                                        (ip_pkt.get_source(), udp_pkt.get_source()).into();
+
+                                    let parameters = TestParameters::new();
+                                    let arguments = parameters
+                                        .get_arguments(&ethernet_pkt, &ip_pkt, logger.clone())
+                                        .expect("Could not get the arguments from the ip header");
+
+                                    let recv_data = udp_pkt.payload();
+
+                                    let received_time = chrono::Utc::now();
+
+                                    info!(
+                                        logger,
+                                        "Got a connection from {:?} at {}",
+                                        client_address,
+                                        received_time
+                                    );
+
+                                    {
+                                        let logger = logger.clone();
+                                        let recv_msg_size = recv_data.len();
+                                        let arguments = arguments.clone();
+                                        let stamp_packets = recv_data[0..recv_msg_size].to_vec();
+                                        let responder = responder.clone();
+                                        let sessions = sessions.clone();
+                                        let handlers = handlers.clone();
+                                        let server = socket.clone();
+
+                                        // If the server did not run forever, it may have been necessary
+                                        // to `join` on this handle to make sure that the server did not
+                                        // exit before the client was completely serviced.
+                                        thread::spawn(move || {
+                                            handlers::handler(
+                                                received_time,
+                                                &stamp_packets,
+                                                arguments,
+                                                sessions,
+                                                !stateless,
+                                                handlers,
+                                                responder,
+                                                server,
+                                                client_address,
+                                                logger,
+                                            );
+                                        });
+                                    }
+
+                                    info!( logger, "Passed off the connection from {:?} to the handler for handling.", client_address);
+                                } else {
+                                    error!(logger, "Could not extract the packet!");
+                                }
+                        }
+                        Err(e) => {
+                            if e.kind() != TimedOut {
+                                error!(logger, "Error occurred while reading packet from interface {}", iface.name);
+                                return;
+                            }
+                        }
+                    }
                 }
-                continue;
-            }
-
-            let recv_data = recv_result.unwrap();
-
-            let arguments = if let Ok(cmsgs) = recv_data.cmsgs() {
-                parameters.get_arguments(cmsgs.collect(), logger.clone())
-            } else {
-                Ok(TestArguments::empty_arguments())
-            };
-
-            if let Err(e) = arguments {
-                error!(
-                    logger,
-                    "There was an error getting the test arguments: {}. Abandoning this request.",
-                    e
-                );
-                continue;
-            }
-
-            let arguments = arguments.unwrap();
-
-            let client_address = recv_data
-                .address
-                .map(|f| Into::<SocketAddr>::into((f.ip(), f.port())));
-
-            if client_address.is_none() {
-                warn!(
-                    logger,
-                    "Did not get a client address; not responding to probe."
-                );
-                continue;
-            }
-            let client_address = client_address.unwrap();
-
-            let received_time = chrono::Utc::now();
-
-            info!(
-                logger,
-                "Got a connection from {:?} at {}", client_address, received_time
-            );
-
-            {
-                let responder = responder.clone();
-                let logger = logger.clone();
-                let sessions = sessions.clone();
-                let recv_msg_size = recv_data.bytes;
-                let handlers = handlers.clone();
-                let arguments = arguments.clone();
-                let server = socket.clone();
-                let stamp_packets = recv_buffer[0..recv_msg_size].to_vec();
-                // If the server did not run forever, it may have been necessary
-                // to `join` on this handle to make sure that the server did not
-                // exit before the client was completely serviced.
-                thread::spawn(move || {
-                    handlers::handler(
-                        received_time,
-                        &stamp_packets,
-                        arguments,
-                        sessions,
-                        !stateless,
-                        handlers,
-                        responder,
-                        server,
-                        client_address,
-                        logger,
-                    );
-                });
-            }
-
-            info!(
-                logger,
-                "Passed off the connection from {:?} to the handler for handling.", client_address
-            );
-        }
+            })
+        })
     }
+    server_threads.into_iter().for_each(|f| {
+        info!(logger, "Waiting for thread {:?} to stop", f.thread());
+        if let Err(e) = f.join() {
+            error!(logger, "An error occurred while joining thread: {:?}", e);
+        }
+    });
+    Ok(())
 }
 
 fn main() -> Result<(), StampError> {

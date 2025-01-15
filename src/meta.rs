@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 
 use crate::monitor::Monitor;
-use crate::server::{Session, SessionData, SessionError};
+use crate::server::{ServerCancellation, Session, SessionData, SessionError};
 use crate::stamp::Ssid;
 use rocket::http::Status;
 use rocket::serde::{json::Json, Deserialize};
@@ -51,7 +51,7 @@ fn heartbeats(monitor: &State<Monitor>) -> String {
     serde_json::to_string(&heartbeats_info).unwrap().to_string()
 }
 
-pub fn launch_meta(monitor: Monitor, logger: Logger) {
+pub fn launch_meta(monitor: Monitor, _server_cancellation: ServerCancellation, logger: Logger) {
     {
         let logger = logger.clone();
         let joinable = std::thread::spawn(move || {

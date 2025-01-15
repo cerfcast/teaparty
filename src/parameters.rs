@@ -17,15 +17,13 @@
  */
 
 use std::fmt::{Debug, Display};
-use std::net::UdpSocket;
-use std::{mem, vec};
+use std::vec;
 
-use nix::libc;
-use nix::sys::socket::sockopt::{IpRecvTos, Ipv4RecvTtl};
-use nix::sys::socket::{ControlMessageOwned, SetSockOpt};
+use pnet::packet::ethernet::EthernetPacket;
+use pnet::packet::ipv4::Ipv4Packet;
 use slog::Logger;
-use slog::{error, info};
 
+use crate::os::MacAddr;
 use crate::stamp::StampError;
 
 #[repr(u8)]
@@ -119,6 +117,7 @@ pub enum TestArgument {
     Ttl(u8),
     Ecn(EcnValue),
     Dscp(DscpValue),
+    PeerMacAddress(MacAddr),
     Invalid,
 }
 
@@ -128,12 +127,27 @@ impl Default for TestArgument {
     }
 }
 
+impl From<TestArgument> for Vec<u8> {
+    fn from(value: TestArgument) -> Vec<u8> {
+        match value {
+            TestArgument::Ttl(_) | TestArgument::Ecn(_) | TestArgument::Dscp(_) => {
+                panic!("Should not ask to convert a Peer MAC Address Argument into two bytes.")
+            }
+            TestArgument::PeerMacAddress(v) => v.mac.to_vec(),
+            TestArgument::Invalid => vec![],
+        }
+    }
+}
+
 impl From<TestArgument> for u16 {
     fn from(value: TestArgument) -> u16 {
         match value {
             TestArgument::Ttl(ttl) => ttl as u16,
             TestArgument::Ecn(ecn) => ecn as u16,
             TestArgument::Dscp(value) => value as u16,
+            TestArgument::PeerMacAddress(_) => {
+                panic!("Should not ask to convert a Peer MAC Address Argument into two bytes.")
+            }
             TestArgument::Invalid => -1i32 as u16,
         }
     }
@@ -145,6 +159,9 @@ impl From<TestArgument> for u8 {
             TestArgument::Ttl(ttl) => ttl,
             TestArgument::Ecn(ecn) => ecn as u8,
             TestArgument::Dscp(value) => value as u8,
+            TestArgument::PeerMacAddress(_) => {
+                panic!("Should not ask to convert a Peer MAC Address Argument into a byte.")
+            }
             TestArgument::Invalid => -1i32 as u8,
         }
     }
@@ -156,6 +173,7 @@ impl Display for TestArgument {
             TestArgument::Ttl(ttl) => write!(f, "TTL = {}", ttl),
             TestArgument::Ecn(ecn) => write!(f, "ECN = {:?}", ecn),
             TestArgument::Dscp(value) => write!(f, "Dscp = {:?}", value),
+            TestArgument::PeerMacAddress(value) => write!(f, "Peer Mac Address = {:?}", value),
             TestArgument::Invalid => write!(f, "Invalid."),
         }
     }
@@ -173,7 +191,8 @@ pub enum TestArgumentKind {
     Ttl = 0,
     Ecn = 1,
     Dscp = 2,
-    MaxParameterKind = 3,
+    PeerMacAddress = 3,
+    MaxParameterKind = 4,
 }
 
 #[derive(Clone, Debug)]
@@ -220,6 +239,8 @@ pub struct TestParameters {
 static TTL_TEST_PARAMETER: TtlTestParameter = TtlTestParameter {};
 static ECN_TEST_PARAMETER: EcnTestParameter = EcnTestParameter {};
 static DSCP_TEST_PARAMETER: DscpTestParameter = DscpTestParameter {};
+static PEER_MAC_ADDRESS_TEST_PARAMETER: PeerMACAddressTestParameter =
+    PeerMACAddressTestParameter {};
 
 impl TestParameters {
     pub fn new() -> Self {
@@ -228,50 +249,61 @@ impl TestParameters {
                 &TTL_TEST_PARAMETER,
                 &ECN_TEST_PARAMETER,
                 &DSCP_TEST_PARAMETER,
+                &PEER_MAC_ADDRESS_TEST_PARAMETER,
             ],
         }
     }
 
-    pub fn configure_parameters(
-        &mut self,
-        socket: &UdpSocket,
-        logger: Logger,
-    ) -> Result<usize, StampError> {
-        let mut space = 0usize;
-        for parameter in &mut self.parameters {
-            space += parameter.configure_server(socket, logger.clone())?;
-        }
-        Ok(space)
-    }
-
     pub fn get_arguments(
         &self,
-        cmsgs: Vec<ControlMessageOwned>,
+        ethernet_pkt: &EthernetPacket,
+        ip_pkt: &Ipv4Packet,
         logger: Logger,
     ) -> Result<TestArguments, StampError> {
         let mut arguments =
             vec![TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize];
 
-        for cmsg in cmsgs.iter() {
-            self.parameters
-                .iter()
-                .filter_map(|param| {
-                    param
-                        .argument_from(cmsg, logger.clone())
-                        .map(|argument| (param.argument_kind(), argument))
-                })
-                .for_each(|(kind, value)| {
-                    arguments[kind as usize] = value;
-                });
-        }
+        self.parameters
+            .iter()
+            .filter_map(|param| {
+                param
+                    .argument_from(ethernet_pkt, ip_pkt, logger.clone())
+                    .map(|argument| (param.argument_kind(), argument))
+            })
+            .for_each(|(kind, value)| {
+                arguments[kind as usize] = value;
+            });
         Ok(TestArguments { arguments })
     }
 }
 
 trait TestParameter {
     fn argument_kind(&self) -> TestArgumentKind;
-    fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError>;
-    fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument>;
+    fn argument_from(
+        &self,
+        ethernet_pkt: &EthernetPacket,
+        ip_hdr: &Ipv4Packet,
+        logger: Logger,
+    ) -> Option<TestArgument>;
+}
+
+pub struct PeerMACAddressTestParameter {}
+
+impl TestParameter for PeerMACAddressTestParameter {
+    fn argument_kind(&self) -> TestArgumentKind {
+        TestArgumentKind::PeerMacAddress
+    }
+
+    fn argument_from(
+        &self,
+        ethernet_pkt: &EthernetPacket,
+        _ip_hdr: &Ipv4Packet,
+        _logger: Logger,
+    ) -> Option<TestArgument> {
+        Some(TestArgument::PeerMacAddress(
+            ethernet_pkt.get_source().into(),
+        ))
+    }
 }
 
 pub struct TtlTestParameter {}
@@ -281,32 +313,13 @@ impl TestParameter for TtlTestParameter {
         TestArgumentKind::Ttl
     }
 
-    fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
-        let recv_ttl_value = true;
-        Ipv4RecvTtl.set(&socket, &recv_ttl_value).map_err(|e| {
-            error!(
-                logger,
-                "There was an error configuring the server socket for the Ttl test parameter: {}",
-                e
-            );
-            Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            ))
-        })?;
-        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u8>() as libc::c_uint) as usize) }
-    }
-
-    fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
-        match cmsg {
-            ControlMessageOwned::Ipv4Ttl(v) => Some(TestArgument::Ttl(*v as u8)),
-            _ => {
-                info!(
-                    logger,
-                    "{:?} does not appear to be an argument for the Ttl test parameter.", cmsg
-                );
-                None
-            }
-        }
+    fn argument_from(
+        &self,
+        _ethernet_pkt: &EthernetPacket,
+        ip_hdr: &Ipv4Packet,
+        _logger: Logger,
+    ) -> Option<TestArgument> {
+        Some(TestArgument::Ttl(ip_hdr.get_ttl()))
     }
 }
 
@@ -317,32 +330,13 @@ impl TestParameter for EcnTestParameter {
         TestArgumentKind::Ecn
     }
 
-    fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
-        let recv_tos_value = true;
-        IpRecvTos.set(&socket, &recv_tos_value).map_err(|e| {
-            error!(
-                logger,
-                "There was an error configuring the server socket for the Ecn test parameter: {}",
-                e
-            );
-            Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            ))
-        })?;
-        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u8>() as libc::c_uint) as usize) }
-    }
-
-    fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
-        match cmsg {
-            ControlMessageOwned::Ipv4Tos(v) => Some(TestArgument::Ecn((*v).into())),
-            _ => {
-                info!(
-                    logger,
-                    "{:?} does not appear to be an argument for the Ecn test parameter.", cmsg
-                );
-                None
-            }
-        }
+    fn argument_from(
+        &self,
+        _ethernet_pkt: &EthernetPacket,
+        ip_hdr: &Ipv4Packet,
+        _logger: Logger,
+    ) -> Option<TestArgument> {
+        Some(TestArgument::Ecn(ip_hdr.get_ecn().into()))
     }
 }
 
@@ -353,31 +347,12 @@ impl TestParameter for DscpTestParameter {
         TestArgumentKind::Dscp
     }
 
-    fn configure_server(&self, socket: &UdpSocket, logger: Logger) -> Result<usize, StampError> {
-        let recv_tos_value = true;
-        IpRecvTos.set(&socket, &recv_tos_value).map_err(|e| {
-            error!(
-                logger,
-                "There was an error configuring the server socket for the Dscp test parameter: {}",
-                e
-            );
-            Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            ))
-        })?;
-        unsafe { Ok(libc::CMSG_SPACE(mem::size_of::<u8>() as libc::c_uint) as usize) }
-    }
-
-    fn argument_from(&self, cmsg: &ControlMessageOwned, logger: Logger) -> Option<TestArgument> {
-        match cmsg {
-            ControlMessageOwned::Ipv4Tos(v) => Some(TestArgument::Dscp((v & 0xfc).into())),
-            _ => {
-                info!(
-                    logger,
-                    "{:?} does not appear to be an argument for the Dscp test parameter.", cmsg
-                );
-                None
-            }
-        }
+    fn argument_from(
+        &self,
+        _ethernet_pkt: &EthernetPacket,
+        ip_hdr: &Ipv4Packet,
+        _logger: Logger,
+    ) -> Option<TestArgument> {
+        Some(TestArgument::Dscp(ip_hdr.get_dscp().into()))
     }
 }

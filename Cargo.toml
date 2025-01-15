@@ -10,9 +10,10 @@ rand = "0.8.5"
 slog = "2.7.0"
 slog-term = "2.9.1"
 chrono = "0.4.38"
-mio = { version = "1.0.2", features = ["os-poll", "net", "os-ext"]}
 rocket = { version = "0.5.1", features = ["json"]}
 serde = "1.0.215"
 serde_json = "1.0.133"
 sha2 = "0.10.8"
 hmac = "0.12.1"
+pnet = "0.35.0"
+ctrlc = "3.4.5"

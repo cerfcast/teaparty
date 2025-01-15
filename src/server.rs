@@ -18,6 +18,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Debug,
     net::{self, SocketAddr, UdpSocket},
     sync::{Arc, Mutex},
 };
@@ -139,5 +140,28 @@ impl ServerSocket {
             socket: Arc::new(Mutex::new(socket)),
             socket_addr: addr,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerCancellation {
+    is_cancelled: Arc<Mutex<bool>>,
+}
+
+impl ServerCancellation {
+    pub fn new() -> Self {
+        Self {
+            is_cancelled: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        let mut is_cancelled = self.is_cancelled.lock().unwrap();
+        *is_cancelled = true;
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        let is_cancelled = self.is_cancelled.lock().unwrap();
+        *is_cancelled
     }
 }

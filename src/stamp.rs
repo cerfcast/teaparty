@@ -73,6 +73,7 @@ pub enum StampError {
     MalformedTlv(tlv::Error),
     InvalidSignature,
     Malformed(StampParseAttemptType, String),
+    SignalHandlerFailure(String),
 }
 
 impl From<std::io::Error> for StampError {
@@ -98,6 +99,9 @@ impl Display for StampError {
             StampError::InvalidSignature => write!(f, "Stamp message had an invalid signature"),
             StampError::Malformed(tpe, message) => {
                 write!(f, "Error parsing {:?}: {}", tpe, message)
+            }
+            StampError::SignalHandlerFailure(message) => {
+                write!(f, "Error occurred setting the signal handler: {}", message)
             }
         }
     }
