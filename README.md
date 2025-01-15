@@ -176,8 +176,8 @@ Options:
 
 | Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
-| class-of-service | Class of Service | When used with `--dscp` option, `DSCP1` field contains EF. |
-| dscp-ecn | DSCP ECN | When used with the `--dscp` and `--ecn` option, the `DSCP1` and `ECN1` fields contain EF and ECT0, respectively.
+| class-of-service | Class of Service | When used with `--dscp` option, `DSCP1` field contains EF. Otherwise, `DSCP1` field contains CS0. |
+| dscp-ecn | DSCP ECN | When used with `--dscp` option, `DSCP1` field contains EF. Otherwise, `DSCP1` field contains CS0. When used with `--ecn` option, `ECN1` field contains ECT0. Otherwise, `ECN1` field contains Not-ECT. | |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destination-port | Destination Port| 983 |
 | location | Location | A Source IP Address sub-TLV |

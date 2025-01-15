@@ -39,7 +39,11 @@ pub mod ch {
             Tlv::DSCPECN
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &self,
+            args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = DscpEcnTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -52,12 +56,30 @@ pub mod ch {
                 None
             };
 
+            let dscp_value = if let Some(Ok(dscp_value_argument)) = args
+                .clone()
+                .map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Dscp))
+            {
+                // get_parameter_value does the necessary shift to the left!
+                dscp_value_argument
+            } else {
+                DscpValue::CS0 as u8
+            };
+
+            let ecn_value = if let Some(Ok(ecn_value_argument)) =
+                args.map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Ecn))
+            {
+                ecn_value_argument
+            } else {
+                EcnValue::NotEct as u8
+            };
+
             Some((
                 Tlv {
                     flags: Flags::new_request(),
                     tpe: self.tlv_type(),
                     length: 4,
-                    value: vec![(0x2e << 2) | 3u8, 0, 0, 0],
+                    value: vec![dscp_value | ecn_value, 0, 0, 0],
                 },
                 remainder,
             ))
@@ -65,23 +87,23 @@ pub mod ch {
 
         fn handle(
             &self,
-            _tlv: &tlv::Tlv,
-            _parameters: &TestArguments,
+            tlv: &tlv::Tlv,
+            parameters: &TestArguments,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Ecn TLV handler!");
 
-            let ecn_argument: u8 = _parameters.get_parameter_value(TestArgumentKind::Ecn)?;
-            let dscp_argument: u8 = _parameters.get_parameter_value(TestArgumentKind::Dscp)?;
+            let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
+            let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
 
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
 
-            let dscp_ecn_response = (dscp_argument << 2) | ecn_argument;
+            let dscp_ecn_response = dscp_argument | ecn_argument;
 
-            let ecn_requested_response: EcnValue = (_tlv.value[0] & 0x3).into();
-            let dscp_requested_response: DscpValue = (_tlv.value[0] & 0xfc).into();
+            let ecn_requested_response: EcnValue = (tlv.value[0] & 0x3).into();
+            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
 
             info!(logger, "Ecn requested back? {:?}", ecn_requested_response);
             info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
@@ -91,7 +113,7 @@ pub mod ch {
                 flags: Flags::new_response(),
                 tpe: self.tlv_type(),
                 length: 4,
-                value: vec![_tlv.value[0], dscp_ecn_response, 0, 0],
+                value: vec![tlv.value[0], dscp_ecn_response, 0, 0],
             };
             Ok(response)
         }
@@ -411,14 +433,14 @@ pub mod ch {
                 None
             };
 
-            let data = if let Some(tas) = args {
-                let mut data = [0u8; 4];
-                if let Ok(dscp_value) = tas.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
-                    data[0] = dscp_value << 2;
-                }
-                data
+            let dscp_value = if let Some(Ok(dscp_value_argument)) = args
+                .clone()
+                .map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Dscp))
+            {
+                // get_parameter_value does the necessary shift to the left!
+                dscp_value_argument
             } else {
-                [0u8; 4]
+                DscpValue::CS0 as u8
             };
 
             Some((
@@ -426,7 +448,7 @@ pub mod ch {
                     flags: Flags::new_request(),
                     tpe: Tlv::COS,
                     length: 4,
-                    value: data.to_vec(),
+                    value: vec![dscp_value, 0, 0, 0],
                 },
                 remainder,
             ))
@@ -468,6 +490,9 @@ pub mod ch {
 
             info!(logger, "dscp_byte1: {:x}", dscp_byte1);
             info!(logger, "dscp_byte2: {:x}", dscp_byte2);
+
+            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
+            info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
 
             let response = Tlv {
                 flags: Flags::new_response(),

@@ -35,6 +35,12 @@ pub enum EcnValue {
     Ce = 0x3u8,
 }
 
+impl From<EcnValue> for u8 {
+    fn from(value: EcnValue) -> Self {
+        value as u8
+    }
+}
+
 impl From<u8> for EcnValue {
     fn from(value: u8) -> Self {
         let result = [
@@ -81,9 +87,11 @@ impl From<DscpValue> for u8 {
         (value as u8) << 2
     }
 }
+
 impl From<u8> for DscpValue {
-    fn from(mut value: u8) -> Self {
-        value >>= 2;
+    fn from(value: u8) -> Self {
+        // NOTE: We expect that the given value to convert
+        // is _already_ shifted to the right!
         match value {
             0 => DscpValue::CS0,
             8 => DscpValue::CS1,
@@ -158,7 +166,7 @@ impl From<TestArgument> for u8 {
         match value {
             TestArgument::Ttl(ttl) => ttl,
             TestArgument::Ecn(ecn) => ecn as u8,
-            TestArgument::Dscp(value) => value as u8,
+            TestArgument::Dscp(value) => Into::<u8>::into(value),
             TestArgument::PeerMacAddress(_) => {
                 panic!("Should not ask to convert a Peer MAC Address Argument into a byte.")
             }

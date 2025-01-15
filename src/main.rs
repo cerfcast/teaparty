@@ -190,7 +190,7 @@ fn client(
             logger,
             "About to configure the sending value of the IpV4 ECN on the server socket."
         );
-        tos_byte |= 0x1;
+        tos_byte |= Into::<u8>::into(EcnValue::Ect0);
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
@@ -202,7 +202,7 @@ fn client(
             )));
         }
 
-        let ecn_argment = TestArgument::Ecn(EcnValue::from(tos_byte));
+        let ecn_argment = TestArgument::Ecn(EcnValue::Ect0);
         test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
 
         info!(
@@ -228,7 +228,7 @@ fn client(
             )));
         }
 
-        let dscp_argment = TestArgument::Dscp(DscpValue::from(tos_byte));
+        let dscp_argment = TestArgument::Dscp(DscpValue::EF);
         test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
 
         info!(
