@@ -643,12 +643,12 @@ fn server(
 
                                     info!( logger, "Passed off the connection from {:?} to the handler for handling.", client_address);
                                 } else {
-                                    error!(logger, "Could not extract the packet!");
+                                    trace!(logger, "Received a data frame from the network, but could not extract an Ethernet frame and/or IP/UDP packets!");
                                 }
                         }
                         Err(e) => {
                             if e.kind() != TimedOut {
-                                error!(logger, "Error occurred while reading packet from interface {}", iface.name);
+                                error!(logger, "Error occurred while reading data frame from interface {}; processing of connections on this interface will terminate.", iface.name);
                                 return;
                             }
                         }
