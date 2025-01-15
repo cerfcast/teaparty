@@ -57,7 +57,7 @@ pub mod ch {
                     flags: Flags::new_request(),
                     tpe: self.tlv_type(),
                     length: 4,
-                    value: vec![(0x2e << 2) | 1u8, 0, 0, 0],
+                    value: vec![(0x2e << 2) | 3u8, 0, 0, 0],
                 },
                 remainder,
             ))
@@ -553,6 +553,10 @@ pub mod ch {
         pub const SOURCE_IP_TYPE: u8 = 7;
         pub const IPV4_SOURCE_IP_TYPE: u8 = 8;
         pub const _IPV6_SOURCE_IP_TYPE: u8 = 9;
+
+        pub const SOURCE_MAC_LENGTH: u16 = 8;
+        pub const SOURCE_MAC_TYPE: u8 = 1;
+        pub const SOURCE_EUI48_TYPE: u8 = 2;
     }
 
     #[derive(Subcommand, Clone, Debug)]
@@ -593,22 +597,34 @@ pub mod ch {
                 None
             };
 
-            let sub_tlv = Tlv {
-                flags: Flags::new_request(),
-                tpe: Self::SOURCE_IP_TYPE,
-                length: Self::SOURCE_IP_LENGTH,
-                value: vec![0u8; Self::SOURCE_IP_LENGTH as usize],
+            let mut sub_tlvs = Tlvs {
+                tlvs: Default::default(),
+                malformed: None,
             };
+            sub_tlvs.tlvs.extend(vec![
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Self::SOURCE_IP_TYPE,
+                    length: Self::SOURCE_IP_LENGTH,
+                    value: vec![0u8; Self::SOURCE_IP_LENGTH as usize],
+                },
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Self::SOURCE_MAC_TYPE,
+                    length: Self::SOURCE_MAC_LENGTH,
+                    value: vec![0; Self::SOURCE_MAC_LENGTH as usize],
+                },
+            ]);
 
             let mut request_value = vec![0u8, 0, 0, 0];
-            let sub_tlv_value: Vec<u8> = sub_tlv.into();
+            let sub_tlv_value: Vec<u8> = sub_tlvs.into();
             request_value.extend_from_slice(&sub_tlv_value);
 
             Some((
                 Tlv {
                     flags: Flags::new_request(),
                     tpe: self.tlv_type(),
-                    length: 4 + 20,
+                    length: request_value.len() as u16,
                     value: request_value,
                 },
                 remainder,
@@ -681,7 +697,7 @@ pub mod ch {
                         if sub_tlv.length != Self::DESTINATION_IP_LENGTH {
                             return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
                                 format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
-                                Self::SOURCE_IP_LENGTH as usize,
+                                Self::DESTINATION_IP_LENGTH as usize,
                                 sub_tlv.length as usize,
                             )));
                         }
@@ -694,12 +710,36 @@ pub mod ch {
                         match client.ip() {
                             IpAddr::V4(_) => {
                                 // See above.
+                                info!(logger, "The location TLV is requesting a destination IP address; further processing to happen later.");
                             }
                             IpAddr::V6(_) => {
                                 panic!("Ipv6 is not yet supported");
                             }
                         }
                     }
+                    Self::SOURCE_MAC_TYPE => {
+                        if sub_tlv.length != Self::SOURCE_MAC_LENGTH {
+                            return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                                format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
+                                Self::DESTINATION_IP_LENGTH as usize,
+                                sub_tlv.length as usize,
+                            )));
+                        }
+                        sub_tlv.flags.set_unrecognized(false);
+                        sub_tlv.flags.set_malformed(false);
+                        sub_tlv.flags.set_integrity(true);
+
+                        sub_tlv.tpe = Self::SOURCE_EUI48_TYPE;
+
+                        let peer_mac_address = _parameters
+                            .get_parameter_value::<Vec<u8>>(TestArgumentKind::PeerMacAddress)
+                            .unwrap();
+                        info!(logger, "The location TLV is requesting a source mac address; responding with {:?}", peer_mac_address);
+
+                        sub_tlv.value = peer_mac_address;
+                        sub_tlv.value.extend_from_slice(&[0u8; 2]);
+                    }
+
                     x => {
                         warn!(logger, "Unhandled location sub TLV with type {}", x);
                     }
@@ -793,19 +833,6 @@ pub mod ch {
     }
 
     #[cfg(test)]
-    mod stamp_handler_test_support {
-        use slog::{Drain, Logger};
-
-        pub fn create_test_logger() -> Logger {
-            let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
-            let drain = slog_term::FullFormat::new(decorator)
-                .build()
-                .filter_level(slog::Level::Debug)
-                .fuse();
-            slog::Logger::root(drain, slog::o!("version" => "0.5"))
-        }
-    }
-    #[cfg(test)]
     mod stamp_location_tlv_handler {
         use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -816,7 +843,7 @@ pub mod ch {
             tlv::{self, Tlv},
         };
 
-        use super::stamp_handler_test_support::create_test_logger;
+        use crate::test::stamp_handler_test_support::create_test_logger;
 
         #[test]
         fn parse_sub_tlv() {
