@@ -455,6 +455,9 @@ fn server(
         }
     };
 
+    // Note: This signal handler is the first one that is registered. Rocket
+    // will set another signal handler (for the meta thread), but it properly
+    // dispatches to previously-registered signal handlers. Whew.
     let server_cancellation = ServerCancellation::new();
     ctrlc::set_handler({
         let mut server_cancellation = server_cancellation.clone();
