@@ -108,7 +108,7 @@ struct ReflectorArgs {
     )]
     stateless: bool,
 
-    #[arg(long, action = clap::ArgAction::Append, help = "Specify hearbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
+    #[arg(long, action = clap::ArgAction::Append, help = "Specify heartbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
     heartbeat: Vec<HeartbeatConfiguration>,
 }
 
