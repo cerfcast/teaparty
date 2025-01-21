@@ -6,7 +6,7 @@ pub mod ch {
     use std::net::{IpAddr, SocketAddr, UdpSocket};
 
     use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
-    use nix::sys::socket::{sockopt::Ipv4Tos, SetSockOpt};
+    use nix::sys::socket::{sockopt::Ipv4Tos, GetSockOpt, SetSockOpt};
     use slog::{error, info, warn, Logger};
 
     use crate::{
@@ -438,9 +438,10 @@ pub mod ch {
                 .map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Dscp))
             {
                 // get_parameter_value does the necessary shift to the left!
+                // (Which is necessary because the TLV is supposed to be smushed to the leftside!)
                 dscp_value_argument
             } else {
-                DscpValue::CS0 as u8
+                DscpValue::CS0.into()
             };
 
             Some((
@@ -485,8 +486,8 @@ pub mod ch {
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
 
-            let dscp_byte1 = tlv.value[0] | (dscp_argument >> 4);
-            let dscp_byte2 = (dscp_argument << 4) | (ecn_argument << 2);
+            let dscp_byte1 = tlv.value[0] | (dscp_argument >> 6);
+            let dscp_byte2 = (dscp_argument << 2) | (ecn_argument << 2);
 
             info!(logger, "dscp_byte1: {:x}", dscp_byte1);
             info!(logger, "dscp_byte2: {:x}", dscp_byte2);
@@ -523,9 +524,23 @@ pub mod ch {
 
             for tlv in response.tlvs.tlvs.iter_mut() {
                 if tlv.tpe == self.tlv_type() {
-                    // TODO: Decide whether multiple handlers that may set the same byte of the header
-                    // are cumulative.
-                    let set_dscp_value = (tlv.value[0] & 0xfc) as i32;
+                    // Because we are _not_ going to set the ECN, we fetch the current value first.
+                    // We do _not_ do this in the dscp-ecn handler because that handler will set _both_
+                    // the fields in the outbound packet (so it makes no sense to preserve what is already
+                    // there).
+                    let existing_dscp_value = match Ipv4Tos.get(&socket) {
+                        Ok(v) => v & 0x03, // Make sure that we only keep the ECN from the existing TOS value.
+                        Err(e) => {
+                            error!(
+                                logger,
+                                "There was an error getting the existing TOS values when preparing the socket in the class-of-service handler: {}; assuming it was empty!",
+                                e
+                            );
+                            0
+                        }
+                    };
+
+                    let set_dscp_value = (tlv.value[0] & 0xfc) as i32 | existing_dscp_value;
                     if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_dscp_value) {
                         error!(
                             logger,
@@ -563,6 +578,65 @@ pub mod ch {
                 )));
             }
             Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod stamp_class_of_service_tlv_handlers {
+        use std::net::{Ipv4Addr, SocketAddrV4};
+
+        use crate::{
+            handlers::TlvHandler,
+            parameters::{DscpValue, TestArgument, TestArguments},
+            tlv::{Flags, Tlv},
+        };
+
+        use crate::test::stamp_handler_test_support::create_test_logger;
+
+        use super::ClassOfServiceTlv;
+
+        #[test]
+        fn simple_cos_handler_extract_pack_test() {
+            let mut args = TestArguments::empty_arguments();
+
+            // AF23 is 0x16 (see below)
+            args.add_argument(
+                crate::parameters::TestArgumentKind::Dscp,
+                TestArgument::Dscp(DscpValue::AF23),
+            );
+            args.add_argument(
+                crate::parameters::TestArgumentKind::Ecn,
+                TestArgument::Ecn(crate::parameters::EcnValue::NotEct), // Use NotEct to keep things "simple"
+            );
+
+            let test_request_tlv = Tlv {
+                flags: Flags::new_request(),
+                tpe: Tlv::COS,
+                length: 4,
+                value: vec![DscpValue::AF13.into(), 0, 0, 0],
+            };
+
+            let cos_handler = ClassOfServiceTlv {};
+
+            let test_logger = create_test_logger();
+            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
+
+            let result = cos_handler
+                .handle(&test_request_tlv, &args, address.into(), test_logger)
+                .expect("COS handler should have worked");
+
+            let expected_result = [
+                Into::<u8>::into(DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
+                (0x16 << 4), // Shift 0x16 (see above) left to put the bottom 4 bits in the top 4 bits of a u8.
+                0,
+                0,
+            ];
+
+            assert!(result
+                .value
+                .iter()
+                .zip(expected_result.iter())
+                .all(|(l, r)| l == r));
         }
     }
 
@@ -858,7 +932,7 @@ pub mod ch {
     }
 
     #[cfg(test)]
-    mod stamp_location_tlv_handler {
+    mod stamp_location_tlv_handler_tests {
         use std::net::{Ipv4Addr, SocketAddrV4};
 
         use crate::{
