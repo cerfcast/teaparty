@@ -187,7 +187,7 @@ impl Handlers {
                 tlvs.push(tlv.clone());
             }
 
-            let remainder = if let Some((_, Some(remainder))) = command {
+            let next_tlv_command = if let Some((_, Some(remainder))) = command {
                 remainder
             } else {
                 break;
@@ -195,7 +195,7 @@ impl Handlers {
 
             matches = self
                 .get_cli_commands()
-                .get_matches_from(remainder.split(" "));
+                .get_matches_from(next_tlv_command.split(" "));
         }
         tlvs
     }

@@ -22,7 +22,7 @@ pub mod ch {
     enum DscpEcnTlvCommand {
         DscpEcn {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -49,9 +49,9 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let DscpEcnTlvCommand::DscpEcn { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let DscpEcnTlvCommand::DscpEcn { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -81,7 +81,7 @@ pub mod ch {
                     length: 4,
                     value: vec![dscp_value | ecn_value, 0, 0, 0],
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
@@ -190,7 +190,7 @@ pub mod ch {
     enum TimeTlvCommand {
         Time {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -213,9 +213,9 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let TimeTlvCommand::Time { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let TimeTlvCommand::Time { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -227,7 +227,7 @@ pub mod ch {
                     length: 4,
                     value: vec![0u8; 4],
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
@@ -296,7 +296,7 @@ pub mod ch {
     enum DestinationPortTlvCommand {
         DestinationPort {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -318,9 +318,9 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let DestinationPortTlvCommand::DestinationPort { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let DestinationPortTlvCommand::DestinationPort { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -336,7 +336,7 @@ pub mod ch {
                     length: 4,
                     value: data.to_vec(),
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
@@ -399,7 +399,7 @@ pub mod ch {
     enum ClassOfServiceTlvCommand {
         ClassOfService {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -426,9 +426,9 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let ClassOfServiceTlvCommand::ClassOfService { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let ClassOfServiceTlvCommand::ClassOfService { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -450,7 +450,7 @@ pub mod ch {
                     length: 4,
                     value: vec![dscp_value, 0, 0, 0],
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
@@ -588,7 +588,7 @@ pub mod ch {
     enum LocationTlvCommand {
         Location {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -615,9 +615,9 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let LocationTlvCommand::Location { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let LocationTlvCommand::Location { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -652,7 +652,7 @@ pub mod ch {
                     length: request_value.len() as u16,
                     value: request_value,
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
@@ -915,7 +915,7 @@ pub mod ch {
     enum UnrecognizedTlvCommand {
         Unrecognized {
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -938,14 +938,14 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let UnrecognizedTlvCommand::Unrecognized { remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let UnrecognizedTlvCommand::Unrecognized { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
 
-            Some((Tlv::unrecognized(32), remainder))
+            Some((Tlv::unrecognized(32), next_tlv_command))
         }
 
         fn handle(
@@ -1008,7 +1008,7 @@ pub mod ch {
             size: u16,
 
             #[arg(last = true)]
-            remainder: Vec<String>,
+            next_tlv_command: Vec<String>,
         },
     }
 
@@ -1035,9 +1035,12 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let PaddingTlvCommand::Padding { size, remainder } = our_command;
-            let remainder = if !remainder.is_empty() {
-                Some(remainder.join(" "))
+            let PaddingTlvCommand::Padding {
+                size,
+                next_tlv_command,
+            } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
             } else {
                 None
             };
@@ -1049,7 +1052,7 @@ pub mod ch {
                     length: 4 + size,
                     value: vec![0u8; 4 + size as usize],
                 },
-                remainder,
+                next_tlv_command,
             ))
         }
 
