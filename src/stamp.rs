@@ -1,6 +1,6 @@
 /*
  * Teaparty - a STAMP protocol implementation
- * Copyright (C) 2024  Will Hawkins and Cerfcast
+ * Copyright (C) 2024, 2025 Will Hawkins and Cerfcast
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
