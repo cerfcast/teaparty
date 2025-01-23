@@ -26,6 +26,8 @@ use clap::Command;
 use slog::Logger;
 use slog::{debug, error, info, warn};
 
+use crate::netconf::NetConfiguration;
+use crate::netconf::NetConfigurationItem;
 use crate::ntp;
 use crate::parameters::TestArgumentKind;
 use crate::parameters::TestArguments;
@@ -81,6 +83,7 @@ pub trait TlvHandler {
         &self,
         tlv: &tlv::Tlv,
         parameters: &TestArguments,
+        netconfig: &mut NetConfiguration,
         client: SocketAddr,
         logger: slog::Logger,
     ) -> Result<Tlv, StampError>;
@@ -103,29 +106,20 @@ pub trait TlvHandler {
         logger: Logger,
     ) -> SocketAddr;
 
-    /// Customize the socket used to send the reflected STAMP packet.
-    ///
-    /// [`TlvHandler::unprepare_response_socket`] and this method are called in
-    /// pairs. See documentation for that method for more information.
-    fn prepare_response_socket(
+    fn response_fixup(
         &self,
         response: &mut StampMsg,
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), StampError>;
 
-    /// Undo any previously made customizations to the socket used to
-    /// send the reflected STAMP packet.
-    ///
-    /// [`TlvHandler::prepare_response_socket`] and this method are called in
-    /// pairs and should leave the socket in the same configuration as
-    /// it was before [`TlvHandler::prepare_response_socket`].
-    fn unprepare_response_socket(
+    fn handle_netconfig_error(
         &self,
-        response: &StampMsg,
+        response: &mut StampMsg,
         socket: &UdpSocket,
+        item: NetConfigurationItem,
         logger: Logger,
-    ) -> Result<(), StampError>;
+    );
 }
 
 #[derive(Clone, Default)]
@@ -338,15 +332,18 @@ pub fn handler(
 
     // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
     // test packet.
+    let mut netconfig = NetConfiguration::new();
     let mut tlv_response: Vec<tlv::Tlv> = vec![];
     for mut tlv in src_stamp_msg.tlvs.tlvs {
         let handler = handlers.get_handler(tlv.tpe);
         if let Some(handler) = handler {
-            let handler_result =
-                handler
-                    .lock()
-                    .unwrap()
-                    .handle(&tlv, &test_arguments, session.src, logger.clone());
+            let handler_result = handler.lock().unwrap().handle(
+                &tlv,
+                &test_arguments,
+                &mut netconfig,
+                session.src,
+                logger.clone(),
+            );
             if let Err(e) = handler_result {
                 error!(logger, "There was an error from the tlv-specific handler: {}. No response will be generated.", e);
                 return;
@@ -461,19 +458,25 @@ pub fn handler(
 
         for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
             if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-                if let Err(e) = response_tlv_handler
-                    .lock()
-                    .unwrap()
-                    .prepare_response_socket(
-                        &mut response_stamp_msg,
-                        &locked_socket_to_prepare,
-                        logger.clone(),
-                    )
-                {
-                    error!(logger, "There was an error preparing the response socket: {}. Abandoning response.", e);
+                if let Err(e) = response_tlv_handler.lock().unwrap().response_fixup(
+                    &mut response_stamp_msg,
+                    &locked_socket_to_prepare,
+                    logger.clone(),
+                ) {
+                    error!(logger, "There was an error letting handlers do their final response fixups: {}. Abandoning response.", e);
                     return;
                 }
             }
+        }
+
+        if let Err(e) = netconfig.configure(
+            &mut response_stamp_msg,
+            &locked_socket_to_prepare,
+            handlers,
+            logger.clone(),
+        ) {
+            error!(logger, "There was an error performing net configuration on a reflected packet: {}; Abandoning response.", e);
+            return;
         }
 
         info!(
@@ -481,7 +484,7 @@ pub fn handler(
             "Responding with stamp msg: {:x?}", response_stamp_msg
         );
 
-        let write_result = {
+        {
             let destination_ip = match session.src {
                 SocketAddr::V4(v4) => v4,
                 _ => {
@@ -494,30 +497,7 @@ pub fn handler(
                 &locked_socket_to_prepare,
                 destination_ip,
             )
-        };
-
-        // If the handlers changed the socket in some way, they are responsible for setting it back!
-        for response_tlv in response_stamp_msg.tlvs.tlvs.iter() {
-            if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-                if let Err(e) = response_tlv_handler
-                    .lock()
-                    .unwrap()
-                    .unprepare_response_socket(
-                        &response_stamp_msg,
-                        &locked_socket_to_prepare,
-                        logger.clone(),
-                    )
-                {
-                    error!(
-                        logger,
-                        "There was an error unpreparing the response socket: {}. Danger.", e
-                    );
-                    return;
-                }
-            }
         }
-
-        write_result
     };
 
     if response_result.is_err() {

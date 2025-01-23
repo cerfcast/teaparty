@@ -6,12 +6,13 @@ pub mod ch {
     use std::net::{IpAddr, SocketAddr, UdpSocket};
 
     use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
-    use nix::sys::socket::{sockopt::Ipv4Tos, GetSockOpt, SetSockOpt};
     use slog::{error, info, warn, Logger};
 
     use crate::{
         handlers::{TlvHandler, TlvRequestResult},
-        parameters::{DscpValue, EcnValue, TestArgumentKind, TestArguments},
+        ip::{DscpValue, EcnValue},
+        netconf::{NetConfiguration, NetConfigurationItem, NetConfigurationItemKind},
+        parameters::{TestArgumentKind, TestArguments},
         stamp::{StampError, StampMsg},
         tlv::{self, Flags, Tlv, Tlvs},
     };
@@ -89,6 +90,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             parameters: &TestArguments,
+            netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -115,7 +117,30 @@ pub mod ch {
                 length: 4,
                 value: vec![tlv.value[0], dscp_ecn_response, 0, 0],
             };
+
+            let ecn_netconfig = NetConfigurationItem::Ecn(ecn_requested_response);
+            let dscp_netconfig = NetConfigurationItem::Dscp(dscp_requested_response);
+
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Dscp,
+                dscp_netconfig,
+                self.tlv_type(),
+            );
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Ecn,
+                ecn_netconfig,
+                self.tlv_type(),
+            );
+
             Ok(response)
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
         }
 
         fn prepare_response_target(
@@ -127,60 +152,26 @@ pub mod ch {
             info!(logger, "Preparing the response target in the Dscp Ecn Tlv.");
             address
         }
-
-        fn prepare_response_socket(
+        fn handle_netconfig_error(
             &self,
             response: &mut StampMsg,
-            socket: &UdpSocket,
+            _socket: &UdpSocket,
+            item: NetConfigurationItem,
             logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Preparing the response socket in the Dscp Ecn Tlv.");
-
-            for tlv in response.tlvs.tlvs.iter_mut() {
-                if tlv.tpe == self.tlv_type() {
-                    // TODO: Decide whether multiple handlers that may set the same byte of the header
-                    // are cumulative.
-                    let set_tos_value = tlv.value[0] as i32;
-                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
-                        error!(
-                            logger,
-                            "There was an error preparing the response socket: {}",
-                            set_tos_value_err
-                        );
-                        // This is not an error. All that we need to do is make sure that the RP
-                        // field is set to 1 to indicate that we were not allowed to assign
-                        // the requested DSCP/ECN values to the socket.
-                        tlv.value[2] = 0x80;
+        ) {
+            error!(logger, "There was an error doing DSCP/ECN net configuration on reflected packet. Updating RP value. (DSCP ECN Handler)");
+            match item {
+                NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
+                    for tlv in &mut response.tlvs.tlvs {
+                        if tlv.tpe == self.tlv_type() {
+                            // Adjust our response to indicate that there was an error
+                            // setting the requested parameters on the packet!
+                            tlv.value[2] |= 0x1 << 6;
+                        }
                     }
-                    return Ok(());
                 }
+                _ => {}
             }
-            Ok(())
-        }
-
-        fn unprepare_response_socket(
-            &self,
-            _: &StampMsg,
-            socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Unpreparing the response socket in the Dscp Ecn Tlv."
-            );
-            // TODO: We assume that the the unprepared socket has 0 for the tos byte -- that assumption
-            // may not be correct!
-            let set_tos_value = 0i32;
-            if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error unpreparing the response socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-            Ok(())
         }
     }
 
@@ -235,6 +226,7 @@ pub mod ch {
             &self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -252,6 +244,14 @@ pub mod ch {
             };
             Ok(response)
         }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
+        }
 
         fn prepare_response_target(
             &self,
@@ -265,28 +265,14 @@ pub mod ch {
             );
             address
         }
-
-        fn prepare_response_socket(
+        fn handle_netconfig_error(
             &self,
-            _: &mut StampMsg,
-            _: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Preparing the response socket in the Timestamp Tlv."
-            );
-            Ok(())
-        }
-
-        fn unprepare_response_socket(
-            &self,
-            _: &StampMsg,
-            _: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Unpreparing the response socket in the Time Tlv.");
-            Ok(())
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Time) that does not set net configuration items.");
         }
     }
 
@@ -344,11 +330,20 @@ pub mod ch {
             &self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a destination port Tlv.");
             Ok(_tlv.clone())
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
         }
 
         fn prepare_response_target(
@@ -372,24 +367,14 @@ pub mod ch {
             address
         }
 
-        fn prepare_response_socket(
+        fn handle_netconfig_error(
             &self,
-            _: &mut StampMsg,
-            _: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Preparing the response socket in the Time Tlv.");
-            Ok(())
-        }
-
-        fn unprepare_response_socket(
-            &self,
-            _: &StampMsg,
-            _: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Unpreparing the response socket in the Time Tlv.");
-            Ok(())
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Destination Port) that does not set net configuration items.");
         }
     }
 
@@ -459,6 +444,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             parameters: &TestArguments,
+            netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -501,7 +487,23 @@ pub mod ch {
                 length: 4,
                 value: vec![dscp_byte1, dscp_byte2, 0, 0],
             };
+
+            let dscp_netconfig = NetConfigurationItem::Dscp(dscp_requested_response);
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Dscp,
+                dscp_netconfig,
+                self.tlv_type(),
+            );
+
             Ok(response)
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
         }
 
         fn prepare_response_target(
@@ -513,71 +515,26 @@ pub mod ch {
             info!(logger, "Preparing the response target in the CoS Tlv.");
             address
         }
-
-        fn prepare_response_socket(
+        fn handle_netconfig_error(
             &self,
             response: &mut StampMsg,
-            socket: &UdpSocket,
+            _socket: &UdpSocket,
+            item: NetConfigurationItem,
             logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Preparing the response socket in the CoS Tlv.");
-
-            for tlv in response.tlvs.tlvs.iter_mut() {
-                if tlv.tpe == self.tlv_type() {
-                    // Because we are _not_ going to set the ECN, we fetch the current value first.
-                    // We do _not_ do this in the dscp-ecn handler because that handler will set _both_
-                    // the fields in the outbound packet (so it makes no sense to preserve what is already
-                    // there).
-                    let existing_dscp_value = match Ipv4Tos.get(&socket) {
-                        Ok(v) => v & 0x03, // Make sure that we only keep the ECN from the existing TOS value.
-                        Err(e) => {
-                            error!(
-                                logger,
-                                "There was an error getting the existing TOS values when preparing the socket in the class-of-service handler: {}; assuming it was empty!",
-                                e
-                            );
-                            0
+        ) {
+            error!(logger, "There was an error doing DSCP/ECN net configuration on reflected packet. Updating RP value. (Class of Service Handler)");
+            match item {
+                NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
+                    for tlv in &mut response.tlvs.tlvs {
+                        if tlv.tpe == self.tlv_type() {
+                            // Adjust our response to indicate that there was an error
+                            // setting the reverse path parameters on the packet!
+                            tlv.value[1] |= 0x1;
                         }
-                    };
-
-                    let set_dscp_value = (tlv.value[0] & 0xfc) as i32 | existing_dscp_value;
-                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_dscp_value) {
-                        error!(
-                            logger,
-                            "There was an error preparing the response socket: {}",
-                            set_tos_value_err
-                        );
-                        // This is not an error. All that we need to do is make sure that the RP
-                        // field is set to 1 to indicate that we were not allowed to assign
-                        // the requested DSCP value to the socket.
-                        tlv.value[1] |= 0x1;
                     }
-                    return Ok(());
                 }
+                _ => {}
             }
-            Ok(())
-        }
-
-        fn unprepare_response_socket(
-            &self,
-            _: &StampMsg,
-            socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Unpreparing the response socket in the CoS Tlv.");
-            let set_tos_value = 0i32;
-            // TODO: We assume that the the unprepared socket has 0 for the tos byte -- that assumption
-            // may not be correct!
-            if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error unpreparing the response socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-            Ok(())
         }
     }
 
@@ -587,7 +544,8 @@ pub mod ch {
 
         use crate::{
             handlers::TlvHandler,
-            parameters::{DscpValue, TestArgument, TestArguments},
+            netconf::NetConfiguration,
+            parameters::{TestArgument, TestArguments},
             tlv::{Flags, Tlv},
         };
 
@@ -602,18 +560,18 @@ pub mod ch {
             // AF23 is 0x16 (see below)
             args.add_argument(
                 crate::parameters::TestArgumentKind::Dscp,
-                TestArgument::Dscp(DscpValue::AF23),
+                TestArgument::Dscp(crate::ip::DscpValue::AF23),
             );
             args.add_argument(
                 crate::parameters::TestArgumentKind::Ecn,
-                TestArgument::Ecn(crate::parameters::EcnValue::NotEct), // Use NotEct to keep things "simple"
+                TestArgument::Ecn(crate::ip::EcnValue::NotEct), // Use NotEct to keep things "simple"
             );
 
             let test_request_tlv = Tlv {
                 flags: Flags::new_request(),
                 tpe: Tlv::COS,
                 length: 4,
-                value: vec![DscpValue::AF13.into(), 0, 0, 0],
+                value: vec![crate::ip::DscpValue::AF13.into(), 0, 0, 0],
             };
 
             let cos_handler = ClassOfServiceTlv {};
@@ -621,12 +579,20 @@ pub mod ch {
             let test_logger = create_test_logger();
             let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
 
+            let mut netconfig = NetConfiguration::new();
+
             let result = cos_handler
-                .handle(&test_request_tlv, &args, address.into(), test_logger)
+                .handle(
+                    &test_request_tlv,
+                    &args,
+                    &mut netconfig,
+                    address.into(),
+                    test_logger,
+                )
                 .expect("COS handler should have worked");
 
             let expected_result = [
-                Into::<u8>::into(DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
+                Into::<u8>::into(crate::ip::DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
                 (0x16 << 4), // Shift 0x16 (see above) left to put the bottom 4 bits in the top 4 bits of a u8.
                 0,
                 0,
@@ -734,6 +700,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
             client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -874,7 +841,7 @@ pub mod ch {
             address
         }
 
-        fn prepare_response_socket(
+        fn response_fixup(
             &self,
             response: &mut StampMsg,
             socket: &UdpSocket,
@@ -917,17 +884,14 @@ pub mod ch {
             Ok(())
         }
 
-        fn unprepare_response_socket(
+        fn handle_netconfig_error(
             &self,
-            _: &StampMsg,
+            _response: &mut StampMsg,
             _socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Unpreparing the response socket in the Location Tlv."
-            );
-            Ok(())
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Location) that does not set net configuration items.");
         }
     }
 
@@ -938,6 +902,7 @@ pub mod ch {
         use crate::{
             custom_handlers::ch::LocationTlv,
             handlers::TlvHandler,
+            netconf,
             parameters::TestArguments,
             tlv::{self, Tlv},
         };
@@ -971,8 +936,10 @@ pub mod ch {
                 .expect("Outter TLV should parse");
 
             let logger = create_test_logger();
+            let mut netconfig = netconf::NetConfiguration::new();
+
             let handled = handler
-                .handle(&tlv, &arguments, address.into(), logger)
+                .handle(&tlv, &arguments, &mut netconfig, address.into(), logger)
                 .expect("Inner TLV should parse");
 
             let reparsed_sub_tlv = TryInto::<Tlv>::try_into(&handled.value.as_slice()[4..])
@@ -1026,6 +993,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -1045,31 +1013,22 @@ pub mod ch {
             );
             address
         }
-
-        fn prepare_response_socket(
+        fn response_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
-            logger: Logger,
+            _logger: Logger,
         ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Preparing the response socket in the Unrecognized Tlv."
-            );
             Ok(())
         }
-
-        fn unprepare_response_socket(
+        fn handle_netconfig_error(
             &self,
-            _: &StampMsg,
+            _response: &mut StampMsg,
             _socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Unpreparing the response socket in the Unrecognized Tlv."
-            );
-            Ok(())
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Unrecognized) that does not set net configuration items.");
         }
     }
 
@@ -1134,6 +1093,7 @@ pub mod ch {
             &self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
@@ -1141,6 +1101,14 @@ pub mod ch {
             let mut response = tlv.clone();
             response.flags = Flags::new_response();
             Ok(tlv.clone())
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
         }
 
         fn prepare_response_target(
@@ -1153,27 +1121,14 @@ pub mod ch {
             address
         }
 
-        fn prepare_response_socket(
+        fn handle_netconfig_error(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(logger, "Preparing the response socket in the Padding Tlv.");
-            Ok(())
-        }
-
-        fn unprepare_response_socket(
-            &self,
-            _: &StampMsg,
-            _socket: &UdpSocket,
-            logger: Logger,
-        ) -> Result<(), StampError> {
-            info!(
-                logger,
-                "Unpreparing the response socket in the Padding Tlv."
-            );
-            Ok(())
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Padding) that does not set net configuration items.");
         }
     }
 }

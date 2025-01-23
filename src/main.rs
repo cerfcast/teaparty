@@ -19,11 +19,12 @@ use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, V
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
+use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
 use nix::sys::socket::sockopt::Ipv4Tos;
 use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
-use parameters::{DscpValue, EcnValue, TestArgument, TestArguments, TestParameters};
+use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
 use pnet::datalink::{self, Channel, Config};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
@@ -47,8 +48,10 @@ extern crate rocket;
 
 mod custom_handlers;
 mod handlers;
+mod ip;
 mod meta;
 mod monitor;
+mod netconf;
 mod ntp;
 mod os;
 mod parameters;
