@@ -30,6 +30,7 @@ pub enum Error {
     NotEnoughData,
     FieldNotZerod(String),
     FieldWrongSized(String, usize, usize),
+    FieldValueInvalid(String),
 }
 
 impl Debug for Error {
@@ -43,6 +44,9 @@ impl Debug for Error {
                 "TLV field named {} was the wrong size: wanted {} but got {}.",
                 field, wanted, got
             ),
+            Error::FieldValueInvalid(field) => {
+                write!(f, "TLV field named {} had invalid value.", field)
+            }
         }
     }
 }
@@ -412,6 +416,7 @@ impl Tlv {
     pub const LOCATION: u8 = 2;
     pub const TIMESTAMP: u8 = 3;
     pub const COS: u8 = 4;
+    pub const ACCESSREPORT: u8 = 6;
 
     /// Make a Tlv for padding.
     pub fn extra_padding(len: u16) -> Self {

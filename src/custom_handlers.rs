@@ -23,7 +23,7 @@ use crate::handlers;
 pub mod ch {
     use std::net::{IpAddr, SocketAddr, UdpSocket};
 
-    use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
+    use clap::{ArgMatches, Command, FromArgMatches, Subcommand, ValueEnum};
     use slog::{error, info, warn, Logger};
 
     use crate::{
@@ -1149,6 +1149,156 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (Padding) that does not set net configuration items.");
         }
     }
+
+    pub struct AccessReportTlv {}
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+    pub enum AccessReportAccessId {
+        ThreeGPP,
+        NonThreeGPP,
+    }
+
+    impl Into<u8> for AccessReportAccessId {
+        fn into(self) -> u8 {
+            match self {
+                AccessReportAccessId::ThreeGPP => 1 << 4,
+                AccessReportAccessId::NonThreeGPP => 2 << 4,
+            }
+        }
+    }
+
+    impl TryFrom<u8> for AccessReportAccessId {
+        type Error = tlv::Error;
+        fn try_from(value: u8) -> Result<Self, Self::Error> {
+            let value = value >> 4;
+            if value == 1 {
+                Ok(AccessReportAccessId::ThreeGPP)
+            } else if value == 2 {
+                Ok(AccessReportAccessId::NonThreeGPP)
+            } else {
+                Err(tlv::Error::FieldValueInvalid("Access ID".to_string()))
+            }
+        }
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum AccessReportTlvCommand {
+        AccessReport {
+            #[arg(value_enum, default_value_t=AccessReportAccessId::NonThreeGPP)]
+            access_id: AccessReportAccessId,
+
+            #[arg(short)]
+            active: bool,
+
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for AccessReportTlv {
+        fn tlv_name(&self) -> String {
+            "AccessReport".into()
+        }
+
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            AccessReportTlvCommand::augment_subcommands(command)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::ACCESSREPORT
+        }
+
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = AccessReportTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let AccessReportTlvCommand::AccessReport {
+                access_id,
+                active,
+                next_tlv_command,
+            } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: 4,
+                    value: vec![access_id.into(), active.into(), 0, 0],
+                },
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am in the AccessReport TLV handler!");
+
+            let access_id = TryInto::<AccessReportAccessId>::try_into(tlv.value[0])
+                .map_err(|e| StampError::MalformedTlv(e))?;
+
+            let active = if tlv.value[1] == 1 {
+                true
+            } else if tlv.value[1] == 0 {
+                false
+            } else {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                    "Active".to_string(),
+                )));
+            };
+
+            info!(
+                logger,
+                "Received an Access Report TLV: {:?} is {}active.",
+                access_id,
+                if !active { "not " } else { "" }
+            );
+
+            Ok(tlv.clone())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(
+                logger,
+                "Preparing the response target in the AccessReport Tlv."
+            );
+            address
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
+        }
+        fn handle_netconfig_error(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (AccessReport) that does not set net configuration items.");
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -1170,6 +1320,8 @@ impl CustomHandlers {
         handlers.add(unrecognized_handler);
         let padding_handler = Arc::new(Mutex::new(ch::PaddingTlv {}));
         handlers.add(padding_handler);
+        let access_report_handler = Arc::new(Mutex::new(ch::AccessReportTlv {}));
+        handlers.add(access_report_handler);
 
         handlers
     }
