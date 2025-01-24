@@ -43,7 +43,6 @@ use crate::stamp::StampResponseBody;
 use crate::stamp::StampSendBodyType;
 use crate::tlv;
 use crate::tlv::Tlv;
-use crate::tlv::Tlvs;
 
 pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 
@@ -231,7 +230,7 @@ pub fn handler(
         "The following arguments are available for this test:\n {:?}", test_arguments
     );
 
-    let (mut src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
+    let (src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
         StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => (maybe_stamp_msg.unwrap(), true),
         StampMsgBody::Send(StampSendBodyType::UnAuthenticated(_)) => {
             (maybe_stamp_msg.unwrap(), false)
@@ -326,29 +325,43 @@ pub fn handler(
         return;
     }
 
-    // It's possible that one of the Tlvs does not have their flags set correctly. If that
-    // is the case, then we need to make some adjustments.
-    src_stamp_msg.tlvs.handle_invalid_request_flags();
-
     // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
-    // test packet.
+    // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
+    let mut tlv_response = src_stamp_msg.tlvs.clone();
     let mut netconfig = NetConfiguration::new();
-    let mut tlv_response: Vec<tlv::Tlv> = vec![];
-    for mut tlv in src_stamp_msg.tlvs.tlvs {
+    for tlv in &mut tlv_response.tlvs {
+        if !tlv.is_valid_request() {
+            error!(
+                logger,
+                "Abandoning Tlv processing because a Tlv's flags contained the malformed flag."
+            );
+            break;
+        }
+
         let handler = handlers.get_handler(tlv.tpe);
         if let Some(handler) = handler {
-            let handler_result = handler.lock().unwrap().handle(
-                &tlv,
+            let locked_handler = handler.lock().unwrap();
+            let handler_result = locked_handler.handle(
+                tlv,
                 &test_arguments,
                 &mut netconfig,
                 session.src,
                 logger.clone(),
             );
-            if let Err(e) = handler_result {
-                error!(logger, "There was an error from the tlv-specific handler: {}. No response will be generated.", e);
-                return;
+
+            match handler_result {
+                Ok(o) => {
+                    *tlv = o;
+                }
+                Err(StampError::MalformedTlv(e)) => {
+                    info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", locked_handler.tlv_name(), e);
+                    tlv.flags.set_malformed(true);
+                    break;
+                }
+                Err(e) => {
+                    error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
+                }
             }
-            tlv_response.push(handler_result.unwrap());
         } else {
             // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
             error!(
@@ -356,14 +369,12 @@ pub fn handler(
                 "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe
             );
             tlv.flags.set_unrecognized(true);
-            tlv_response.push(tlv);
         }
     }
 
-    let tlv_response = Tlvs {
-        tlvs: tlv_response,
-        malformed: src_stamp_msg.tlvs.malformed,
-    };
+    // It's possible that one of the Tlvs does not have their flags set correctly. If that
+    // is the case, then we need to make some adjustments.
+    tlv_response.handle_malformed_response();
 
     let body = StampResponseBody {
         received_time: received_time.into(),

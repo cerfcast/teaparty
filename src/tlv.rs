@@ -469,12 +469,12 @@ pub struct Tlvs {
 }
 
 impl Tlvs {
-    pub fn handle_invalid_request_flags(&mut self) {
+    pub fn handle_malformed_response(&mut self) {
         let invalid_tlvs = if let Some(first_bad) = self
             .tlvs
             .clone()
             .into_iter()
-            .position(|tlv| !tlv.is_valid_request())
+            .position(|tlv| tlv.flags.get_malformed())
         {
             self.tlvs.split_off(first_bad)
         } else {
@@ -586,7 +586,7 @@ mod tlvs_invalid_flags_test {
         let mut raw_data: Vec<u8> = vec![];
 
         // TLV Flag
-        raw_data.extend_from_slice(&[0x20]);
+        raw_data.extend_from_slice(&[0x80]);
         // TLV Type
         raw_data.extend_from_slice(&[0xfe]);
         // TLV Length
@@ -594,17 +594,13 @@ mod tlvs_invalid_flags_test {
         // TLV Data
         raw_data.extend_from_slice(&u64::to_be_bytes(0x1122334455667788));
 
-        let mut tlvs: Tlvs = raw_data
+        let tlvs: Tlvs = raw_data
             .as_slice()
             .try_into()
             .expect("TLV parsing unexpectedly failed");
 
+        assert!(tlvs.tlvs[0].flags.get_unrecognized());
         assert!((tlvs.malformed.is_none()));
-
-        tlvs.handle_invalid_request_flags();
-
-        assert!((tlvs.malformed.is_some()));
-        assert!(tlvs.tlvs.is_empty());
     }
 
     #[test]
@@ -634,7 +630,7 @@ mod tlvs_invalid_flags_test {
             .try_into()
             .expect("TLV parsing unexpectedly failed");
 
-        tlvs.handle_invalid_request_flags();
+        tlvs.handle_malformed_response();
 
         assert!((tlvs.malformed.is_some()));
         assert!(tlvs.tlvs.is_empty());

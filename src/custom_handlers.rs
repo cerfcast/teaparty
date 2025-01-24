@@ -1158,9 +1158,9 @@ pub mod ch {
         NonThreeGPP,
     }
 
-    impl Into<u8> for AccessReportAccessId {
-        fn into(self) -> u8 {
-            match self {
+    impl From<AccessReportAccessId> for u8 {
+        fn from(value: AccessReportAccessId) -> u8 {
+            match value {
                 AccessReportAccessId::ThreeGPP => 1 << 4,
                 AccessReportAccessId::NonThreeGPP => 2 << 4,
             }
@@ -1247,7 +1247,7 @@ pub mod ch {
             info!(logger, "I am in the AccessReport TLV handler!");
 
             let access_id = TryInto::<AccessReportAccessId>::try_into(tlv.value[0])
-                .map_err(|e| StampError::MalformedTlv(e))?;
+                .map_err(StampError::MalformedTlv)?;
 
             let active = if tlv.value[1] == 1 {
                 true
