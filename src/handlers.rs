@@ -286,7 +286,7 @@ pub fn handler(
             );
                 Some(existing_session)
             } else {
-                let mut new_session = SessionData::new(3);
+                let mut new_session = SessionData::new(5);
                 new_session.sequence = src_stamp_msg.sequence + 1;
                 sessions.insert(session.clone(), new_session.clone());
                 info!(
