@@ -35,6 +35,7 @@ use crate::responder;
 use crate::server::ServerSocket;
 use crate::server::Session;
 use crate::server::SessionData;
+use crate::server::SessionHistoryEntry;
 use crate::server::Sessions;
 use crate::stamp::StampError;
 use crate::stamp::StampMsg;
@@ -84,6 +85,7 @@ pub trait TlvHandler {
         parameters: &TestArguments,
         netconfig: &mut NetConfiguration,
         client: SocketAddr,
+        session: &mut Option<SessionData>,
         logger: slog::Logger,
     ) -> Result<Tlv, StampError>;
 
@@ -264,154 +266,163 @@ pub fn handler(
         src_stamp_msg.ssid.clone(),
     );
 
-    let session_data = if stateful {
-        let mut sessions = sessions.sessions.lock().unwrap();
-        if let Some(existing_session) = sessions.get_mut(&session.clone()) {
-            existing_session.sequence += 1;
-            existing_session.last = std::time::SystemTime::now();
+    let mut netconfig = NetConfiguration::new();
 
-            let existing_session = existing_session.clone();
-            info!(
+    let mut response_stamp_msg = {
+        // Lock the sessions while we handle!
+        let mut sessions = sessions.sessions.lock().unwrap();
+
+        let mut session_data = if stateful {
+            if let Some(existing_session) = sessions.get_mut(&session.clone()) {
+                existing_session.sequence += 1;
+                existing_session.last = std::time::SystemTime::now();
+
+                let existing_session = existing_session.clone();
+                info!(
                 logger,
                 "Updated an existing session: {:?}: {:?} (Note: Values printed in network order).",
                 session,
                 existing_session
             );
-            Some(existing_session)
-        } else {
-            let mut new_session = SessionData::new();
-            new_session.sequence = src_stamp_msg.sequence + 1;
-            sessions.insert(session.clone(), new_session.clone());
-            info!(
-                logger,
-                "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
-                session,
-                new_session
-            );
-            Some(new_session)
-        }
-    } else {
-        None
-    };
-
-    let keymat = session_data.as_ref().and_then(|sd| sd.key.clone());
-    let authentication_result = if client_authenticated {
-        match src_stamp_msg.authenticate(&keymat) {
-            Ok(checked_hash) => {
-                if checked_hash == src_stamp_msg.hmac {
-                    Ok(())
-                } else {
-                    info!(
-                        logger,
-                        "Wanted HMAC {:x?} and got HMAC {:?} (used {:x?} for keymat)",
-                        checked_hash,
-                        src_stamp_msg.hmac,
-                        keymat
-                    );
-                    Err(StampError::InvalidSignature)
-                }
+                Some(existing_session)
+            } else {
+                let mut new_session = SessionData::new(3);
+                new_session.sequence = src_stamp_msg.sequence + 1;
+                sessions.insert(session.clone(), new_session.clone());
+                info!(
+                    logger,
+                    "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
+                    session,
+                    new_session
+                );
+                Some(new_session)
             }
-            Err(e) => Err(e),
-        }
-    } else {
-        Ok(())
-    };
+        } else {
+            None
+        };
 
-    if let Err(e) = authentication_result {
-        warn!(
-            logger,
-            "An authenticated packet arrived which could not be validated: {}", e
-        );
-        return;
-    }
+        let keymat = session_data.as_ref().and_then(|sd| sd.key.clone());
+        let authentication_result = if client_authenticated {
+            match src_stamp_msg.authenticate(&keymat) {
+                Ok(checked_hash) => {
+                    if checked_hash == src_stamp_msg.hmac {
+                        Ok(())
+                    } else {
+                        info!(
+                            logger,
+                            "Wanted HMAC {:x?} and got HMAC {:?} (used {:x?} for keymat)",
+                            checked_hash,
+                            src_stamp_msg.hmac,
+                            keymat
+                        );
+                        Err(StampError::InvalidSignature)
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Ok(())
+        };
 
-    // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
-    // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
-    let mut tlv_response = src_stamp_msg.tlvs.clone();
-    let mut netconfig = NetConfiguration::new();
-    for tlv in &mut tlv_response.tlvs {
-        if !tlv.is_valid_request() {
-            error!(
+        if let Err(e) = authentication_result {
+            warn!(
                 logger,
-                "Abandoning Tlv processing because a Tlv's flags contained the malformed flag."
+                "An authenticated packet arrived which could not be validated: {}", e
             );
-            break;
+            return;
         }
 
-        let handler = handlers.get_handler(tlv.tpe);
-        if let Some(handler) = handler {
-            let locked_handler = handler.lock().unwrap();
-            let handler_result = locked_handler.handle(
-                tlv,
-                &test_arguments,
-                &mut netconfig,
-                session.src,
-                logger.clone(),
-            );
+        // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
+        // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
+        let mut tlv_response = src_stamp_msg.tlvs.clone();
+        for tlv in &mut tlv_response.tlvs {
+            if !tlv.is_valid_request() {
+                error!(
+                    logger,
+                    "Abandoning Tlv processing because a Tlv's flags contained the malformed flag."
+                );
+                break;
+            }
 
-            match handler_result {
-                Ok(o) => {
-                    *tlv = o;
+            let handler = handlers.get_handler(tlv.tpe);
+            if let Some(handler) = handler {
+                let locked_handler = handler.lock().unwrap();
+                let handler_result = locked_handler.handle(
+                    tlv,
+                    &test_arguments,
+                    &mut netconfig,
+                    session.src,
+                    &mut session_data,
+                    logger.clone(),
+                );
+
+                match handler_result {
+                    Ok(o) => {
+                        *tlv = o;
+                    }
+                    Err(StampError::MalformedTlv(e)) => {
+                        info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", locked_handler.tlv_name(), e);
+                        tlv.flags.set_malformed(true);
+                        break;
+                    }
+                    Err(e) => {
+                        error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
+                    }
                 }
-                Err(StampError::MalformedTlv(e)) => {
-                    info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", locked_handler.tlv_name(), e);
-                    tlv.flags.set_malformed(true);
-                    break;
-                }
+            } else {
+                // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
+                error!(
+                    logger,
+                    "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe
+                );
+                tlv.flags.set_unrecognized(true);
+            }
+        }
+
+        // It's possible that one of the Tlvs does not have their flags set correctly. If that
+        // is the case, then we need to make some adjustments.
+        tlv_response.handle_malformed_response();
+
+        let body = StampResponseBody {
+            received_time: received_time.into(),
+            sent_sequence: src_stamp_msg.sequence,
+            sent_time: src_stamp_msg.time.clone(),
+            sent_error: src_stamp_msg.error,
+            received_ttl: test_arguments
+                .get_parameter_value(TestArgumentKind::Ttl)
+                .unwrap(),
+        };
+
+        // Generate a session-reflector test packet based on the Tlvs generated by the handlers.
+        let mut response_stamp_msg = StampMsg {
+            time: ntp::NtpTime::now(),
+            sequence: session_data
+                .as_ref()
+                .map_or(src_stamp_msg.sequence, |sd| sd.sequence),
+            error: Default::default(),
+            ssid: src_stamp_msg.ssid,
+            body: if client_authenticated {
+                StampMsgBody::Response(crate::stamp::StampResponseBodyType::Authenticated(body))
+            } else {
+                StampMsgBody::Response(crate::stamp::StampResponseBodyType::UnAuthenticated(body))
+            },
+            hmac: None,
+            tlvs: tlv_response,
+        };
+
+        if client_authenticated {
+            match response_stamp_msg.authenticate(&session_data.and_then(|sd| sd.key)) {
+                Ok(key) => response_stamp_msg.hmac = key,
                 Err(e) => {
-                    error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
+                    error!(logger, "Failed to authenticate the response packet: {}", e);
+                    return;
                 }
             }
-        } else {
-            // No handler found, make sure that we copy in the Tlv and mark it as unrecognized.
-            error!(
-                logger,
-                "There was no tlv-specific handler found for tlv with type 0x{:x?}.", tlv.tpe
-            );
-            tlv.flags.set_unrecognized(true);
         }
-    }
 
-    // It's possible that one of the Tlvs does not have their flags set correctly. If that
-    // is the case, then we need to make some adjustments.
-    tlv_response.handle_malformed_response();
-
-    let body = StampResponseBody {
-        received_time: received_time.into(),
-        sent_sequence: src_stamp_msg.sequence,
-        sent_time: src_stamp_msg.time,
-        sent_error: src_stamp_msg.error,
-        received_ttl: test_arguments
-            .get_parameter_value(TestArgumentKind::Ttl)
-            .unwrap(),
+        // We no longer need exclusive access to the session information.
+        response_stamp_msg
     };
-
-    // Generate a session-reflector test packet based on the Tlvs generated by the handlers.
-    let mut response_stamp_msg = StampMsg {
-        time: ntp::NtpTime::now(),
-        sequence: session_data
-            .as_ref()
-            .map_or(src_stamp_msg.sequence, |sd| sd.sequence),
-        error: Default::default(),
-        ssid: src_stamp_msg.ssid,
-        body: if client_authenticated {
-            StampMsgBody::Response(crate::stamp::StampResponseBodyType::Authenticated(body))
-        } else {
-            StampMsgBody::Response(crate::stamp::StampResponseBodyType::UnAuthenticated(body))
-        },
-        hmac: None,
-        tlvs: tlv_response,
-    };
-
-    if client_authenticated {
-        match response_stamp_msg.authenticate(&session_data.and_then(|sd| sd.key)) {
-            Ok(key) => response_stamp_msg.hmac = key,
-            Err(e) => {
-                error!(logger, "Failed to authenticate the response packet: {}", e);
-                return;
-            }
-        }
-    }
 
     let mut response_src_socket_addr = session.src.clone();
 
@@ -518,6 +529,23 @@ pub fn handler(
             response_result.unwrap_err()
         );
         return;
+    }
+
+    // Update the session with the information about the response that we just wrote!
+    if stateful {
+        let mut sessions = sessions.sessions.lock().unwrap();
+        if let Some(existing_session) = sessions.get_mut(&session.clone()) {
+            let entry = SessionHistoryEntry {
+                received_time: received_time.into(),
+                sender_time: src_stamp_msg.time,
+                sent_time: response_stamp_msg.time,
+                sender_sequence: src_stamp_msg.sequence,
+                sequence: response_stamp_msg.sequence,
+            };
+            existing_session.history.add(entry);
+        } else {
+            unreachable!("The server is stateful -- we must have a session at this point.")
+        }
     }
 
     info!(

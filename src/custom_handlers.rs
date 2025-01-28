@@ -31,6 +31,7 @@ pub mod ch {
         ip::{DscpValue, EcnValue},
         netconf::{NetConfiguration, NetConfigurationItem, NetConfigurationItemKind},
         parameters::{TestArgumentKind, TestArguments},
+        server::SessionData,
         stamp::{StampError, StampMsg},
         tlv::{self, Flags, Tlv, Tlvs},
     };
@@ -110,6 +111,7 @@ pub mod ch {
             parameters: &TestArguments,
             netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Ecn TLV handler!");
@@ -246,6 +248,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a timestamp Tlv.");
@@ -350,6 +353,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a destination port Tlv.");
@@ -464,6 +468,7 @@ pub mod ch {
             parameters: &TestArguments,
             netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Class of Service TLV handler!");
@@ -564,6 +569,7 @@ pub mod ch {
             handlers::TlvHandler,
             netconf::NetConfiguration,
             parameters::{TestArgument, TestArguments},
+            server::SessionData,
             tlv::{Flags, Tlv},
         };
 
@@ -599,12 +605,15 @@ pub mod ch {
 
             let mut netconfig = NetConfiguration::new();
 
+            let mut test_session_data: Option<SessionData> = None;
+
             let result = cos_handler
                 .handle(
                     &test_request_tlv,
                     &args,
                     &mut netconfig,
                     address.into(),
+                    &mut test_session_data,
                     test_logger,
                 )
                 .expect("COS handler should have worked");
@@ -720,6 +729,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             let dst_port_bytes = &tlv.value[0..2];
@@ -922,6 +932,7 @@ pub mod ch {
             handlers::TlvHandler,
             netconf,
             parameters::TestArguments,
+            server::SessionData,
             tlv::{self, Tlv},
         };
 
@@ -956,8 +967,17 @@ pub mod ch {
             let logger = create_test_logger();
             let mut netconfig = netconf::NetConfiguration::new();
 
+            let mut test_session_data: Option<SessionData> = None;
+
             let handled = handler
-                .handle(&tlv, &arguments, &mut netconfig, address.into(), logger)
+                .handle(
+                    &tlv,
+                    &arguments,
+                    &mut netconfig,
+                    address.into(),
+                    &mut test_session_data,
+                    logger,
+                )
                 .expect("Inner TLV should parse");
 
             let reparsed_sub_tlv = TryInto::<Tlv>::try_into(&handled.value.as_slice()[4..])
@@ -1013,6 +1033,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Unrecognized TLV handler!");
@@ -1113,6 +1134,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "Handling the response in the Padding Tlv.");
@@ -1242,6 +1264,7 @@ pub mod ch {
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
+            _session: &mut Option<SessionData>,
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the AccessReport TLV handler!");

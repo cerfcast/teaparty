@@ -18,6 +18,7 @@
 
 use chrono::prelude::Utc;
 use chrono::TimeZone;
+use serde::Serialize;
 
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -40,7 +41,7 @@ impl Display for NtpError {
     }
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize)]
 pub struct NtpTime {
     pub seconds: u32,
     pub fractions: u32,

@@ -54,7 +54,7 @@ fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<St
         Ssid::Ssid(request.ssid),
     );
 
-    let mut sd = SessionData::new();
+    let mut sd = SessionData::new(30);
     sd.key = Some(Vec::<u8>::from(request.key.clone()));
 
     match sessions.maybe_new(s, sd) {
