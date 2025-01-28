@@ -1322,6 +1322,124 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (AccessReport) that does not set net configuration items.");
         }
     }
+
+    pub struct HistoryTlv {}
+
+    impl HistoryTlv {
+        pub const OCTETS_PER_ENTRY: usize = 32;
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum HistoryTlvCommand {
+        History {
+            #[arg(long, default_value_t = 3)]
+            length: usize,
+
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for HistoryTlv {
+        fn tlv_name(&self) -> String {
+            "History".into()
+        }
+
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            HistoryTlvCommand::augment_subcommands(command)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::HISTORY
+        }
+
+        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+            let maybe_our_command = HistoryTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let HistoryTlvCommand::History {
+                length,
+                next_tlv_command,
+            } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: (length as u16) * Self::OCTETS_PER_ENTRY as u16,
+                    value: vec![0u8; length * Self::OCTETS_PER_ENTRY],
+                },
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am in the History TLV handler!");
+
+            let history_entries_requested = tlv.length as usize / Self::OCTETS_PER_ENTRY;
+            info!(
+                logger,
+                "Requesting {} history entries", history_entries_requested
+            );
+
+            let mut history_bytes = if let Some(session) = session {
+                Into::<Vec<u8>>::into(session.history.clone())
+            } else {
+                vec![]
+            };
+
+            history_bytes.resize(tlv.length as usize, 0u8);
+
+            Ok(Tlv {
+                flags: Flags::new_response(),
+                tpe: self.tlv_type(),
+                length: history_bytes.len() as u16,
+                value: history_bytes,
+            })
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(logger, "Preparing the response target in the History Tlv.");
+            address
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
+        }
+        fn handle_netconfig_error(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (History) that does not set net configuration items.");
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -1345,6 +1463,8 @@ impl CustomHandlers {
         handlers.add(padding_handler);
         let access_report_handler = Arc::new(Mutex::new(ch::AccessReportTlv {}));
         handlers.add(access_report_handler);
+        let history_handler = Arc::new(Mutex::new(ch::HistoryTlv {}));
+        handlers.add(history_handler);
 
         handlers
     }

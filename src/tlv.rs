@@ -411,6 +411,7 @@ mod tlv_parse_test {
 impl Tlv {
     pub const HEARTBEAT: u8 = 176;
     pub const DESTINATION_PORT: u8 = 177;
+    pub const HISTORY: u8 = 178;
     pub const DSCPECN: u8 = 179;
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
