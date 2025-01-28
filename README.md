@@ -168,6 +168,8 @@ Commands:
   class-of-service  
   location          
   unrecognized      
+  padding           
+  history           
   help              Print this message or the help of the given subcommand(s)
 
 Options:
@@ -182,6 +184,8 @@ Options:
 | destination-port | Destination Port| 983 |
 | location | Location | A Source IP Address sub-TLV |
 | unrecognized | _Special_| Will include a TLV whose type is unrecognized |
+| padding | Padding | Will pad out a STAMP packet with 64 bytes (by default); customize with the `-s` option |
+| history | History | Will include a TLV that requests information about the previous _N_ reflected packets in the current session (defaults to 3; customize with `--length`) |
 
 
 
@@ -247,3 +251,5 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Heartbeat (sender) | &#10060; |
 | Destination port (reflector) | &#9989; |
 | Destination port (sender) | &#9989; |
+| History (reflector) | &#9989; |
+| History (sender) | &#9989; |
