@@ -24,7 +24,7 @@ pub(crate) mod stamp_handler_test_support {
         let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
         let drain = slog_term::FullFormat::new(decorator)
             .build()
-            .filter_level(slog::Level::Debug)
+            .filter_level(slog::Level::Error)
             .fuse();
         slog::Logger::root(drain, slog::o!("version" => "0.5"))
     }
