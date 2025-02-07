@@ -83,7 +83,7 @@ pub mod ch {
                 // get_parameter_value does the necessary shift to the left!
                 dscp_value_argument
             } else {
-                DscpValue::CS0 as u8
+                DscpValue::CS0.into()
             };
 
             let ecn_value = if let Some(Ok(ecn_value_argument)) =
