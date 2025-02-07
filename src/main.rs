@@ -17,6 +17,7 @@
  */
 
 use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, ValueEnum};
+use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use handlers::Handlers;
@@ -28,11 +29,6 @@ use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
 use pnet::datalink::{self, Channel, Config};
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ip::IpNextHeaderProtocols::Udp;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::{self, Packet};
 use server::{ServerCancellation, ServerSocket, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
@@ -47,6 +43,7 @@ use tlv::Tlvs;
 #[macro_use]
 extern crate rocket;
 
+mod connection_generator;
 mod custom_handlers;
 mod handlers;
 mod ip;
@@ -220,7 +217,7 @@ fn client(
             logger,
             "About to configure the sending value of the IpV4 DSCP on the server socket."
         );
-        tos_byte |= Into::<u8>::into(DscpValue::EF);
+        tos_byte |= Into::<u8>::into(DscpValue::AF11);
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
@@ -395,50 +392,6 @@ fn client(
     Ok(())
 }
 
-fn extract_packets(pkt: &[u8]) -> Option<(EthernetPacket, Ipv4Packet, UdpPacket)> {
-    let ethernet_pkt = packet::ethernet::EthernetPacket::owned(pkt.to_vec())?;
-
-    if ethernet_pkt.get_ethertype() != EtherTypes::Ipv4 {
-        return None;
-    }
-
-    let ip_pkt = packet::ipv4::Ipv4Packet::owned(ethernet_pkt.payload().to_vec())?;
-
-    if ip_pkt.get_next_level_protocol() != Udp {
-        return None;
-    }
-
-    let udp_packet = packet::udp::UdpPacket::owned(ip_pkt.payload().to_vec())?;
-    Some((ethernet_pkt, ip_pkt, udp_packet))
-}
-
-fn packet_filter(
-    ip_pkt: &Ipv4Packet,
-    udp_packet: &UdpPacket,
-    address: SocketAddr,
-    logger: slog::Logger,
-) -> bool {
-    if !address.ip().is_unspecified() && ip_pkt.get_destination() != address.ip() {
-        trace!(
-            logger,
-            "Got a udp packet that was not for our IP (expected {}, got {}). Skipping",
-            ip_pkt.get_destination(),
-            address.ip()
-        );
-        return false;
-    }
-
-    if udp_packet.get_destination() != address.port() {
-        trace!(
-            logger,
-            "Got a udp packet that was not for our port ({}). Skipping",
-            udp_packet.get_destination()
-        );
-        return false;
-    }
-    true
-}
-
 fn server(
     args: Cli,
     command: Commands,
@@ -561,7 +514,7 @@ fn server(
                     iface.name
                 );
 
-                let (_, mut pkt_receiver) = match datalink::channel(
+                let (_, pkt_receiver) = match datalink::channel(
                     &iface,
                     Config {
                         read_timeout: Some(Duration::from_micros(3)),
@@ -574,6 +527,8 @@ fn server(
                     _ => panic!("Bad channel received!"),
                 };
 
+                let mut generator = ConnectionGenerator::from(pkt_receiver);
+
                 loop {
                     if server_cancellation.is_cancelled() {
                         info!(
@@ -584,31 +539,12 @@ fn server(
                         );
                         break;
                     }
-                    match pkt_receiver.next() {
-                        Ok(pkt) => {
-                                if let Some((ethernet_pkt, ip_pkt, udp_pkt)) = extract_packets(pkt) {
-                                    if !packet_filter(
-                                        &ip_pkt,
-                                        &udp_pkt,
-                                        bind_socket_addr,
-                                        logger.clone(),
-                                    ) {
-                                        trace!(
-                                            logger,
-                                            "Skipping a received packet because it was filtered."
-                                        );
-                                        continue;
-                                    }
-
-                                    let client_address: SocketAddr =
-                                        (ip_pkt.get_source(), udp_pkt.get_source()).into();
-
+                    match generator.next(logger.clone(), bind_socket_addr) {
+                        Ok((Some(ethernet_hdr), ip_hdr, recv_data, client_address)) => {
                                     let parameters = TestParameters::new();
                                     let arguments = parameters
-                                        .get_arguments(&ethernet_pkt, &ip_pkt, logger.clone())
+                                        .get_arguments(&ethernet_hdr, &ip_hdr, logger.clone())
                                         .expect("Could not get the arguments from the ip header");
-
-                                    let recv_data = udp_pkt.payload();
 
                                     let received_time = chrono::Utc::now();
 
@@ -649,16 +585,22 @@ fn server(
                                     }
 
                                     info!( logger, "Passed off the connection from {:?} to the handler for handling.", client_address);
-                                } else {
-                                    trace!(logger, "Received a data frame from the network, but could not extract an Ethernet frame and/or IP/UDP packets!");
-                                }
+                                },
+                        Ok(_) => {
+                            todo!()
                         }
-                        Err(e) => {
-                            if e.kind() != TimedOut {
+                        Err(ConnectionGeneratorError::Filtered) => {
+                                trace!(logger, "Filtered. Skipping.");
+                        }
+                        Err(ConnectionGeneratorError::ExtractionError) => {
+                                trace!(logger, "Failed to extract; assuming it was not for us.");
+                        },
+                        Err(ConnectionGeneratorError::IoError(ioe)) => {
+                            if ioe.kind() != TimedOut {
                                 error!(logger, "Error occurred while reading data frame from interface {}; processing of connections on this interface will terminate.", iface.name);
                                 return;
                             }
-                        }
+                        },
                     }
                 }
             })

@@ -17,3 +17,5 @@ sha2 = "0.10.8"
 hmac = "0.12.1"
 pnet = "0.35.0"
 ctrlc = "3.4.5"
+either = "1.13.0"
+etherparse = {version = "0.17", features = ["std"] }

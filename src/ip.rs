@@ -45,6 +45,18 @@ impl From<u8> for EcnValue {
     }
 }
 
+impl From<etherparse::Ipv4Ecn> for EcnValue {
+    fn from(value: etherparse::Ipv4Ecn) -> Self {
+        match value {
+            etherparse::Ipv4Ecn::ZERO => Self::NotEct,
+            etherparse::Ipv4Ecn::ONE => Self::Ect1,
+            etherparse::Ipv4Ecn::TWO => Self::Ect0,
+            etherparse::Ipv4Ecn::TRHEE => Self::Ce,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 pub enum DscpValue {
@@ -109,5 +121,35 @@ impl From<u8> for DscpValue {
             44 => DscpValue::VOICEADMIT,
             _ => DscpValue::Invalid,
         }
+    }
+}
+
+impl From<etherparse::Ipv4Dscp> for DscpValue {
+    fn from(value: etherparse::Ipv4Dscp) -> Self {
+        Into::<Self>::into(value.value())
+    }
+}
+
+#[cfg(test)]
+mod test_dscp_conversions {
+    use etherparse::Ipv4Dscp;
+
+    use crate::ip::DscpValue;
+
+    #[test]
+    fn test_dscp_from_raw_to_dscp_value() {
+        assert!(matches!(Into::<DscpValue>::into(56), DscpValue::CS7))
+    }
+
+    #[test]
+    fn test_dscp_from_etherparse_to_raw() {
+        let value = unsafe { Ipv4Dscp::new_unchecked(36) };
+        assert!(value.value() == 36)
+    }
+
+    #[test]
+    fn test_dscp_from_etherparse_to_dscp_value() {
+        let value = unsafe { Ipv4Dscp::new_unchecked(28) };
+        assert!(matches!(Into::<DscpValue>::into(value), DscpValue::AF32))
     }
 }

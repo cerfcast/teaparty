@@ -19,10 +19,10 @@
 use std::fmt::{Debug, Display};
 use std::vec;
 
-use pnet::packet::ethernet::EthernetPacket;
-use pnet::packet::ipv4::Ipv4Packet;
+use etherparse::Ethernet2Header;
 use slog::Logger;
 
+use crate::connection_generator::IpHeaders;
 use crate::os::MacAddr;
 use crate::stamp::StampError;
 
@@ -172,8 +172,8 @@ impl TestParameters {
 
     pub fn get_arguments(
         &self,
-        ethernet_pkt: &EthernetPacket,
-        ip_pkt: &Ipv4Packet,
+        ethernet_hdr: &Ethernet2Header,
+        ip_hdr: &IpHeaders,
         logger: Logger,
     ) -> Result<TestArguments, StampError> {
         let mut arguments =
@@ -183,7 +183,7 @@ impl TestParameters {
             .iter()
             .filter_map(|param| {
                 param
-                    .argument_from(ethernet_pkt, ip_pkt, logger.clone())
+                    .argument_from(ethernet_hdr, ip_hdr, logger.clone())
                     .map(|argument| (param.argument_kind(), argument))
             })
             .for_each(|(kind, value)| {
@@ -197,8 +197,8 @@ trait TestParameter {
     fn argument_kind(&self) -> TestArgumentKind;
     fn argument_from(
         &self,
-        ethernet_pkt: &EthernetPacket,
-        ip_hdr: &Ipv4Packet,
+        ethernet_hdr: &Ethernet2Header,
+        ip_hdr: &IpHeaders,
         logger: Logger,
     ) -> Option<TestArgument>;
 }
@@ -212,13 +212,13 @@ impl TestParameter for PeerMACAddressTestParameter {
 
     fn argument_from(
         &self,
-        ethernet_pkt: &EthernetPacket,
-        _ip_hdr: &Ipv4Packet,
+        ethernet_hdr: &Ethernet2Header,
+        _ip_hdr: &IpHeaders,
         _logger: Logger,
     ) -> Option<TestArgument> {
-        Some(TestArgument::PeerMacAddress(
-            ethernet_pkt.get_source().into(),
-        ))
+        Some(TestArgument::PeerMacAddress(MacAddr {
+            mac: ethernet_hdr.source,
+        }))
     }
 }
 
@@ -231,11 +231,16 @@ impl TestParameter for TtlTestParameter {
 
     fn argument_from(
         &self,
-        _ethernet_pkt: &EthernetPacket,
-        ip_hdr: &Ipv4Packet,
+        _ethernet_hdr: &Ethernet2Header,
+        ip_hdr: &IpHeaders,
         _logger: Logger,
     ) -> Option<TestArgument> {
-        Some(TestArgument::Ttl(ip_hdr.get_ttl()))
+        match ip_hdr {
+            IpHeaders::Left(ipv4) => Some(TestArgument::Ttl(ipv4.time_to_live)),
+            IpHeaders::Right(_) => {
+                todo!()
+            }
+        }
     }
 }
 
@@ -248,11 +253,16 @@ impl TestParameter for EcnTestParameter {
 
     fn argument_from(
         &self,
-        _ethernet_pkt: &EthernetPacket,
-        ip_hdr: &Ipv4Packet,
+        _ethernet_hdr: &Ethernet2Header,
+        ip_hdr: &IpHeaders,
         _logger: Logger,
     ) -> Option<TestArgument> {
-        Some(TestArgument::Ecn(ip_hdr.get_ecn().into()))
+        match ip_hdr {
+            IpHeaders::Left(ipv4) => Some(TestArgument::Ecn(ipv4.ecn.into())),
+            IpHeaders::Right(_) => {
+                todo!()
+            }
+        }
     }
 }
 
@@ -265,10 +275,16 @@ impl TestParameter for DscpTestParameter {
 
     fn argument_from(
         &self,
-        _ethernet_pkt: &EthernetPacket,
-        ip_hdr: &Ipv4Packet,
+        _ethernet_hdr: &Ethernet2Header,
+        ip_hdr: &IpHeaders,
         _logger: Logger,
     ) -> Option<TestArgument> {
-        Some(TestArgument::Dscp(ip_hdr.get_dscp().into()))
+        //Some(TestArgument::Dscp(ip_hdr.dscp))
+        match ip_hdr {
+            IpHeaders::Left(ipv4) => Some(TestArgument::Dscp(Into::<DscpValue>::into(ipv4.dscp))),
+            IpHeaders::Right(_) => {
+                todo!()
+            }
+        }
     }
 }
