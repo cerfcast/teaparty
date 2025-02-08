@@ -68,6 +68,14 @@ struct Cli {
 
     #[arg(default_value_t = 862)]
     port: u16,
+
+    /// Specify the verbosity of output. Repeat to increase loquaciousness
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
+
+    /// Specify the file to which log information should be written (defaults to terminal)
+    #[arg(long, value_parser = clap::value_parser!(clio::ClioPath))]
+    log_output: Option<clio::ClioPath>,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -616,13 +624,6 @@ fn server(
 }
 
 fn main() -> Result<(), StampError> {
-    let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
-    let drain = slog_term::FullFormat::new(decorator)
-        .build()
-        .filter_level(slog::Level::Debug)
-        .fuse();
-    let logger = slog::Logger::root(drain, slog::o!("version" => "0.5"));
-
     let tlv_handlers = CustomHandlers::build();
     let tlvs_command = tlv_handlers.get_cli_commands();
 
@@ -641,6 +642,49 @@ fn main() -> Result<(), StampError> {
 
     let matches = basic_cli_parser.clone().get_matches();
     let args = Cli::from_arg_matches(&matches).unwrap();
+
+    let log_level = if args.debug > 2 {
+        slog::Level::Trace
+    } else if args.debug > 1 {
+        slog::Level::Debug
+    } else if args.debug > 0 {
+        slog::Level::Info
+    } else {
+        slog::Level::Error
+    };
+
+    let logger = if let Some(output_path) = &args.log_output {
+        let log_output_open_result = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(output_path.path());
+
+        if let Err(log_output_file_open_error) = log_output_open_result {
+            let error_description = format!(
+                "Could not open the given log file '{}': {:?}",
+                output_path, log_output_file_open_error
+            );
+            println!("{}\n", error_description);
+            println!("{}", basic_cli_parser.render_help().ansi());
+            return Err(StampError::Other(error_description));
+        }
+        let decorator = slog_term::PlainSyncDecorator::new(log_output_open_result.unwrap());
+
+        let drain = slog_term::FullFormat::new(decorator)
+            .build()
+            .filter_level(log_level)
+            .fuse();
+        slog::Logger::root(drain, slog::o!("version" => "0.5"))
+    } else {
+        let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
+
+        let drain = slog_term::FullFormat::new(decorator)
+            .build()
+            .filter_level(log_level)
+            .fuse();
+        slog::Logger::root(drain, slog::o!("version" => "0.5"))
+    };
 
     let given_command = Commands::from_arg_matches(&matches);
 
