@@ -24,6 +24,13 @@ use std::{
 };
 
 use crate::{ntp, stamp::Ssid};
+use nix::{
+    libc::cmsghdr,
+    sys::socket::{
+        sockopt::{IpRecvTos, Ipv4RecvTtl},
+        SetSockOpt,
+    },
+};
 use serde::{ser::SerializeStruct, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -350,7 +357,13 @@ impl Sessions {
     }
 }
 
-#[derive(Clone)]
+/// A Transport-Layer (UDP), bound server socket with support for multiple writers.
+///
+/// The ServerSocket has a built-in lock that gives multiple users the chance to
+/// gain exclusive access to manipulate the socket. Such support means that it is
+/// possible to share copies of instances of the `ServerSocket` and, therefore,
+/// enable multiple readers and writers.
+#[derive(Clone, Debug)]
 pub struct ServerSocket {
     pub socket: Arc<Mutex<UdpSocket>>,
     pub socket_addr: net::SocketAddr,
@@ -362,6 +375,34 @@ impl ServerSocket {
             socket: Arc::new(Mutex::new(socket)),
             socket_addr: addr,
         }
+    }
+
+    pub fn set_nonblocking(&mut self, nonblocking: bool) -> Result<(), std::io::Error> {
+        let socket = self.socket.lock().unwrap();
+        socket.set_nonblocking(nonblocking)
+    }
+
+    pub fn configure_cmsg(&mut self) -> Result<(), std::io::Error> {
+        let socket = self.socket.lock().unwrap();
+        let set_ttl_value = true;
+        Ipv4RecvTtl.set(&*socket, &set_ttl_value)?;
+        let set_tos_value = true;
+        IpRecvTos.set(&*socket, &set_tos_value)?;
+        Ok(())
+    }
+
+    fn align_to<T>(size: usize) -> usize {
+        (size +
+            (std::mem::size_of::<T>() - 1)) // Round up.
+            & !(std::mem::size_of::<T>() - 1) // Truncate if we overshot!
+    }
+
+    pub fn get_cmsg_buffer(&self) -> Vec<u8> {
+        let tos_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
+            + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+        let ttl_size = ServerSocket::align_to::<usize>(std::mem::size_of::<u8>())
+            + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+        vec![0u8; tos_size + ttl_size]
     }
 }
 

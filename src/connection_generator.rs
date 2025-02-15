@@ -18,32 +18,79 @@
 
 use std::{
     fmt::Debug,
+    io::IoSliceMut,
     net::{IpAddr, SocketAddr},
+    os::fd::AsRawFd,
+    time,
 };
 
 use either::Either;
 use etherparse::{
-    Ethernet2Header, Ipv4Header, Ipv6Header, LinkSlice, NetSlice, SlicedPacket, TransportSlice,
-    UdpHeader,
+    Ethernet2Header, IpNumber, Ipv4Dscp, Ipv4Ecn, Ipv4Header, Ipv6Header, LinkSlice, NetSlice,
+    SlicedPacket, TransportSlice, UdpHeader,
+};
+use mio::{Events, Interest};
+use nix::{
+    errno::Errno,
+    sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrIn},
 };
 use pnet::datalink::DataLinkReceiver;
-use slog::trace;
+use slog::{error, info, trace};
+
+use crate::server::ServerSocket;
 
 #[derive(Debug)]
 pub enum ConnectionGeneratorError {
     Filtered,
     ExtractionError,
+    WouldBlock,
     IoError(std::io::Error),
 }
 
-pub struct ConnectionGenerator<'a> {
-    connection: Either<Box<dyn DataLinkReceiver>, &'a mut SocketAddr>,
+pub struct ConnectionGenerator {
+    connection: Either<Box<dyn DataLinkReceiver>, ServerSocket>,
+    poller: Option<mio::Poll>,
 }
 
-impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator<'_> {
+impl ConnectionGenerator {
+    const SOCKET_POLL_TOKEN: mio::Token = mio::Token(1);
+
+    pub fn configure_polling(&mut self) -> Result<(), std::io::Error> {
+        match &self.connection {
+            Either::Left(_) => Ok(()),
+            Either::Right(socket) => {
+                let socket_raw_fd = {
+                    let socket = socket.socket.lock().unwrap();
+                    socket.as_raw_fd()
+                };
+                let poller = mio::Poll::new()?;
+
+                poller.registry().register(
+                    &mut mio::unix::SourceFd(&socket_raw_fd),
+                    Self::SOCKET_POLL_TOKEN,
+                    Interest::READABLE,
+                )?;
+                self.poller = Some(poller);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator {
     fn from(value: Box<dyn DataLinkReceiver>) -> Self {
         Self {
             connection: either::Left(value),
+            poller: None,
+        }
+    }
+}
+
+impl From<ServerSocket> for ConnectionGenerator {
+    fn from(value: ServerSocket) -> Self {
+        Self {
+            connection: either::Right(value),
+            poller: None,
         }
     }
 }
@@ -51,7 +98,7 @@ impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator<'_> {
 pub type Connection = (Option<Ethernet2Header>, IpHeaders, Vec<u8>, SocketAddr);
 pub type IpHeaders = either::Either<Ipv4Header, Ipv6Header>;
 
-impl ConnectionGenerator<'_> {
+impl ConnectionGenerator {
     fn extract_packets(pkt: &[u8]) -> Option<(Ethernet2Header, IpHeaders, UdpHeader, Vec<u8>)> {
         match SlicedPacket::from_ethernet(pkt) {
             Ok(pieces) => {
@@ -101,7 +148,11 @@ impl ConnectionGenerator<'_> {
                 }
             }
             IpHeaders::Right(_) => {
-                todo!("Implement Ipv6 support for packet filtering")
+                trace!(
+                    logger,
+                    "Packet filtering for Ipv6 is not yet implemented. Skipping."
+                );
+                return false;
             }
         }
         if udp_pkt_hdr.destination_port != address.port() {
@@ -118,7 +169,7 @@ impl ConnectionGenerator<'_> {
     pub fn next(
         &mut self,
         logger: slog::Logger,
-        bind_socket_addr: SocketAddr,
+        server_socket_addr: SocketAddr,
     ) -> Result<Connection, ConnectionGeneratorError> {
         match &mut self.connection {
             Either::Left(interface) => match interface.next() {
@@ -129,7 +180,7 @@ impl ConnectionGenerator<'_> {
                         if !Self::packet_filter(
                             &ip_pkt_hdr,
                             &udp_header,
-                            bind_socket_addr,
+                            server_socket_addr,
                             logger.clone(),
                         ) {
                             trace!(
@@ -157,8 +208,102 @@ impl ConnectionGenerator<'_> {
                 }
                 Err(e) => Err(ConnectionGeneratorError::IoError(e)),
             },
-            Either::Right(_) => {
-                todo!("Implement Connection Generator for 'regular' socket.")
+            Either::Right(server) => {
+                let mut events = Events::with_capacity(128);
+                if let Some(poller) = &mut self.poller {
+                    info!(
+                        logger,
+                        "Starting to wait for events to happen on the server socket."
+                    );
+                    poller
+                        .poll(&mut events, Some(time::Duration::from_secs(5)))
+                        .map_err(ConnectionGeneratorError::IoError)?;
+                    info!(logger, "Done waiting for events to happen on the server socket -- something(s) happened (or we timed out).");
+                } else {
+                    info!(logger, "A poller is not configured for the server socket; assuming that the socket is readable.")
+                }
+
+                // We take the completion of `poller.poll` as an indication that the socket is readable.
+                // Because it the server socket is the only source in the registry and the socket's change
+                // to readable is the only change in which we are `Interest`-ed, it is a safe assumption.
+                // It also makes it possible for this code to work whether or not the user has configured
+                // polling support.
+
+                let mut buffer = [0u8; 1500];
+
+                let mut cmsg_buffer = server.get_cmsg_buffer();
+
+                let server = server.socket.lock().unwrap();
+                let mut iov = [IoSliceMut::new(&mut buffer)];
+                match recvmsg::<SockaddrIn>(
+                    server.as_raw_fd(),
+                    &mut iov,
+                    Some(&mut cmsg_buffer),
+                    MsgFlags::empty(),
+                ) {
+                    Ok(result) => {
+                        info!(
+                            logger,
+                            "Read {} bytes from the server socket.", result.bytes
+                        );
+
+                        let client_ip = result.address.unwrap().ip();
+                        let client_ip_addr_bytes = client_ip.octets();
+
+                        let server_ip_addr_bytes = if let IpAddr::V4(addr) = server_socket_addr.ip()
+                        {
+                            addr.octets()
+                        } else {
+                            todo!("Support for IPv6 is not ready.")
+                        };
+
+                        let mut dscp_recv: Option<u8> = None;
+                        let mut ttl_recv: Option<i32> = None;
+
+                        for c in result.cmsgs().unwrap() {
+                            match c {
+                                ControlMessageOwned::Ipv4Tos(val) => dscp_recv = Some(val),
+                                ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val),
+                                _ => unreachable!(),
+                            }
+                        }
+
+                        if dscp_recv.is_none() || ttl_recv.is_none() {
+                            return Err(ConnectionGeneratorError::ExtractionError);
+                        }
+
+                        let ttl_recv = TryInto::<u8>::try_into(ttl_recv.unwrap()).map_err(|e| {
+                            error!(
+                                logger,
+                                "There was an error extracting the TTL received from network: {}",
+                                e
+                            );
+                            ConnectionGeneratorError::ExtractionError
+                        })?;
+                        let dscp_recv = dscp_recv.unwrap();
+
+                        let mut ip_hdr = Ipv4Header::new(
+                            500,
+                            ttl_recv,
+                            IpNumber::UDP,
+                            client_ip_addr_bytes,
+                            server_ip_addr_bytes,
+                        )
+                        .unwrap();
+
+                        ip_hdr.dscp = Ipv4Dscp::try_new(dscp_recv >> 2).unwrap();
+                        ip_hdr.ecn = Ipv4Ecn::try_new(dscp_recv & 0x3).unwrap();
+
+                        Ok((
+                            None,
+                            either::Left(ip_hdr),
+                            result.iovs().nth(0).unwrap().to_vec(),
+                            result.address.unwrap().into(),
+                        ))
+                    }
+                    Err(Errno::EWOULDBLOCK) => Err(ConnectionGeneratorError::WouldBlock),
+                    Err(e) => Err(ConnectionGeneratorError::IoError(e.into())),
+                }
             }
         }
     }

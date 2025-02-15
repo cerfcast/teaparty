@@ -20,3 +20,4 @@ ctrlc = "3.4.5"
 either = "1.13.0"
 etherparse = {version = "0.17", features = ["std"] }
 clio = {version="0.3.5", features=["clap-parse"]}
+mio = "1.0.3"

@@ -20,6 +20,8 @@ use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, V
 use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
+use either::Either;
+use etherparse::Ethernet2Header;
 use handlers::Handlers;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
@@ -28,7 +30,7 @@ use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
-use pnet::datalink::{self, Channel, Config};
+use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use server::{ServerCancellation, ServerSocket, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
@@ -119,6 +121,13 @@ struct ReflectorArgs {
 
     #[arg(long, action = clap::ArgAction::Append, help = "Specify heartbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
     heartbeat: Vec<HeartbeatConfiguration>,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Run teaparty in link-layer mode."
+    )]
+    link_layer: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -199,7 +208,7 @@ fn client(
             logger,
             "About to configure the sending value of the IpV4 ECN on the server socket."
         );
-        tos_byte |= Into::<u8>::into(EcnValue::Ect0);
+        tos_byte |= Into::<u8>::into(EcnValue::Ect1);
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
@@ -408,11 +417,12 @@ fn server(
 ) -> Result<(), StampError> {
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let (stateless, heartbeats) = match command {
+    let (stateless, heartbeats, link_layer) = match command {
         Commands::Reflector(ReflectorArgs {
             stateless,
             heartbeat,
-        }) => (stateless, heartbeat),
+            link_layer,
+        }) => (stateless, heartbeat, link_layer),
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
@@ -434,58 +444,76 @@ fn server(
     })
     .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
 
-    // Find the interfaces that contain the IP address on which the user wants the
-    // reflector to listen.
-    let listening_interfaces: Vec<_> = datalink::interfaces()
-        .into_iter()
-        .filter(|iface| {
-            if args.ip_addr.is_unspecified() {
-                true
-            } else {
-                iface.ips.iter().any(|ip| ip.contains(args.ip_addr))
-            }
-        })
-        .collect();
+    let server_socket_addr = SocketAddr::from((args.ip_addr, args.port));
 
-    info!(
-        logger,
-        "Listening on {:?} interfaces.", listening_interfaces
-    );
-
-    if listening_interfaces.iter().any(|iface| iface.is_loopback()) {
-        warn!(logger, "Reflector listening on loopback; duplicate response messages will be generated for connections on that interface.");
-    }
-
-    let bind_socket_addr = SocketAddr::from((args.ip_addr, args.port));
-    info!(logger, "Bound to the server socket: {}", bind_socket_addr);
-
-    let bind_result = UdpSocket::bind(bind_socket_addr).map_err(|e| {
+    let udp_socket = UdpSocket::bind(server_socket_addr).map_err(|e| {
         error!(
             logger,
-            "There was an error creating the server socket: {}", e
+            "There was an error creating a server that listens on {}: {}", server_socket_addr, e
         );
-        Into::<StampError>::into(e)
+        e
     })?;
 
-    // Make the socket non-blocking ...
+    info!(logger, "Server listening on {}", server_socket_addr);
 
-    let socket = bind_result;
-    socket.set_nonblocking(true).map_err(|e| {
-        error!(
+    let mut server_socket = ServerSocket::new(udp_socket, server_socket_addr);
+
+    // Depending on whether the user wanted to look for sender packets at the
+    // link layer or the network layer, configure a set of listeners (better known
+    // as generators of packets).
+    let listeners: Vec<Either<NetworkInterface, ServerSocket>> = if link_layer {
+        // Find the interfaces that contain the IP address on which the user wants the
+        // reflector to listen.
+        let listening_interfaces = datalink::interfaces()
+            .into_iter()
+            .filter(|iface| {
+                if args.ip_addr.is_unspecified() {
+                    true
+                } else {
+                    iface.ips.iter().any(|ip| ip.contains(args.ip_addr))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        info!(
             logger,
-            "There was an error setting the server server socket to non blocking: {}", e
+            "Listening at the link layer on {:?} interfaces.", listening_interfaces
         );
-        Into::<StampError>::into(e)
-    })?;
 
-    let socket = ServerSocket::new(socket, bind_socket_addr);
+        if listening_interfaces.iter().any(|iface| iface.is_loopback()) {
+            warn!(logger, "Reflector listening on loopback; duplicate response messages will be generated for connections on that interface.");
+        }
+        listening_interfaces
+            .into_iter()
+            .map(either::Left)
+            .collect::<Vec<_>>()
+    } else {
+        // Configure the required parameters for the server socket so that we are able to read
+        // information from the IP header about a received packet.
+        server_socket.configure_cmsg().map_err(|e| {
+            error!(
+                logger,
+                "There was an error configuring metadata parameters on the server socket: {}.", e
+            );
+            e
+        })?;
+        server_socket.set_nonblocking(true).map_err(|e| {
+            error!(
+                logger,
+                "Could not set the server socket as non blocking: {}", e
+            );
+            e
+        })?;
+        info!(logger, "Listening at the internet layer.");
+        vec![either::Right(server_socket.clone())]
+    };
 
-    let responder = Arc::new(responder::Responder::new());
+    info!(logger, "listeners: {:?}", listeners);
 
     let sessions = Sessions::new();
 
     let periodical = Periodicity::new(
-        socket.clone(),
+        server_socket.clone(),
         heartbeats.clone(),
         sessions.clone(),
         std::time::Duration::from_secs(10),
@@ -506,20 +534,13 @@ fn server(
         })
     };
 
-    for iface in listening_interfaces {
-        let socket = socket.clone();
-        server_threads.push({
-            let logger = logger.clone();
-            let responder = responder.clone();
-            let sessions = sessions.clone();
-            let handlers = handlers.clone();
-            let server_cancellation = server_cancellation.clone();
-            thread::spawn(move || {
+    for listener in listeners {
+        // Depending on the listener, the generator will need to get constructed differently.
+        let mut generator = match listener {
+            either::Left(iface) => {
                 info!(
                     logger,
-                    "Started thread {:?} to listen on interface {}.",
-                    thread::current(),
-                    iface.name
+                    "Started server to listen on interface {}.", iface.name
                 );
 
                 let (_, pkt_receiver) = match datalink::channel(
@@ -535,23 +556,47 @@ fn server(
                     _ => panic!("Bad channel received!"),
                 };
 
-                let mut generator = ConnectionGenerator::from(pkt_receiver);
+                ConnectionGenerator::from(pkt_receiver)
+            }
+            either::Right(sock) => {
+                let mut connection_generator = ConnectionGenerator::from(sock);
+                connection_generator.configure_polling()?;
+                connection_generator
+            }
+        };
 
+        // No matter what is the type of the listener, now that there is a generator it can be
+        // used to get packets sent by clients. We create a new thread to service each generator.
+
+        let responder = Arc::new(responder::Responder::new());
+        server_threads.push({
+            let logger = logger.clone();
+            let responder = responder.clone();
+            let sessions = sessions.clone();
+            let handlers = handlers.clone();
+            let server_cancellation = server_cancellation.clone();
+            let server_socket = server_socket.clone();
+            thread::spawn(move || {
                 loop {
                     if server_cancellation.is_cancelled() {
                         info!(
                             logger,
-                            "Stopping thread {:?} that was listening on interface {}.",
+                            "Stopping thread {:?}",
                             thread::current(),
-                            iface.name
                         );
                         break;
                     }
-                    match generator.next(logger.clone(), bind_socket_addr) {
-                        Ok((Some(ethernet_hdr), ip_hdr, recv_data, client_address)) => {
+                    match generator.next(logger.clone(), server_socket_addr) {
+                        Ok((maybe_ethernet_hdr, ip_hdr, recv_data, client_address)) => {
                                     let parameters = TestParameters::new();
-                                    let arguments = parameters
-                                        .get_arguments(&ethernet_hdr, &ip_hdr, logger.clone())
+
+                                    // If the generator was not kind enough to supply an ethernet header, we will just use an empty
+                                    // one to determine the arguments for the test.
+                                    let ethernet_header = maybe_ethernet_hdr.unwrap_or(Ethernet2Header::from_bytes([0u8;14]));
+
+                                    let arguments =
+                                        parameters
+                                        .get_arguments(&ethernet_header, &ip_hdr, logger.clone())
                                         .expect("Could not get the arguments from the ip header");
 
                                     let received_time = chrono::Utc::now();
@@ -571,8 +616,7 @@ fn server(
                                         let responder = responder.clone();
                                         let sessions = sessions.clone();
                                         let handlers = handlers.clone();
-                                        let server = socket.clone();
-
+                                        let server_socket = server_socket.clone();
                                         // If the server did not run forever, it may have been necessary
                                         // to `join` on this handle to make sure that the server did not
                                         // exit before the client was completely serviced.
@@ -585,7 +629,7 @@ fn server(
                                                 !stateless,
                                                 handlers,
                                                 responder,
-                                                server,
+                                                server_socket,
                                                 client_address,
                                                 logger,
                                             );
@@ -594,9 +638,6 @@ fn server(
 
                                     info!( logger, "Passed off the connection from {:?} to the handler for handling.", client_address);
                                 },
-                        Ok(_) => {
-                            todo!()
-                        }
                         Err(ConnectionGeneratorError::Filtered) => {
                                 trace!(logger, "Filtered. Skipping.");
                         }
@@ -605,10 +646,13 @@ fn server(
                         },
                         Err(ConnectionGeneratorError::IoError(ioe)) => {
                             if ioe.kind() != TimedOut {
-                                error!(logger, "Error occurred while reading data frame from interface {}; processing of connections on this interface will terminate.", iface.name);
+                                error!(logger, "Error occurred while reading data frame: {:?}; processing of connections on this interface will terminate.", ioe.kind());
                                 return;
                             }
                         },
+                        Err(ConnectionGeneratorError::WouldBlock) => {
+                            trace!(logger, "There was no data available to be read from the network (... would block).")
+                        }
                     }
                 }
             })
@@ -701,6 +745,7 @@ fn main() -> Result<(), StampError> {
         Commands::Reflector(ReflectorArgs {
             stateless: _,
             heartbeat: _,
+            link_layer: _,
         }) => server(args, given_command, tlv_handlers, logger),
         Commands::Sender(SenderArgs {
             ssid: _,
