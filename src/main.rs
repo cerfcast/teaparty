@@ -91,17 +91,17 @@ struct SenderArgs {
     #[arg(long)]
     ssid: Option<u16>,
 
-    /// Include a malformed Tlv in the test packet.
+    /// Include a malformed Tlv in the test packet
     #[arg(long)]
     malformed: Option<MalformedWhy>,
 
-    /// Enable a non-default ECN for testing (ECT0)
-    #[arg(long, default_value_t = false)]
-    ecn: bool,
+    /// Enable a non-default ECN for testing
+    #[arg(long)]
+    ecn: Option<EcnValue>,
 
-    /// Enable a non-default DSCP for testing (EF)
-    #[arg(long, default_value_t = false)]
-    dscp: bool,
+    /// Enable a non-default DSCP for testing
+    #[arg(long)]
+    dscp: Option<DscpValue>,
 
     #[arg(long, default_value_t = 0)]
     src_port: u16,
@@ -175,24 +175,25 @@ fn client(
     logger: slog::Logger,
 ) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, malformed, use_ecn, use_dscp, src_port, authenticated) = match command {
-        Commands::Sender(SenderArgs {
-            ssid,
-            malformed,
-            ecn,
-            dscp,
-            src_port,
-            authenticated,
-        }) => (
-            ssid.map(Ssid::Ssid),
-            malformed,
-            ecn,
-            dscp,
-            src_port,
-            authenticated,
-        ),
-        _ => panic!("The source port is somehow missing a value."),
-    };
+    let (maybe_ssid, malformed, set_socket_ecn, set_socket_dscp, src_port, authenticated) =
+        match command {
+            Commands::Sender(SenderArgs {
+                ssid,
+                malformed,
+                ecn,
+                dscp,
+                src_port,
+                authenticated,
+            }) => (
+                ssid.map(Ssid::Ssid),
+                malformed,
+                ecn,
+                dscp,
+                src_port,
+                authenticated,
+            ),
+            _ => panic!("The source port is somehow missing a value."),
+        };
 
     info!(logger, "Connecting to the server at {}", server_addr);
 
@@ -203,12 +204,12 @@ fn client(
 
     let mut tos_byte: u8 = 0;
 
-    if use_ecn {
+    if let Some(socket_ecn) = set_socket_ecn {
         info!(
             logger,
             "About to configure the sending value of the IpV4 ECN on the server socket."
         );
-        tos_byte |= Into::<u8>::into(EcnValue::Ect1);
+        tos_byte |= Into::<u8>::into(socket_ecn);
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
@@ -220,7 +221,7 @@ fn client(
             )));
         }
 
-        let ecn_argment = TestArgument::Ecn(EcnValue::Ect0);
+        let ecn_argment = TestArgument::Ecn(socket_ecn);
         test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
 
         info!(
@@ -229,12 +230,12 @@ fn client(
         );
     }
 
-    if use_dscp {
+    if let Some(socket_dscp) = set_socket_dscp {
         info!(
             logger,
             "About to configure the sending value of the IpV4 DSCP on the server socket."
         );
-        tos_byte |= Into::<u8>::into(DscpValue::AF11);
+        tos_byte |= Into::<u8>::into(socket_dscp);
         let set_tos_value = tos_byte as i32;
         if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
             error!(
@@ -246,7 +247,7 @@ fn client(
             )));
         }
 
-        let dscp_argment = TestArgument::Dscp(DscpValue::EF);
+        let dscp_argment = TestArgument::Dscp(socket_dscp);
         test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
 
         info!(

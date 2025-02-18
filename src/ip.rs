@@ -18,8 +18,10 @@
 
 use std::fmt::Debug;
 
+use clap::ValueEnum;
+
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum EcnValue {
     NotEct = 0x0u8,
     Ect1 = 0x1u8,
@@ -58,7 +60,7 @@ impl From<etherparse::Ipv4Ecn> for EcnValue {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum DscpValue {
     CS0 = 0,
     CS1 = 8,
@@ -83,6 +85,7 @@ pub enum DscpValue {
     EF = 46,
     #[allow(clippy::upper_case_acronyms)]
     VOICEADMIT = 44,
+    #[value(skip)]
     Invalid,
 }
 

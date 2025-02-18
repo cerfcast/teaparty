@@ -41,6 +41,12 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum DscpEcnTlvCommand {
         DscpEcn {
+            #[arg(long, default_value = "ect0")]
+            ecn: EcnValue,
+
+            #[arg(long, default_value = "cs1")]
+            dscp: DscpValue,
+
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
@@ -61,7 +67,7 @@ pub mod ch {
 
         fn request(
             &self,
-            args: Option<TestArguments>,
+            _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
             let maybe_our_command = DscpEcnTlvCommand::from_arg_matches(matches);
@@ -69,29 +75,16 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let DscpEcnTlvCommand::DscpEcn { next_tlv_command } = our_command;
+            let DscpEcnTlvCommand::DscpEcn {
+                ecn: user_ecn,
+                dscp: user_dscp,
+                next_tlv_command,
+            } = our_command;
+
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
             } else {
                 None
-            };
-
-            let dscp_value = if let Some(Ok(dscp_value_argument)) = args
-                .clone()
-                .map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Dscp))
-            {
-                // get_parameter_value does the necessary shift to the left!
-                dscp_value_argument
-            } else {
-                DscpValue::CS0.into()
-            };
-
-            let ecn_value = if let Some(Ok(ecn_value_argument)) =
-                args.map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Ecn))
-            {
-                ecn_value_argument
-            } else {
-                EcnValue::NotEct as u8
             };
 
             Some((
@@ -99,7 +92,12 @@ pub mod ch {
                     flags: Flags::new_request(),
                     tpe: self.tlv_type(),
                     length: 4,
-                    value: vec![dscp_value | ecn_value, 0, 0, 0],
+                    value: vec![
+                        Into::<u8>::into(user_dscp) | Into::<u8>::into(user_ecn),
+                        0,
+                        0,
+                        0,
+                    ],
                 },
                 next_tlv_command,
             ))
@@ -405,6 +403,9 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum ClassOfServiceTlvCommand {
         ClassOfService {
+            #[arg(long, default_value = "cs1")]
+            dscp: DscpValue,
+
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
@@ -425,7 +426,7 @@ pub mod ch {
 
         fn request(
             &self,
-            args: Option<TestArguments>,
+            _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
             let maybe_our_command = ClassOfServiceTlvCommand::from_arg_matches(matches);
@@ -433,22 +434,15 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let ClassOfServiceTlvCommand::ClassOfService { next_tlv_command } = our_command;
+            let ClassOfServiceTlvCommand::ClassOfService {
+                dscp: user_dscp,
+                next_tlv_command,
+            } = our_command;
+
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
             } else {
                 None
-            };
-
-            let dscp_value = if let Some(Ok(dscp_value_argument)) = args
-                .clone()
-                .map(|f| f.get_parameter_value::<u8>(TestArgumentKind::Dscp))
-            {
-                // get_parameter_value does the necessary shift to the left!
-                // (Which is necessary because the TLV is supposed to be smushed to the leftside!)
-                dscp_value_argument
-            } else {
-                DscpValue::CS0.into()
             };
 
             Some((
@@ -456,7 +450,7 @@ pub mod ch {
                     flags: Flags::new_request(),
                     tpe: Tlv::COS,
                     length: 4,
-                    value: vec![dscp_value, 0, 0, 0],
+                    value: vec![Into::<u8>::into(user_dscp), 0, 0, 0],
                 },
                 next_tlv_command,
             ))
