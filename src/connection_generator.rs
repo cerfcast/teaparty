@@ -24,7 +24,6 @@ use std::{
     time,
 };
 
-use either::Either;
 use etherparse::{
     Ethernet2Header, IpNumber, Ipv4Dscp, Ipv4Ecn, Ipv4Header, Ipv6Header, LinkSlice, NetSlice,
     SlicedPacket, TransportSlice, UdpHeader,
@@ -47,8 +46,13 @@ pub enum ConnectionGeneratorError {
     IoError(std::io::Error),
 }
 
+pub enum ConnectionGeneratorSource {
+    LinkLayer(Box<dyn DataLinkReceiver>),
+    InternetLayer(ServerSocket),
+}
+
 pub struct ConnectionGenerator {
-    connection: Either<Box<dyn DataLinkReceiver>, ServerSocket>,
+    connection: ConnectionGeneratorSource,
     poller: Option<mio::Poll>,
 }
 
@@ -57,8 +61,8 @@ impl ConnectionGenerator {
 
     pub fn configure_polling(&mut self) -> Result<(), std::io::Error> {
         match &self.connection {
-            Either::Left(_) => Ok(()),
-            Either::Right(socket) => {
+            ConnectionGeneratorSource::LinkLayer(_) => Ok(()),
+            ConnectionGeneratorSource::InternetLayer(socket) => {
                 let socket_raw_fd = {
                     let socket = socket.socket.lock().unwrap();
                     socket.as_raw_fd()
@@ -80,7 +84,7 @@ impl ConnectionGenerator {
 impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator {
     fn from(value: Box<dyn DataLinkReceiver>) -> Self {
         Self {
-            connection: either::Left(value),
+            connection: ConnectionGeneratorSource::LinkLayer(value),
             poller: None,
         }
     }
@@ -89,7 +93,7 @@ impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator {
 impl From<ServerSocket> for ConnectionGenerator {
     fn from(value: ServerSocket) -> Self {
         Self {
-            connection: either::Right(value),
+            connection: ConnectionGeneratorSource::InternetLayer(value),
             poller: None,
         }
     }
@@ -172,7 +176,7 @@ impl ConnectionGenerator {
         server_socket_addr: SocketAddr,
     ) -> Result<Connection, ConnectionGeneratorError> {
         match &mut self.connection {
-            Either::Left(interface) => match interface.next() {
+            ConnectionGeneratorSource::LinkLayer(interface) => match interface.next() {
                 Ok(pkt) => {
                     if let Some((ethernet_pkt, ip_pkt_hdr, udp_header, udp_bytes)) =
                         Self::extract_packets(pkt)
@@ -208,7 +212,7 @@ impl ConnectionGenerator {
                 }
                 Err(e) => Err(ConnectionGeneratorError::IoError(e)),
             },
-            Either::Right(server) => {
+            ConnectionGeneratorSource::InternetLayer(server) => {
                 let mut events = Events::with_capacity(128);
                 if let Some(poller) = &mut self.poller {
                     info!(
