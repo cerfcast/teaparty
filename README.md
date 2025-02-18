@@ -21,7 +21,7 @@ $ cargo build
 
 ### Running
 
-`teaparty` has both a _reflector_ and a _sender_ mode. The _reflector_ mode is the one that has been most tested. The _sender_ mode is developed/maintained for the purposes of testing interoperability. 
+`teaparty` has both a _reflector_ and a _sender_ mode. The _sender_ mode is developed/maintained for the purposes of testing interoperability. 
 
 #### Reflector
 
@@ -40,8 +40,13 @@ Usage: teaparty reflector [OPTIONS]
 Options:
       --stateless              Run teaparty in stateless mode.
       --heartbeat <HEARTBEAT>  Specify hearbeat message target and interval (in seconds) as [IP]@[Seconds]
+      --link-layer             Run teaparty in link-layer mode.
   -h, --help                   Print help
 ```
+
+Some TLVs (see below) need access to link-layer information about the test packet. Capturing such information is not possible using traditional BSD-socket-like methods.
+When the Reflector runs in _link-layer mode_, it will listen for test packets by acting as a packet capturing system. While this feature will allow the Reflector to handle
+more TLVs, it may also cause additional overhead.
 
 **Monitoring**
 
@@ -133,7 +138,7 @@ Upon `POST`ing a JSON object with the fields above, the server will respond with
 
 #### Sender
 
-The Sender has a variety of options, but they are mostly for the purposes of testing the Reflector:
+The Sender has a variety of options that are useful for testing implementations of a STAMP-compliant Reflector:
 
 ```console
 Usage: teaparty sender [OPTIONS] [COMMAND]
@@ -145,16 +150,18 @@ Commands:
 Options:
       --ssid <SSID>                    
       --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
-      --ecn                            Enable a non-default ECN for testing (ECT0)
-      --dscp                           Enable a non-default DSCP for testing (EF)
+      --ecn <ECN>                      Enable a non-default ECN for testing [possible values: not-ect, ect1, ect0, ce]
+      --dscp <DSCP>                    Enable a non-default DSCP for testing [possible values: cs0, cs1, cs2, cs3, cs4, cs5, cs6, cs7, af11, af12, af13, af21, af22, af23, af31, af32, af33, af41, af42, af43, ef, voiceadmit]
       --src-port <SRC_PORT>            [default: 0]
       --authenticated <AUTHENTICATED>  
   -h, --help                           Print help
 ```
 
 The `--src-port` option is useful for testing the statefulness of the Reflector. The `--malformed` option is useful
-for testing the Reflector's error handling. The `--ecn` and `--dscp` will set the TOS fields of the IP packet of the test packet (with the values [ECT0](https://www.juniper.net/documentation/us/en/software/junos/cos/topics/concept/cos-qfx-series-explicit-congestion-notification-understanding.html#understanding-cos-explicit-congestion-notification__subsection_anp_p5j_w5b)
-and [EF](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf), respectively) -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Setting the `--authenticated` flag will cause the sender to operate in [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3) and use `<AUTHENTICATED>` as the key for generating the test packet's HMAC.
+for testing the Reflector's error handling. The `--ecn` and `--dscp` will set the TOS fields of the IP packet of the test packet with the values specified.
+-- useful for testing the Reflector's implementation of the TLVs related to quality of service. Omitting either of those options means that the test packet
+will have neither DSCP nor ECN values set in the IP header. Setting the `--authenticated` flag will cause the sender to operate in
+[Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3) and use `<AUTHENTICATED>` as the key for generating the test packet's HMAC.
 
 The `tlvs` subcommand will put TLVs into the test packet.
 
@@ -178,8 +185,8 @@ Options:
 
 | Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
-| class-of-service | Class of Service | When used with `--dscp` option, `DSCP1` field contains EF. Otherwise, `DSCP1` field contains CS0. |
-| dscp-ecn | DSCP ECN | When used with `--dscp` option, `DSCP1` field contains EF. Otherwise, `DSCP1` field contains CS0. When used with `--ecn` option, `ECN1` field contains ECT0. Otherwise, `ECN1` field contains Not-ECT. | |
+| class-of-service | Class of Service | The DSCP value requested to be set in the reflected IP packet can be specified with the `--dscp`. By default, the requested value is `CS1`. |
+| dscp-ecn | DSCP ECN | The values requested to be set in the reflected IP packet for the DSCP and ECN values can be specified with the `--dscp` and `--ecn` flags, respectively. By default, the requested values are `CS1` and `ECT0`, respectively. |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destination-port | Destination Port| 983 |
 | location | Location | A Source IP Address sub-TLV |
@@ -187,21 +194,21 @@ Options:
 | padding | Padding | Will pad out a STAMP packet with 64 bytes (by default); customize with the `-s` option |
 | history | History | Will include a TLV that requests information about the previous _N_ reflected packets in the current session (defaults to 3; customize with `--length`) |
 
+_Example_:
 
+```console
+$ teaparty 127.0.0.1 sender  --dscp ef tlvs class-of-service 
+```
+will send a STAMP test packet to a Reflector running on localhost that contains a Class of Service TLV (with the requested value of the reflected packet's IP header`DSCP` field set to `CS1`) with the test IP packet's DSCP value set to `EF`.
 
 It is possible to put more than one TLV into a test packet by separating multiple instances of the `tlvs` subcommand with the `--`.
 
 _Example_:
-
 ```console
-$ teaparty 127.0.0.1 sender  --dscp tlvs class-of-service 
+$ 127.0.0.1 sender --ecn ect1 --dscp af11 tlvs time -- dscp-ecn --ecn ect0 --dscp af21
 ```
-will send a STAMP test packet to a Reflector running on localhost that contains a Class of Service TLV (with the `DSCP1` field set to EF) with the IP packet's DSCP value set to EF.
 
-```console
-$ 127.0.0.1 sender --ecn --dscp tlvs time -- dscp-ecn  -- class-of-service 
-```
-will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a DSCP ECN TLV (with the the `DSCP1` and `ECN1` fields set to EF and ECT0, respectively), a Class of Service TLV (with the `DSCP1` field set to EF) and with the IP packet's ECN and DSCP values set to ECT0 and EF, respectively.
+will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a DSCP ECN TLV (requesting that the reflected IP packet's headers have DSCP and ECN fields set to `AF21` and `ECT0`, respectively), and with the test IP packet's ECN and DSCP values set to `ECT1` and `AF11`, respectively.
 
 ### Contributing
 
