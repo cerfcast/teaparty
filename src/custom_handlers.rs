@@ -1134,7 +1134,7 @@ pub mod ch {
             info!(logger, "Handling the response in the Padding Tlv.");
             let mut response = tlv.clone();
             response.flags = Flags::new_response();
-            Ok(tlv.clone())
+            Ok(response)
         }
         fn response_fixup(
             &self,
