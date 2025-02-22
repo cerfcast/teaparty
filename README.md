@@ -260,3 +260,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Destination port (sender) | &#9989; |
 | History (reflector) | &#9989; |
 | History (sender) | &#9989; |
+
+### Testing
+
+In addition to unit tests, there are tools for end-to-end tests in the `testing_data` directory. See [`testing_data/README.md`](./testing_data/README.md)
+for more information.
