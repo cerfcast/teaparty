@@ -224,7 +224,7 @@ impl Debug for StampResponseBody {
                 &format_args!("0x{:x?}", self.sent_sequence),
             )
             .field("sent_time", &self.sent_time)
-            .field("sent_error", &self.received_time)
+            .field("sent_error", &self.sent_error)
             .field("received_ttl", &format_args!("0x{:x?}", self.received_ttl))
             .finish()
     }
