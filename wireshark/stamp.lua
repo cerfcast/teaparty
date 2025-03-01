@@ -1,4 +1,8 @@
+--- A Wireshark dissector for STAMP packets.
+
 local stamp_protocol = Proto("STAMP", "STAMP Protocol")
+
+local timestamp_fields = {}
 
 -- Sequence
 local sequence_protofield = ProtoField.uint32("stamp.sequence", "Sequence", base.DEC)
@@ -22,10 +26,30 @@ local error_scale_protofield = ProtoField.uint8("stamp.timestamp.error_estimate.
 local error_multiplier_protofield = ProtoField.uint8("stamp.timestamp.error_estimate.multiplier", "Multiplier", base.DEC,
 	{ "" }, 0xff, "Multiplier")
 
+timestamp_fields["stamp.timestamp"] = {
+	[""] = ts_protofield,
+	["seconds"] = ts_seconds_protofield,
+	["fractions"] = ts_fractions_protofield,
+	["error_estimate"] = {
+		[""] = error_protofield,
+		["s"] = error_s_protofield,
+		["z"] = error_z_protofield,
+		["scale"] = error_scale_protofield,
+		["multiplier"] = error_multiplier_protofield,
+	}
+}
+
 -- Received Timestamp
 local ts_received_protofield = ProtoField.none("stamp.received_timestamp", "Timestamp", base.HEX)
 local ts_received_seconds_protofield = ProtoField.uint32("stamp.received_timestamp.seconds", "Seconds", base.DEC)
 local ts_received_fractions_protofield = ProtoField.uint32("stamp.received_timestamp.fractions", "Fractions", base.DEC)
+
+timestamp_fields["stamp.received_timestamp"] = {
+	[""] = ts_received_protofield,
+	["seconds"] = ts_received_seconds_protofield,
+	["fractions"] = ts_received_fractions_protofield,
+	["error_estimate"] = nil
+}
 
 -- Sender Timestamp
 local ts_sender_protofield = ProtoField.none("stamp.sender_timestamp", "Timestamp", base.HEX)
@@ -44,6 +68,19 @@ local sender_error_scale_protofield = ProtoField.uint8("stamp.sender_timestamp.e
 	"Scale")
 local sender_error_multiplier_protofield = ProtoField.uint8("stamp.sender_timestamp.error_estimate.multiplier",
 	"Multiplier", base.DEC, { "" }, 0xff, "Multiplier")
+
+timestamp_fields["stamp.sender_timestamp"] = {
+	[""] = ts_sender_protofield,
+	["seconds"] = ts_sender_seconds_protofield,
+	["fractions"] = ts_sender_fractions_protofield,
+	["error_estimate"] = {
+		[""] = sender_error_protofield,
+		["s"] = sender_error_s_protofield,
+		["z"] = sender_error_z_protofield,
+		["scale"] = sender_error_scale_protofield,
+		["multiplier"] = sender_error_multiplier_protofield,
+	}
+}
 
 -- TTL
 local sender_ttl_protofield = ProtoField.uint8("stamp.sender_ttl", "Sender TTL", base.DEC)
@@ -125,6 +162,12 @@ stamp_protocol.fields = { dscp_ecn_tlv_protofield,
 	rp_dscp_ecn_tlv_protofield,
 }
 
+------
+--- Dissect the DSCP/ECN TLV.
+-- Dissect the contents of a [DSCP/ECN TLV](https://www.ietf.org/archive/id/draft-white-ippm-stamp-ecn-00.html).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid DSCP/ECN TLV.
 local function tlv_dscp_ecn_dissector(buffer, tree)
 	if buffer:len() < 4 then
 		return false
@@ -160,6 +203,12 @@ stamp_protocol.fields = { cos_tlv_protofield,
 	rp_cos_tlv_protofield,
 }
 
+------
+--- Dissect the Class Of Service TLV.
+-- Dissect the contents of a [Class of Service TLV](https://datatracker.ietf.org/doc/html/rfc8972#name-class-of-service-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Class of Service TLV.
 local function tlv_cos_dissector(buffer, tree)
 	if buffer:len() < 4 then
 		return false
@@ -179,8 +228,14 @@ end
 local padding_tlv_protofield = ProtoField.bytes("stamp.tlv.padding", "Padding TLV")
 local padding_padding_tlv_protofield = ProtoField.bytes("stamp.tlv.padding.padding", "Padding")
 
-stamp_protocol.fields = { padding_tlv_protofield, padding_padding_tlv_protofield}
+stamp_protocol.fields = { padding_tlv_protofield, padding_padding_tlv_protofield }
 
+------
+--- Dissect the Padding TLV.
+-- Dissect the contents of a [Padding TLV](https://datatracker.ietf.org/doc/html/rfc8972#name-extra-padding-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Padding TLV.
 local function tlv_padding_dissector(buffer, tree)
 	local padding_tree = tree:add(cos_tlv_protofield, buffer(0))
 	padding_tree.text = "Padding"
@@ -188,8 +243,8 @@ local function tlv_padding_dissector(buffer, tree)
 	return true
 end
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service"}
-local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector , [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector}
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service" }
+local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector }
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
@@ -221,9 +276,21 @@ local timestamp_field_size = 8
 local error_estimate_field_size = 2
 local ssid_field_size = 2
 local hmac_field_size = 16
+local reflected_authenticated_mbz1_size = 12
+local reflected_authenticated_mbz2_size = 4 -- NOTE: Set to 4 (not six) because of SSID.
+local reflected_authenticated_mbz3_size = 8
+local reflected_authenticated_mbz4_size = 12
+local reflected_authenticated_mbz5_size = 6
+local reflected_authenticated_mbz6_size = 15
+local session_sender_base_length = 28
+local session_sender_authenticated_base_length = 68
 
 stamp_protocol.fields = {}
 
+------
+--- Determine whether all the bytes in a `Tvb` are 0.
+-- @tparam Tvb buffer Bytes to scan.
+-- @treturn bool true or false depending upon whether all the bytes in `buffer` are `0`.
 local function all_zeros(buffer)
 	for i = 0, buffer:len() - 1 do
 		if buffer:get_index(i) ~= 0 then
@@ -233,6 +300,10 @@ local function all_zeros(buffer)
 	return true
 end
 
+------
+--- Determine whether the bytes in `buffer` constitute an authenticated STAMP packet.
+-- @tparam Tvb buffer Bytes to scan.
+-- @treturn bool true or false depending upon whether the bytes in `buffer` represent an authenticated STAMP packet.
 local function authenticated_packet(buffer)
 	-- the 12 bytes after the 4th should be 0 for an
 	-- authenticated packet.
@@ -240,6 +311,10 @@ local function authenticated_packet(buffer)
 	return all_zeros(mbz_authenticated)
 end
 
+--- Determine whether the bytes in `buffer` constitute a session-sender STAMP packet.
+-- @tparam Tvb buffer Bytes to scan.
+-- @tparam bool authenticated Whether the session-sender STAMP packet is authenticated.
+-- @treturn bool true or false depending upon whether the bytes in `buffer` represent a session-sender STAMP packet.
 local function sender_packet(buffer, authenticated)
 	if authenticated then
 		return all_zeros(buffer:bytes(28, 68))
@@ -247,15 +322,23 @@ local function sender_packet(buffer, authenticated)
 	return all_zeros(buffer:bytes(16, 28))
 end
 
+--- Dissect an HMAC
+-- @tparam Tvb buffer Bytes containing the raw contents of the HMAC.
+-- @tparam TreeItem tree The tree on which to attach the dissected HMAC.
+-- @treturn int The size of the HMAC field.
 local function dissect_hmac(buffer, tree)
 	if buffer:len() < 16 then
 		tree:add(buffer, "Error")
-		return false
+		return 0
 	end
 	tree:add(hmac_protofield, buffer(0, hmac_field_size))
 	return hmac_field_size
 end
 
+--- Dissect an SSID
+-- @tparam Tvb buffer Bytes containing the raw contents of the SSID.
+-- @tparam TreeItem tree The tree on which to attach the dissected SSID.
+-- @treturn int The size of the SSID field.
 local function dissect_ssid(buffer, tree)
 	if buffer:len() < ssid_field_size then
 		tree:add(buffer, "Error")
@@ -265,43 +348,56 @@ local function dissect_ssid(buffer, tree)
 	return 2
 end
 
-local function dissect_received_timestamp(buffer, tree)
-	if buffer:len() < timestamp_field_size then
-		tree:add(buffer, "Error")
-		return 0
-	end
+--- Dissect an error estimate
+-- @tparam Tvb buffer Bytes containing the raw contents of the error estimate.
+-- @tparam string name The name of the particular timestamp field to which the
+-- to-be-dissected error estimate is attached.
+-- @tparam TreeItem tree The tree on which to attach the dissected error estimate.
+-- @treturn int The size of the error estimate field.
+local function dissect_error_estimate(buffer, name, tree)
+	local base_protofield = timestamp_fields[name]["error_estimate"][""]
+	local s_protofield = timestamp_fields[name]["error_estimate"]["s"]
+	local z_protofield = timestamp_fields[name]["error_estimate"]["z"]
+	local scale_protofield = timestamp_fields[name]["error_estimate"]["scale"]
+	local multiplier_protofield = timestamp_fields[name]["error_estimate"]["multiplier"]
 
-	local timestamp_tree = tree:add(ts_received_protofield, buffer(0, timestamp_field_size))
-	timestamp_tree.text = "Received Timestamp" -- Necessary to make sure that the bytes are not printed,
-	-- but we get wireshark to highlight the bytes.
-	timestamp_tree:add(ts_received_seconds_protofield, buffer(0, 4))
-	timestamp_tree:add(ts_received_fractions_protofield, buffer(4, 4))
-	return 8
-end
-
-local function dissect_sender_error(buffer, tree)
-	local error_tree = tree:add(sender_error_protofield, buffer(0, 2))
-	error_tree:add(sender_error_s_protofield, buffer(0, 1))
-	error_tree:add(sender_error_z_protofield, buffer(0, 1))
-	error_tree:add(sender_error_scale_protofield, buffer(0, 1))
-	error_tree:add(sender_error_multiplier_protofield, buffer(1, 1))
+	local error_tree = tree:add(base_protofield, buffer(0, 2))
+	error_tree:add(s_protofield, buffer(0, 1))
+	error_tree:add(z_protofield, buffer(0, 1))
+	error_tree:add(scale_protofield, buffer(0, 1))
+	error_tree:add(multiplier_protofield, buffer(1, 1))
 	return 2
 end
 
-local function dissect_sender_timestamp(buffer, tree)
-	if buffer:len() < (timestamp_field_size + error_estimate_field_size) then
+--- Dissect a timestamp (with or without an error estimate)
+-- @tparam Tvb buffer Bytes containing the raw contents of the timestamp and (optionally) error estimate.
+-- @tparam string name The name of the timestamp field to be dissected.
+-- @tparam string display The display name for the dissected timestamp and (optionally) error estimate field.
+-- @tparam bool include_error_estimate Whether or not to dissecte an associated error estimate.
+-- @tparam TreeItem tree The tree on which to attach the dissected timestamp and (maybe) error estimate.
+-- @treturn int The size of the dissected timestamp and (maybe) error estimate that was decoded.
+local function dissect_timestamp(buffer, name, display, include_error_estimate, tree)
+	local minimum_size = timestamp_field_size + (include_error_estimate and error_estimate_field_size or 0)
+	if buffer:len() < minimum_size then
 		tree:add(buffer, "Error")
 		return false
 	end
 
-	local timestamp_tree = tree:add(ts_sender_protofield, buffer(0, 8))
-	timestamp_tree.text = "Sender Timestamp" -- Necessary to make sure that the bytes are not printed,
+	local base_protofield = timestamp_fields[name][""]
+	local seconds_protofield = timestamp_fields[name]["seconds"]
+	local fractions_protofield = timestamp_fields[name]["fractions"]
+
+	local timestamp_tree = tree:add(base_protofield, buffer(0, 8))
+	timestamp_tree.text = display -- Necessary to make sure that the bytes are not printed,
 	-- but we get wireshark to highlight the bytes.
-	timestamp_tree:add(ts_sender_seconds_protofield, buffer(0, 4))
-	timestamp_tree:add(ts_sender_fractions_protofield, buffer(4, 4))
-	return 8 + dissect_sender_error(buffer(8, 2), timestamp_tree)
+	timestamp_tree:add(seconds_protofield, buffer(0, 4))
+	timestamp_tree:add(fractions_protofield, buffer(4, 4))
+	return 8 + (include_error_estimate and dissect_error_estimate(buffer(8, 2), name, timestamp_tree) or 0)
 end
 
+--- Convert between a TLV's type and its name
+-- @tparam int type TLV type identifier.
+-- @treturn string The name of the TLV identified by `type`.
 local function tlv_type_to_name(type)
 	local type_name = tlv_type_map[type]
 
@@ -311,6 +407,10 @@ local function tlv_type_to_name(type)
 	return type_name
 end
 
+--- Dissect a TLV.
+-- @tparam Tvb buffer Bytes containing the raw contents of the timestamp and (optionally) error estimate.
+-- @tparam TreeItem tree The tree on which to attach the dissected TLV.
+-- @treturn int The size of the dissected TLV (including type and length fields).
 local function dissect_tlv(buffer, tree)
 	if buffer:len() < 4 then
 		tree:add(buffer, "Error")
@@ -336,58 +436,46 @@ local function dissect_tlv(buffer, tree)
 end
 
 
-local function dissect_reflector(buffer, authenticated, tree)
+--- Dissect the body of a STAMP test packet sent from a session reflector.
+-- Because the sequence number and timestamp/error estimate (and optionally MBZ) fields
+-- are common to test packets from a session sender and reflector, those are dissected earlier.
+-- @tparam Tvb buffer Bytes containing the raw contents of a packet sent by the session reflector.
+-- @tparam bool authenticated Whether the session-sender STAMP packet is authenticated.
+-- @tparam TreeItem tree The tree on which to attach the dissected reflector body.
+-- @treturn int The size of the dissected STAMP test packet sent from a session reflector.
+local function dissect_reflected_body(buffer, authenticated, tree)
 	local next_field_start = 0
 	next_field_start = next_field_start +
-		dissect_received_timestamp(buffer(next_field_start, timestamp_field_size), tree)
+		dissect_timestamp(buffer(next_field_start, timestamp_field_size), "stamp.received_timestamp",
+			"Received Timestamp", false, tree)
 	if authenticated then
-		next_field_start = next_field_start + timestamp_field_size
+		next_field_start = next_field_start + reflected_authenticated_mbz3_size
 	end
 
 	tree:add(sender_sequence_protofield, buffer(next_field_start, sequence_field_size))
 	next_field_start = next_field_start + sequence_field_size
 	if authenticated then
-		next_field_start = next_field_start + 12
+		next_field_start = next_field_start + reflected_authenticated_mbz4_size
 	end
 
 	next_field_start = next_field_start +
-		dissect_sender_timestamp(buffer(next_field_start, (timestamp_field_size + error_estimate_field_size)), tree)
-	next_field_start = next_field_start + 2
+		dissect_timestamp(buffer(next_field_start, (timestamp_field_size + error_estimate_field_size)),
+			"stamp.sender_timestamp", "Sender Timestamp", true, tree)
 	if authenticated then
-		next_field_start = next_field_start + 4
+		next_field_start = next_field_start + reflected_authenticated_mbz5_size
+	else
+		next_field_start = next_field_start + 2
 	end
+
 	tree:add(sender_ttl_protofield, buffer(next_field_start, 1))
 	next_field_start = next_field_start + 1
 
-	next_field_start = next_field_start + 3
 	if authenticated then
-		next_field_start = next_field_start + 12
+		next_field_start = next_field_start + reflected_authenticated_mbz6_size
+	else
+		next_field_start = next_field_start + 3
 	end
 	return next_field_start
-end
-
-local function dissect_error(buffer, tree)
-	local error_tree = tree:add(error_protofield, buffer(0, 2))
-	error_tree:add(error_s_protofield, buffer(0, 1))
-	error_tree:add(error_z_protofield, buffer(0, 1))
-	error_tree:add(error_scale_protofield, buffer(0, 1))
-	error_tree:add(error_multiplier_protofield, buffer(1, 1))
-	return 2
-end
-
-local function dissect_timestamp(buffer, tree)
-	if buffer:len() < 10 then
-		tree:add(buffer, "Error")
-		return false
-	end
-
-	local timestamp_tree = tree:add(ts_protofield, buffer(0, 8))
-	timestamp_tree.text = "Timestamp" -- Necessary to make sure that the bytes are not printed,
-	-- but we get wireshark to highlight the bytes.
-	timestamp_tree:add(ts_seconds_protofield, buffer(0, 4))
-	timestamp_tree:add(ts_fractions_protofield, buffer(4, 4))
-
-	return 8 + dissect_error(buffer(8, 2), timestamp_tree)
 end
 
 function stamp_protocol.dissector(buffer, pinfo, tree)
@@ -398,7 +486,6 @@ function stamp_protocol.dissector(buffer, pinfo, tree)
 		tree:add(buffer, "Packet too small")
 		return
 	end
-
 
 	pinfo.cols.protocol = stamp_protocol.name
 
@@ -422,35 +509,37 @@ function stamp_protocol.dissector(buffer, pinfo, tree)
 
 	local next_field_start = 0
 	subtree:add(sequence_protofield, buffer(next_field_start, sequence_field_size))
-	next_field_start = next_field_start + 4
+	next_field_start = next_field_start + sequence_field_size
 
 	if is_authenticated then
-		next_field_start = next_field_start + 12
+		next_field_start = next_field_start + reflected_authenticated_mbz1_size
 	end
 
-	next_field_start = next_field_start + dissect_timestamp(buffer(next_field_start), subtree)
+	next_field_start = next_field_start +
+		dissect_timestamp(buffer(next_field_start), "stamp.timestamp", "Timestamp", true, subtree)
 	next_field_start = next_field_start + dissect_ssid(buffer(next_field_start), subtree)
 
-	if is_sender then
-		local extent = 28
+	if is_sender then -- a packet from a STAMP session sender.
+		local extent = session_sender_base_length
 		if is_authenticated then
-			extent = 68
+			extent = session_sender_authenticated_base_length
 		end
 		subtree:add(buffer(next_field_start, extent), "Sender (MBZ)")
 		next_field_start = next_field_start + extent
-	else
+	else -- a packet from a STAMP session reflector.
 		if is_authenticated then
-			next_field_start = next_field_start + 4
+			next_field_start = next_field_start + reflected_authenticated_mbz2_size
 		end
 		local reflector_body = subtree:add(buffer(next_field_start), "Reflector")
 		next_field_start = next_field_start +
-			dissect_reflector(buffer(next_field_start), is_authenticated, reflector_body)
+			dissect_reflected_body(buffer(next_field_start), is_authenticated, reflector_body)
 	end
 
 	if is_authenticated then
 		next_field_start = next_field_start + dissect_hmac(buffer(next_field_start), subtree)
 	end
 
+	-- As long as there are more bytes in the packet, try to parse TLVs!
 	while next_field_start < buffer:len() do
 		next_field_start = next_field_start + dissect_tlv(buffer(next_field_start), subtree)
 	end
