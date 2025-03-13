@@ -190,7 +190,7 @@ local dscp1_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp1", "DSCP1
 	"DSCP1 Field")
 local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2", base.HEX, dscp_type_map, 0x03f0,
 	"DSCP2 Field")
-local ecn_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN2", base.HEX, ecn_type_map, 0x000c,
+local ecn_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
 local rp_cos_tlv_protofield = ProtoField.bool("stamp.tlv.cos.rp", "RP", 16,
 	{ [1] = "Forward Path", [2] = "Forward and Reverse Path" }, 0x01,
