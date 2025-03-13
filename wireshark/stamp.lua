@@ -2,7 +2,73 @@
 
 local stamp_protocol = Proto("STAMP", "STAMP Protocol")
 
+
+--- Field Sizes
+
+local sequence_field_size = 4
+local timestamp_field_size = 8
+local error_estimate_field_size = 2
+local ssid_field_size = 2
+local hmac_field_size = 16
+local reflected_authenticated_mbz1_size = 12
+local reflected_authenticated_mbz2_size = 4 -- NOTE: Set to 4 (not six) because of SSID.
+local reflected_authenticated_mbz3_size = 8
+local reflected_authenticated_mbz4_size = 12
+local reflected_authenticated_mbz5_size = 6
+local reflected_authenticated_mbz6_size = 15
+local session_sender_base_length = 28
+local session_sender_authenticated_base_length = 68
+
+
+--- A means for fetching the protofields for different timestamps in the STAMP packets.
 local timestamp_fields = {}
+
+--- Dissect an error estimate
+-- @tparam Tvb buffer Bytes containing the raw contents of the error estimate.
+-- @tparam string name The name of the particular timestamp field to which the
+-- to-be-dissected error estimate is attached.
+-- @tparam TreeItem tree The tree on which to attach the dissected error estimate.
+-- @treturn int The size of the error estimate field.
+local function dissect_error_estimate(buffer, name, tree)
+	local base_protofield = timestamp_fields[name]["error_estimate"][""]
+	local s_protofield = timestamp_fields[name]["error_estimate"]["s"]
+	local z_protofield = timestamp_fields[name]["error_estimate"]["z"]
+	local scale_protofield = timestamp_fields[name]["error_estimate"]["scale"]
+	local multiplier_protofield = timestamp_fields[name]["error_estimate"]["multiplier"]
+
+	local error_tree = tree:add(base_protofield, buffer(0, 2))
+	error_tree:add(s_protofield, buffer(0, 1))
+	error_tree:add(z_protofield, buffer(0, 1))
+	error_tree:add(scale_protofield, buffer(0, 1))
+	error_tree:add(multiplier_protofield, buffer(1, 1))
+	return 2
+end
+
+--- Dissect a timestamp (with or without an error estimate)
+-- @tparam Tvb buffer Bytes containing the raw contents of the timestamp and (optionally) error estimate.
+-- @tparam string name The name of the timestamp field to be dissected.
+-- @tparam string display The display name for the dissected timestamp and (optionally) error estimate field.
+-- @tparam bool include_error_estimate Whether or not to dissecte an associated error estimate.
+-- @tparam TreeItem tree The tree on which to attach the dissected timestamp and (maybe) error estimate.
+-- @treturn int The size of the dissected timestamp and (maybe) error estimate that was decoded.
+local function dissect_timestamp(buffer, name, display, include_error_estimate, tree)
+	local minimum_size = timestamp_field_size + (include_error_estimate and error_estimate_field_size or 0)
+	if buffer:len() < minimum_size then
+		tree:add(buffer, "Error")
+		return false
+	end
+
+	local base_protofield = timestamp_fields[name][""]
+	local seconds_protofield = timestamp_fields[name]["seconds"]
+	local fractions_protofield = timestamp_fields[name]["fractions"]
+
+	local timestamp_tree = tree:add(base_protofield, buffer(0, 8))
+	timestamp_tree.text = display -- Necessary to make sure that the bytes are not printed,
+	-- but we get wireshark to highlight the bytes.
+	timestamp_tree:add(seconds_protofield, buffer(0, 4))
+	timestamp_tree:add(fractions_protofield, buffer(4, 4))
+	return 8 + (include_error_estimate and dissect_error_estimate(buffer(8, 2), name, timestamp_tree) or 0)
+end
 
 -- Sequence
 local sequence_protofield = ProtoField.uint32("stamp.sequence", "Sequence", base.DEC)
@@ -243,8 +309,64 @@ local function tlv_padding_dissector(buffer, tree)
 	return true
 end
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service" }
-local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector }
+-- TLV Dissectors: Followup
+
+local stamp_timestamping_methods =
+{
+	[0] = "Reserved",
+	[1] = "HW Assist",
+	[2] = "SW Local",
+	[3] = "Control Plane",
+}
+
+-- Followup Timestamp
+local ts_followup_tlv_protofield = ProtoField.none("stamp.tlv.followup.timestamp", "Timestamp", base.HEX)
+local ts_followup_tlv_seconds_protofield = ProtoField.uint32("stamp.tlv.followup.timestamp", "Seconds", base.DEC)
+local ts_followup_tlv_fractions_protofield = ProtoField.uint32("stamp.tlv.followup.fractions", "Fractions", base.DEC)
+
+timestamp_fields["stamp.tlv.followup.timestamp"] = {
+	[""] = ts_followup_tlv_protofield,
+	["seconds"] = ts_followup_tlv_seconds_protofield,
+	["fractions"] = ts_followup_tlv_fractions_protofield,
+}
+
+local followup_tlv_protofield = ProtoField.bytes("stamp.tlv.followup", "Followup TLV")
+local followup_sequence_no_protofield = ProtoField.bytes("stamp.tlv.followup.sequence_no", "Sequence Number")
+local followup_timestamp_source_protofield = ProtoField.uint8("stamp.tlv.followup.timestamp_source", "Timestamp Source", base.HEX, stamp_timestamping_methods)
+
+stamp_protocol.fields = { followup_tlv_protofield, followup_sequence_no_protofield, ts_followup_tlv_protofield,
+	ts_followup_tlv_seconds_protofield, ts_followup_tlv_fractions_protofield,
+	followup_timestamp_source_protofield }
+
+------
+--- Dissect the Followup TLV.
+-- Dissect the contents of a [Followup TLV](https://datatracker.ietf.org/doc/html/rfc8972#name-follow-up-telemetry-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Followup TLV.
+local function tlv_followup_dissector(buffer, tree)
+	if buffer:len() < 16 then
+		return false
+	end
+
+	local followup_tree = tree:add(followup_tlv_protofield, buffer(0))
+	followup_tree.text = "Follow Up"
+
+	followup_tree:add(followup_sequence_no_protofield, buffer(0, sequence_field_size))
+
+	local next_field_start = sequence_field_size
+	next_field_start = next_field_start +
+		dissect_timestamp(buffer(next_field_start), "stamp.tlv.followup.timestamp", "Timestamp", false, followup_tree)
+	followup_tree:add(followup_timestamp_source_protofield, buffer(next_field_start, 1))
+	next_field_start = next_field_start + 1
+
+	return true
+end
+
+
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup" }
+local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector,
+	[0x7] = tlv_followup_dissector }
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
@@ -268,23 +390,6 @@ stamp_protocol.fields = {
 	type_tlv_protofield,
 	length_tlv_protofield,
 }
-
--- Field Sizes
-
-local sequence_field_size = 4
-local timestamp_field_size = 8
-local error_estimate_field_size = 2
-local ssid_field_size = 2
-local hmac_field_size = 16
-local reflected_authenticated_mbz1_size = 12
-local reflected_authenticated_mbz2_size = 4 -- NOTE: Set to 4 (not six) because of SSID.
-local reflected_authenticated_mbz3_size = 8
-local reflected_authenticated_mbz4_size = 12
-local reflected_authenticated_mbz5_size = 6
-local reflected_authenticated_mbz6_size = 15
-local session_sender_base_length = 28
-local session_sender_authenticated_base_length = 68
-
 stamp_protocol.fields = {}
 
 ------
@@ -346,53 +451,6 @@ local function dissect_ssid(buffer, tree)
 	end
 	tree:add(ssid_protofield, buffer(0, ssid_field_size))
 	return 2
-end
-
---- Dissect an error estimate
--- @tparam Tvb buffer Bytes containing the raw contents of the error estimate.
--- @tparam string name The name of the particular timestamp field to which the
--- to-be-dissected error estimate is attached.
--- @tparam TreeItem tree The tree on which to attach the dissected error estimate.
--- @treturn int The size of the error estimate field.
-local function dissect_error_estimate(buffer, name, tree)
-	local base_protofield = timestamp_fields[name]["error_estimate"][""]
-	local s_protofield = timestamp_fields[name]["error_estimate"]["s"]
-	local z_protofield = timestamp_fields[name]["error_estimate"]["z"]
-	local scale_protofield = timestamp_fields[name]["error_estimate"]["scale"]
-	local multiplier_protofield = timestamp_fields[name]["error_estimate"]["multiplier"]
-
-	local error_tree = tree:add(base_protofield, buffer(0, 2))
-	error_tree:add(s_protofield, buffer(0, 1))
-	error_tree:add(z_protofield, buffer(0, 1))
-	error_tree:add(scale_protofield, buffer(0, 1))
-	error_tree:add(multiplier_protofield, buffer(1, 1))
-	return 2
-end
-
---- Dissect a timestamp (with or without an error estimate)
--- @tparam Tvb buffer Bytes containing the raw contents of the timestamp and (optionally) error estimate.
--- @tparam string name The name of the timestamp field to be dissected.
--- @tparam string display The display name for the dissected timestamp and (optionally) error estimate field.
--- @tparam bool include_error_estimate Whether or not to dissecte an associated error estimate.
--- @tparam TreeItem tree The tree on which to attach the dissected timestamp and (maybe) error estimate.
--- @treturn int The size of the dissected timestamp and (maybe) error estimate that was decoded.
-local function dissect_timestamp(buffer, name, display, include_error_estimate, tree)
-	local minimum_size = timestamp_field_size + (include_error_estimate and error_estimate_field_size or 0)
-	if buffer:len() < minimum_size then
-		tree:add(buffer, "Error")
-		return false
-	end
-
-	local base_protofield = timestamp_fields[name][""]
-	local seconds_protofield = timestamp_fields[name]["seconds"]
-	local fractions_protofield = timestamp_fields[name]["fractions"]
-
-	local timestamp_tree = tree:add(base_protofield, buffer(0, 8))
-	timestamp_tree.text = display -- Necessary to make sure that the bytes are not printed,
-	-- but we get wireshark to highlight the bytes.
-	timestamp_tree:add(seconds_protofield, buffer(0, 4))
-	timestamp_tree:add(fractions_protofield, buffer(4, 4))
-	return 8 + (include_error_estimate and dissect_error_estimate(buffer(8, 2), name, timestamp_tree) or 0)
 end
 
 --- Convert between a TLV's type and its name
