@@ -1204,6 +1204,7 @@ pub mod ch {
             #[arg(value_enum, default_value_t=AccessReportAccessId::NonThreeGPP)]
             access_id: AccessReportAccessId,
 
+            /// Whether the access mode is active.
             #[arg(short)]
             active: bool,
 
