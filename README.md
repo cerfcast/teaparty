@@ -176,12 +176,14 @@ Commands:
   location          
   unrecognized      
   padding           
+  access-report     
   history           
+  followup          
   help              Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help  Print help
-``` 
+```
 
 | Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
@@ -240,10 +242,10 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Class of service (sender) |  &#9989; |
 | Direct measurement (reflector) | &#10060; |
 | Direct measurement (sender) | &#10060; |
-| Access report (reflector) | &#10060; |
-| Access report (sender) | &#10060; |
-| Follow-up Telemetry (reflector) | &#10060; |
-| Follow-up Telemetry (sender) | &#10060; |
+| Access report (reflector) | &#9989; |
+| Access report (sender) | &#9989; |
+| Follow-up Telemetry (reflector) | &#9989; |
+| Follow-up Telemetry (sender) | &#9989; |
 | HMAC (reflector) | &#10060; |
 | HMAC (sender) | &#10060; |
 
