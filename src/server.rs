@@ -77,6 +77,13 @@ impl SessionHistory {
         let latest = self.latest.unwrap();
         self.history[latest] = Some(entry);
     }
+
+    pub fn latest(&self) -> Option<SessionHistoryEntry> {
+        match self.latest {
+            None => None,
+            Some(latest_index) => self.history[latest_index].clone()
+        }
+    }
 }
 
 impl From<SessionHistory> for Vec<u8> {

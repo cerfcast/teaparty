@@ -48,6 +48,12 @@ struct SessionRequest {
 fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<String, Status> {
     let sessions = &monitor.sessions;
 
+    if sessions.is_none() {
+        return Err(rocket::http::Status::InternalServerError);
+    }
+
+    let sessions = sessions.as_ref().unwrap();
+
     let s = Session::new(
         SocketAddrV4::new(request.src_ip, request.src_port).into(),
         SocketAddrV4::new(request.dst_ip, request.dst_port).into(),

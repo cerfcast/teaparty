@@ -511,7 +511,11 @@ fn server(
 
     info!(logger, "listeners: {:?}", listeners);
 
-    let sessions = Sessions::new();
+    let sessions = if !stateless {
+        Some(Sessions::new())
+    } else {
+        None
+    };
 
     let periodical = Periodicity::new(
         server_socket.clone(),
@@ -627,7 +631,6 @@ fn server(
                                                 &stamp_packets,
                                                 arguments,
                                                 sessions,
-                                                !stateless,
                                                 handlers,
                                                 responder,
                                                 server_socket,

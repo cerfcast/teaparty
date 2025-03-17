@@ -127,7 +127,7 @@ impl Periodicity {
     pub fn new(
         socket: ServerSocket,
         heartbeats: Vec<HeartbeatConfiguration>,
-        sessions: Sessions,
+        sessions: Option<Sessions>,
         sessions_cleanup_duration: Duration,
         logger: Logger,
     ) -> Self {
@@ -165,6 +165,10 @@ impl Periodicity {
 
         let (stale_sender, stale_receiver) = std::sync::mpsc::channel::<bool>();
         let stale_joiner = thread::spawn(move || {
+            if sessions.as_ref().is_none() {
+                return;
+            }
+
             loop {
                 let mut is_cancelled = false;
                 match stale_receiver.try_recv() {
@@ -191,7 +195,7 @@ impl Periodicity {
                 thread::sleep(std::time::Duration::from_secs(1));
                 info!(logger, "Checking for stale sessions.");
                 {
-                    let mut sessions = sessions.sessions.lock().unwrap();
+                    let mut sessions = sessions.as_ref().unwrap().sessions.lock().unwrap();
                     for (session, data) in sessions.clone().iter() {
                         info!(logger, "Session last referenced at: {:?}", data.last);
                         if std::time::SystemTime::now()

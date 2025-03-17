@@ -201,8 +201,7 @@ pub fn handler(
     received_time: chrono::DateTime<chrono::Utc>,
     msg: &Vec<u8>,
     test_arguments: TestArguments,
-    sessions: Sessions,
-    stateful: bool,
+    sessions: Option<Sessions>,
     handlers: Handlers,
     responder: Arc<responder::Responder>,
     server: ServerSocket,
@@ -270,9 +269,8 @@ pub fn handler(
 
     let mut response_stamp_msg = {
         // Lock the sessions while we handle!
-        let mut sessions = sessions.sessions.lock().unwrap();
-
-        let mut session_data = if stateful {
+        let mut session_data = if let Some(sessions) = sessions.as_ref() {
+            let mut sessions = sessions.sessions.lock().unwrap();
             if let Some(existing_session) = sessions.get_mut(&session.clone()) {
                 existing_session.sequence += 1;
                 existing_session.last = std::time::SystemTime::now();
@@ -288,7 +286,8 @@ pub fn handler(
             } else {
                 let mut new_session = SessionData::new(5);
                 new_session.sequence = src_stamp_msg.sequence + 1;
-                sessions.insert(session.clone(), new_session.clone());
+                sessions
+                    .insert(session.clone(), new_session.clone());
                 info!(
                     logger,
                     "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
@@ -532,9 +531,9 @@ pub fn handler(
     }
 
     // Update the session with the information about the response that we just wrote!
-    if stateful {
-        let mut sessions = sessions.sessions.lock().unwrap();
-        if let Some(existing_session) = sessions.get_mut(&session.clone()) {
+    if let Some(sessions) = sessions.as_ref() {
+        if let Some(existing_session) = sessions.sessions.lock().unwrap().get_mut(&session.clone())
+        {
             let entry = SessionHistoryEntry {
                 received_time: received_time.into(),
                 sender_time: src_stamp_msg.time,
