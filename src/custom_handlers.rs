@@ -30,6 +30,7 @@ pub mod ch {
         handlers::{TlvHandler, TlvRequestResult},
         ip::{DscpValue, EcnValue},
         netconf::{NetConfiguration, NetConfigurationItem, NetConfigurationItemKind},
+        ntp::TimeSource,
         parameters::{TestArgumentKind, TestArguments},
         server::SessionData,
         stamp::{StampError, StampMsg},
@@ -1434,6 +1435,129 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (History) that does not set net configuration items.");
         }
     }
+
+    pub struct FollowupTlv {}
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum FollowupTlvCommand {
+        Followup {
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl FollowupTlv {
+        const TLV_LENGTH: u16 = 16;
+    }
+
+    impl TlvHandler for FollowupTlv {
+        fn tlv_name(&self) -> String {
+            "Followup".into()
+        }
+
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            FollowupTlvCommand::augment_subcommands(existing)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::FOLLOWUP
+        }
+
+        fn request(
+            &self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = FollowupTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let FollowupTlvCommand::Followup { next_tlv_command } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: Self::TLV_LENGTH,
+                    value: vec![0u8; Self::TLV_LENGTH as usize],
+                },
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            _session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "Handling the response in the Followup Tlv.");
+
+            if tlv.length != Self::TLV_LENGTH {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized("Length".to_string(), Self::TLV_LENGTH as usize, tlv.length as usize)));
+            }
+
+            let mut response_body = [0u8; Self::TLV_LENGTH as usize];
+
+            if let Some(session) = _session {
+                if let Some(latest) = session.history.latest() {
+                    // Put the last sequence number in the first 4 bytes.
+                    response_body[0..4].copy_from_slice(&latest.sequence.to_be_bytes());
+                    // Put the time that we sent out the last packet in 8 bytes.
+                    response_body[4..12].copy_from_slice(&Into::<Vec<u8>>::into(latest.sent_time));
+                    // Until further notice, we believe that our times come from a software clock.
+                    response_body[12] = Into::<u8>::into(TimeSource::SWLocal);
+                }
+            }
+
+            assert!(response_body.len() == 16);
+
+            Ok(Tlv {
+                flags: Flags::new_response(),
+                tpe: Tlv::FOLLOWUP,
+                length: Self::TLV_LENGTH,
+                value: response_body.to_vec(),
+            })
+        }
+
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(logger, "Preparing the response target in the Followup Tlv.");
+            address
+        }
+
+        fn handle_netconfig_error(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Followup) that does not set net configuration items.");
+        }
+    }
 }
 
 pub struct CustomHandlers {}
@@ -1459,6 +1583,8 @@ impl CustomHandlers {
         handlers.add(access_report_handler);
         let history_handler = Arc::new(Mutex::new(ch::HistoryTlv {}));
         handlers.add(history_handler);
+        let followup_handler = Arc::new(Mutex::new(ch::FollowupTlv {}));
+        handlers.add(followup_handler);
 
         handlers
     }

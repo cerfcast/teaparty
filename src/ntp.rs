@@ -251,6 +251,24 @@ impl From<ErrorEstimate> for Vec<u8> {
     }
 }
 
+pub enum TimeSource {
+    HWAssist,
+    SWLocal,
+    ControlPlane,
+    Reserved,
+}
+
+impl From<TimeSource> for u8 {
+    fn from(value: TimeSource) -> u8 {
+        match value {
+            TimeSource::Reserved => 0u8,
+            TimeSource::HWAssist => 1u8,
+            TimeSource::SWLocal => 2u8,
+            TimeSource::ControlPlane => 3u8,
+        }
+    }
+}
+
 #[cfg(test)]
 mod error_estimate_test {
     use super::*;

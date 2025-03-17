@@ -418,6 +418,7 @@ impl Tlv {
     pub const TIMESTAMP: u8 = 3;
     pub const COS: u8 = 4;
     pub const ACCESSREPORT: u8 = 6;
+    pub const FOLLOWUP: u8 = 7;
 
     /// Make a Tlv for padding.
     pub fn extra_padding(len: u16) -> Self {
