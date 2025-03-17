@@ -81,7 +81,7 @@ impl SessionHistory {
     pub fn latest(&self) -> Option<SessionHistoryEntry> {
         match self.latest {
             None => None,
-            Some(latest_index) => self.history[latest_index].clone()
+            Some(latest_index) => self.history[latest_index].clone(),
         }
     }
 }

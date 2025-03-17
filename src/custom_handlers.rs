@@ -1504,7 +1504,11 @@ pub mod ch {
             info!(logger, "Handling the response in the Followup Tlv.");
 
             if tlv.length != Self::TLV_LENGTH {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized("Length".to_string(), Self::TLV_LENGTH as usize, tlv.length as usize)));
+                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                    "Length".to_string(),
+                    Self::TLV_LENGTH as usize,
+                    tlv.length as usize,
+                )));
             }
 
             let mut response_body = [0u8; Self::TLV_LENGTH as usize];

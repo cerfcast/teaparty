@@ -286,8 +286,7 @@ pub fn handler(
             } else {
                 let mut new_session = SessionData::new(5);
                 new_session.sequence = src_stamp_msg.sequence + 1;
-                sessions
-                    .insert(session.clone(), new_session.clone());
+                sessions.insert(session.clone(), new_session.clone());
                 info!(
                     logger,
                     "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
