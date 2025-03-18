@@ -289,6 +289,49 @@ local function tlv_cos_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: Access Report
+
+local access_network_map =
+{
+	[1] = "3GPP Network",
+	[2] = "Non-3GPP Network",
+}
+local access_report_tlv_protofield = ProtoField.bytes("stamp.tlv.access_report", "Access Report TLV")
+local id_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.id", "ID", base.HEX, access_network_map, 0xf0,
+	"Access ID")
+local rsv_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.reserved", "Reserved", base.HEX, nil, 0x0f)
+local return_code_access_report_tlv_protofield = ProtoField.bool("stamp.tlv.access_report.return_code", "Return Code", 16,
+	{ [1] = "Active", [2] = "Inactive" }, 0x01)
+local rsv2_access_report_tlv_protofield = ProtoField.uint16("stamp.tlv.access_report.reserved2", "Reserved (2)", base.HEX)
+
+stamp_protocol.fields = { access_report_tlv_protofield,
+	id_access_report_tlv_protofield,
+	rsv_access_report_tlv_protofield,
+	return_code_access_report_tlv_protofield,
+	rsv2_access_report_tlv_protofield,
+}
+
+------
+--- Dissect the Access Report TLV.
+-- Dissect the contents of an [Access Report TLV]](https://datatracker.ietf.org/doc/html/rfc8972#name-access-report-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Access Report TLV.
+local function tlv_access_report_dissector(buffer, tree)
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local access_report_tree = tree:add(access_report_tlv_protofield, buffer(0))
+	access_report_tree.text = "Access Report"
+	access_report_tree:add(id_access_report_tlv_protofield, buffer(0, 1))
+	local rsv = access_report_tree:add(rsv_access_report_tlv_protofield, buffer(0, 1))
+	access_report_tree:add(return_code_access_report_tlv_protofield, buffer(1, 1))
+	access_report_tree:add(rsv2_access_report_tlv_protofield, buffer(2, 2))
+	return true
+end
+
+
 -- TLV Dissectors: Padding
 
 local padding_tlv_protofield = ProtoField.bytes("stamp.tlv.padding", "Padding TLV")
@@ -364,9 +407,9 @@ local function tlv_followup_dissector(buffer, tree)
 end
 
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup" }
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup"}
 local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector,
-	[0x7] = tlv_followup_dissector }
+	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector }
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
