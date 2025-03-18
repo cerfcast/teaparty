@@ -76,7 +76,7 @@ impl Debug for Flags {
             f,
             "Unrecognized: {}, Integrity: {}, Malformed: {}",
             self.get_unrecognized(),
-            self.get_integrity(),
+            !self.get_integrity(), // A 0 for the integrity flag means that the integrity check succeeded!
             self.get_malformed()
         )
     }
@@ -94,7 +94,7 @@ impl Flags {
     }
 
     pub fn new_response() -> Self {
-        Self { value: 0x20 }
+        Self { value: 0x00 }
     }
 
     pub fn set_unrecognized(&mut self, on: bool) {

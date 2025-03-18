@@ -420,7 +420,7 @@ local m_flags_tlv_protofield = ProtoField.bool("stamp.tlv.flags.m", "M", 8, { [1
 	0x40,
 	"Description")
 local i_flags_tlv_protofield = ProtoField.bool("stamp.tlv.flags.i", "I", 8,
-	{ [1] = "Integrity - OK", [2] = "Integrity - Failed" }, 0x20,
+	{ [1] = "Integrity - Failed", [2] = "Integrity - Ok" }, 0x20,
 	"Description")
 local type_tlv_protofield = ProtoField.uint8("stamp.tlv.type", "Type", base.HEX, tlv_type_map, "Type")
 local length_tlv_protofield = ProtoField.uint16("stamp.tlv.length", "Length", base.UNIT_STRING, { "" }, "Length")

@@ -1287,7 +1287,7 @@ pub mod ch {
 
             let mut result_tlv = tlv.clone();
 
-            result_tlv.flags.set_integrity(true);
+            result_tlv.flags.set_integrity(false);
             result_tlv.flags.set_unrecognized(false);
             Ok(result_tlv)
         }
