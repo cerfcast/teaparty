@@ -1285,7 +1285,11 @@ pub mod ch {
                 if !active { "not " } else { "" }
             );
 
-            Ok(tlv.clone())
+            let mut result_tlv = tlv.clone();
+
+            result_tlv.flags.set_integrity(true);
+            result_tlv.flags.set_unrecognized(false);
+            Ok(result_tlv)
         }
 
         fn prepare_response_target(
