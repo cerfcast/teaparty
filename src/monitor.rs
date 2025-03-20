@@ -18,7 +18,7 @@
 
 use crate::{periodicity::Periodicity, server::Sessions};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Monitor {
     pub periodic: Periodicity,
     pub sessions: Option<Sessions>,

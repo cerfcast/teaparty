@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use asymmetry::Asymmetry;
 use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, ValueEnum};
 use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
@@ -45,6 +46,7 @@ use tlv::Tlvs;
 #[macro_use]
 extern crate rocket;
 
+mod asymmetry;
 mod connection_generator;
 mod custom_handlers;
 mod handlers;
@@ -416,6 +418,15 @@ fn server(
     handlers: Handlers,
     logger: slog::Logger,
 ) -> Result<(), StampError> {
+    // Make a runtime and then start it!
+    let runtime = Arc::new(Asymmetry::new(Some(logger.clone())));
+    {
+        let runtime = runtime.clone();
+        let _ = thread::spawn(move || {
+            runtime.run();
+        });
+    }
+
     // The command is specific to the server. The match should *only* yield a
     // server command.
     let (stateless, heartbeats, link_layer) = match command {
@@ -430,20 +441,6 @@ fn server(
             ))
         }
     };
-
-    // Note: This signal handler is the first one that is registered. Rocket
-    // will set another signal handler (for the meta thread), but it properly
-    // dispatches to previously-registered signal handlers. Whew.
-    let server_cancellation = ServerCancellation::new();
-    ctrlc::set_handler({
-        let mut server_cancellation = server_cancellation.clone();
-        move || {
-            // It would be nice to log something here, but we have to be careful
-            // about what can and cannot be done in a signal handler.
-            server_cancellation.cancel();
-        }
-    })
-    .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
 
     let server_socket_addr = SocketAddr::from((args.ip_addr, args.port));
 
@@ -522,10 +519,31 @@ fn server(
         heartbeats.clone(),
         sessions.clone(),
         std::time::Duration::from_secs(10),
+        runtime.clone(),
         logger.clone(),
     );
 
     let mut server_threads: Vec<JoinHandle<()>> = vec![];
+    // Note: This signal handler is the first one that is registered. Rocket
+    // will set another signal handler (for the meta thread), but it properly
+    // dispatches to previously-registered signal handlers. Whew.
+    let server_cancellation = ServerCancellation::new();
+    {
+        let mut periodical = periodical.clone();
+        ctrlc::set_handler({
+            let mut server_cancellation = server_cancellation.clone();
+            move || {
+                // It would be nice to log something here, but we have to be careful
+                // about what can and cannot be done in a signal handler.
+                server_cancellation.cancel();
+                periodical
+                    .stop()
+                    .expect("Should have been able to stop the periodical.");
+                runtime.cancel();
+            }
+        })
+        .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
+    }
 
     {
         let monitor = Monitor {

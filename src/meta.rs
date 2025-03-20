@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use crate::monitor::Monitor;
 use crate::server::{ServerCancellation, Session, SessionData, SessionError};
@@ -44,6 +44,12 @@ struct SessionRequest {
     key: String,
 }
 
+#[derive(Deserialize, Serialize)]
+struct HeartbeatTargetRequest {
+    target: Ipv4Addr,
+    port: u16,
+}
+
 #[post("/session", data = "<request>")]
 fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<String, Status> {
     let sessions = &monitor.sessions;
@@ -69,6 +75,16 @@ fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<St
     }
 }
 
+#[post("/stop_heartbeat", data = "<request>")]
+fn stop_heartbeat(request: Json<HeartbeatTargetRequest>, monitor: &State<Monitor>) -> String {
+    monitor
+        .periodic
+        .stop_heartbeater(SocketAddr::from((request.target, request.port)))
+        .unwrap();
+    let heartbeats_info = monitor.periodic.get_heartbeaters_info();
+    serde_json::to_string(&heartbeats_info).unwrap().to_string()
+}
+
 #[get("/heartbeats")]
 fn heartbeats(monitor: &State<Monitor>) -> String {
     let heartbeats_info = monitor.periodic.get_heartbeaters_info();
@@ -83,7 +99,7 @@ pub fn launch_meta(monitor: Monitor, _server_cancellation: ServerCancellation, l
             let r = rocket::build()
                 .configure(rocket::Config::release_default())
                 .manage(monitor)
-                .mount("/", routes![index, heartbeats, session])
+                .mount("/", routes![index, heartbeats, stop_heartbeat, session])
                 .launch();
 
             let rt = rocket::tokio::runtime::Builder::new_current_thread()
