@@ -220,7 +220,7 @@ impl<T> Asymmetry<T> {
             }
 
             self.wait_for_next().unwrap();
-            iterations += iterations;
+            iterations += 1;
 
             // Is there an event waiting?
             while self.next_can_run(Instant::now()) {
