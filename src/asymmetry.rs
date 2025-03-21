@@ -175,7 +175,7 @@ impl<T> Asymmetry<T> {
     }
 
     pub fn run(&self) {
-        return self.run_for_iterations(None);
+        self.run_for_iterations(None)
     }
 
     pub fn run_for_iterations(&self, max_iterations: Option<usize>) {
