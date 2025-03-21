@@ -24,7 +24,7 @@ pub struct Task<T> {
 pub struct Asymmetry<T> {
     tasks: Arc<Mutex<Vec<Task<T>>>>,
     poll: Arc<Mutex<Poll>>,
-    waker: Arc<Mutex<Waker>>,
+    waker: Arc<Mutex<Option<Waker>>>,
     cancelled: Arc<AtomicBool>,
     logger: Option<Logger>,
 }
@@ -37,16 +37,15 @@ impl<T> Debug for Asymmetry<T> {
 
 const WAKER_TOKEN: Token = Token(1);
 
+#[allow(unused)]
 impl<T> Asymmetry<T> {
     pub fn new(logger: Option<Logger>) -> Self {
         let poll = Poll::new().expect("Should have been able to make a poll.");
-        let waker = Arc::new(Mutex::new(
-            Waker::new(poll.registry(), WAKER_TOKEN).expect("Should have been able to make waker."),
-        ));
+        let non_waker: Arc<Mutex<Option<Waker>>> = std::sync::Arc::new(std::sync::Mutex::new(None));
         Asymmetry {
             poll: Arc::new(Mutex::new(poll)),
             tasks: Arc::new(Mutex::new(vec![])),
-            waker,
+            waker: non_waker,
             cancelled: Arc::new(AtomicBool::new(false)),
             logger,
         }
@@ -69,6 +68,7 @@ impl<T> Asymmetry<T> {
             let mut events = Events::with_capacity(1);
 
             let mut poll = self.poll.lock().unwrap();
+
             maybe_log!(self.logger, info, "About to sleep for {:?}", sleep_duration);
             poll.poll(&mut events, Some(sleep_duration))?;
         }
@@ -149,11 +149,10 @@ impl<T> Asymmetry<T> {
     }
 
     fn wakeup(&self) {
-        self.waker
-            .lock()
-            .unwrap()
-            .wake()
-            .expect("Should have been able to wake up the runtime.");
+        let waker = self.waker.lock().unwrap();
+        if let Some(waker) = waker.as_ref() {
+            waker.wake().expect("Should have been able to wake!");
+        }
     }
 
     pub fn cancel(&self) {
@@ -161,7 +160,38 @@ impl<T> Asymmetry<T> {
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    pub fn reset(&self) {
+        self.cancelled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn next_can_run(&self, now: Instant) -> bool {
+        if let Some(next_time) = self.next_time() {
+            // Is it time to do that event?
+            next_time <= now
+        } else {
+            false
+        }
+    }
+
     pub fn run(&self) {
+        return self.run_for_iterations(None);
+    }
+
+    pub fn run_for_iterations(&self, max_iterations: Option<usize>) {
+        // But first, make sure that we can be woken up!
+        {
+            let poll = self.poll.lock().unwrap();
+            let mut waker = self.waker.lock().unwrap();
+            if waker.is_none() {
+                *waker = Some(
+                    Waker::new(poll.registry(), WAKER_TOKEN)
+                        .expect("Should have been able to make waker."),
+                );
+            }
+        }
+
+        let mut iterations = 0usize;
         loop {
             if self.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                 maybe_log!(
@@ -172,24 +202,37 @@ impl<T> Asymmetry<T> {
                 );
                 break;
             }
+
+            if let Some(max_iterations) = max_iterations {
+                if iterations >= max_iterations {
+                    maybe_log!(
+                        self.logger,
+                        info,
+                        "A runtime ({:?}) has waited for too many iterations ({} vs {}); stopping.",
+                        self,
+                        iterations,
+                        max_iterations
+                    );
+                    break;
+                }
+            }
+
             self.wait_for_next().unwrap();
+            iterations = iterations + 1;
 
             // Is there an event waiting?
-            if let Some(next_time) = self.next_time() {
-                // Is it time to do that event?
-                if next_time < Instant::now() {
-                    // Let's do it!
-                    if let Some(task) = self.complete() {
-                        // Execute the task.
-                        let result = (task.what)();
+            while self.next_can_run(Instant::now()) {
+                // Let's do it!
+                if let Some(task) = self.complete() {
+                    // Execute the task.
+                    let result = (task.what)();
 
-                        // If it said that it wants to be done again, re-enable it.
-                        if let Some(next) = result.next {
-                            self.add(Task {
-                                when: next,
-                                what: task.what,
-                            });
-                        }
+                    // If it said that it wants to be done again, re-enable it.
+                    if let Some(next) = result.next {
+                        self.add(Task {
+                            when: next,
+                            what: task.what,
+                        });
                     }
                 }
             }
@@ -354,5 +397,83 @@ mod test_asymmetry {
         assert!(complete.unwrap().when == t4_time);
         let complete = asymm.complete();
         assert!(complete.unwrap().when == t5_time);
+    }
+
+    #[test]
+    fn test_right_execution_order_simple() {
+        let asymm = Asymmetry::<usize>::new(None);
+        let go_time = Instant::now();
+        let execution_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let execution_counter_t1 = execution_counter.clone();
+        let t1 = Task::<usize> {
+            when: go_time + std::time::Duration::from_secs(11),
+            what: Box::new(move || {
+                execution_counter_t1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                println!("Hello!");
+                crate::asymmetry::TaskResult {
+                    result: 32,
+                    next: None,
+                }
+            }),
+        };
+
+        let execution_counter_t2 = execution_counter.clone();
+        let t2 = Task::<usize> {
+            when: go_time + std::time::Duration::from_secs(1),
+            what: Box::new(move || {
+                println!("Hello!");
+                execution_counter_t2.fetch_add(5, std::sync::atomic::Ordering::Relaxed);
+                crate::asymmetry::TaskResult {
+                    result: 32,
+                    next: None,
+                }
+            }),
+        };
+
+        asymm.add(t1);
+        asymm.add(t2);
+
+        asymm.run_for_iterations(Some(1));
+
+        assert!(execution_counter.load(std::sync::atomic::Ordering::Relaxed) == 5);
+    }
+
+    #[test]
+    fn test_do_all_ready() {
+        let asymm = Asymmetry::<usize>::new(None);
+        let go_time = Instant::now();
+        let execution_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let execution_counter_t1 = execution_counter.clone();
+        let t1 = Task::<usize> {
+            when: go_time,
+            what: Box::new(move || {
+                execution_counter_t1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                println!("Hello!");
+                crate::asymmetry::TaskResult {
+                    result: 32,
+                    next: None,
+                }
+            }),
+        };
+
+        let execution_counter_t2 = execution_counter.clone();
+        let t2 = Task::<usize> {
+            when: go_time,
+            what: Box::new(move || {
+                println!("Hello!");
+                execution_counter_t2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::asymmetry::TaskResult {
+                    result: 32,
+                    next: None,
+                }
+            }),
+        };
+
+        asymm.add(t1);
+        asymm.add(t2);
+
+        asymm.run_for_iterations(Some(1));
+
+        assert!(execution_counter.load(std::sync::atomic::Ordering::Relaxed) == 2);
     }
 }
