@@ -106,7 +106,7 @@ impl Periodicity {
                 next: Some(Instant::now() + interval),
             }
         };
-        runtime.add(Task {
+        runtime.add_and_wakeup(Task {
             when: Instant::now() + interval,
             what: Box::new(heartbeat_doer),
         });
@@ -201,7 +201,7 @@ impl Periodicity {
                 next: Some(Instant::now() + Duration::from_secs(1)),
             }
         };
-        runtime.add(Task {
+        runtime.add_and_wakeup(Task {
             when: Instant::now() + std::time::Duration::from_secs(1),
             what: Box::new(stale_doer),
         });

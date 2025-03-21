@@ -84,15 +84,17 @@ impl<T> Asymmetry<T> {
         Some(tasks[0].when)
     }
 
-    pub fn add(&self, new_task: Task<T>) {
-        {
-            let mut tasks = self.tasks.lock().unwrap();
-            tasks.push(new_task);
-            // An index to the leaf.
-            let index = tasks.len() - 1;
-            Self::fixup(&mut tasks, index);
-        }
+    pub fn add_and_wakeup(&self, new_task: Task<T>) {
+        self.add(new_task);
         self.wakeup();
+    }
+
+    pub fn add(&self, new_task: Task<T>) {
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.push(new_task);
+        // An index to the leaf.
+        let index = tasks.len() - 1;
+        Self::fixup(&mut tasks, index);
     }
 
     fn fixdown(tasks: &mut [Task<T>], mut index: usize) {
@@ -229,6 +231,8 @@ impl<T> Asymmetry<T> {
 
                     // If it said that it wants to be done again, re-enable it.
                     if let Some(next) = result.next {
+                        // No need to add _and_ wakeup -- because we are know
+                        // that we are not sleeping now!
                         self.add(Task {
                             when: next,
                             what: task.what,
