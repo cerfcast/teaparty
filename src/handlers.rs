@@ -267,7 +267,7 @@ pub fn handler(
 
     let mut netconfig = NetConfiguration::new();
 
-    let mut response_stamp_msg = {
+    let response_stamp_msg = {
         // Lock the sessions while we handle!
         let mut session_data = if let Some(sessions) = sessions.as_ref() {
             let mut sessions = sessions.sessions.lock().unwrap();
@@ -422,112 +422,8 @@ pub fn handler(
         response_stamp_msg
     };
 
-    let mut response_src_socket_addr = session.src.clone();
-
-    // Let each of the handlers have the chance to modify the socket from which the response will be sent.
-    for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
-        if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-            response_src_socket_addr = response_tlv_handler
-                .lock()
-                .unwrap()
-                .prepare_response_target(
-                    &mut response_stamp_msg,
-                    response_src_socket_addr,
-                    logger.clone(),
-                );
-        }
-    }
-
-    // If there was a change requested, handle that request now.
-    let response_src_socket = if response_src_socket_addr != session.src {
-        let response_src_socket = UdpSocket::bind((
-            response_src_socket_addr.ip(),
-            response_src_socket_addr.port(),
-        ));
-
-        info!(
-            logger,
-            "A handler wanted to change the response's source to {}", response_src_socket_addr
-        );
-
-        if let Err(e) = response_src_socket {
-            error!(
-                logger,
-                "There was an error binding the response source socket: {}. Abandoning response.",
-                e
-            );
-            return;
-        }
-
-        Some(response_src_socket.unwrap())
-    } else {
-        None
-    };
-
-    // It's possible that the handlers also want to add some special configuration to the socket, too.
-    let response_result = {
-        // Take a lock on the socket that we are going to use to send the response packet. We do this locking
-        // because the handlers may want to make a change to the socket's configuration and attempting to
-        // read packets in this configuration could cause a problem.
-        let unlocked_socket_to_prepare = response_src_socket
-            .map(|s| Arc::new(Mutex::new(s)))
-            .or(Some(server.socket.clone()))
-            .unwrap();
-
-        let locked_socket_to_prepare = unlocked_socket_to_prepare.lock().unwrap();
-
-        for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
-            if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-                if let Err(e) = response_tlv_handler.lock().unwrap().response_fixup(
-                    &mut response_stamp_msg,
-                    &locked_socket_to_prepare,
-                    logger.clone(),
-                ) {
-                    error!(logger, "There was an error letting handlers do their final response fixups: {}. Abandoning response.", e);
-                    return;
-                }
-            }
-        }
-
-        if let Err(e) = netconfig.configure(
-            &mut response_stamp_msg,
-            &locked_socket_to_prepare,
-            handlers,
-            logger.clone(),
-        ) {
-            error!(logger, "There was an error performing net configuration on a reflected packet: {}; Abandoning response.", e);
-            return;
-        }
-
-        info!(
-            logger,
-            "Responding with stamp msg: {:x?}", response_stamp_msg
-        );
-
-        {
-            let destination_ip = match session.src {
-                SocketAddr::V4(v4) => v4,
-                _ => {
-                    error!(logger, "Could not convert the session's src IP address into a V4 destination address");
-                    return;
-                }
-            };
-            responder.write(
-                &Into::<Vec<u8>>::into(response_stamp_msg.clone()),
-                &locked_socket_to_prepare,
-                destination_ip,
-            )
-        }
-    };
-
-    if response_result.is_err() {
-        error!(
-            logger,
-            "An error occurred sending the response: {}",
-            response_result.unwrap_err()
-        );
-        return;
-    }
+    // src and dest are "backward": They are from the perspective of the session sender!
+    responder.respond(response_stamp_msg.clone(), netconfig, session.dst.clone(), session.src.clone());
 
     // Update the session with the information about the response that we just wrote!
     if let Some(sessions) = sessions.as_ref() {
@@ -546,9 +442,4 @@ pub fn handler(
         }
     }
 
-    info!(
-        logger,
-        "Sent {} bytes as a response.",
-        response_result.unwrap()
-    );
 }

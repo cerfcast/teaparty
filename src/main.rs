@@ -592,6 +592,21 @@ fn server(
         // used to get packets sent by clients. We create a new thread to service each generator.
 
         let responder = Arc::new(responder::Responder::new());
+        let responder_canceller = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // TODO
+        #[allow(unused)]
+        let responder_thread = {
+            let responder = responder.clone();
+            let server = server_socket.clone();
+            let handlers = handlers.clone();
+            let logger = logger.clone();
+            let responder_canceller = responder_canceller.clone();
+            thread::spawn(move || {
+                responder.run(server, handlers, responder_canceller, logger);
+            })
+        };
+
         server_threads.push({
             let logger = logger.clone();
             let responder = responder.clone();
