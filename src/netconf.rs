@@ -234,7 +234,10 @@ impl NetConfiguration {
             NetConfigurationItem::Ttl(_value) => {
                 todo!()
             }
-            NetConfigurationItem::Invalid => Ok((NetConfigurationItemKind::Invalid, NetConfigurationItem::Invalid)),
+            NetConfigurationItem::Invalid => Ok((
+                NetConfigurationItemKind::Invalid,
+                NetConfigurationItem::Invalid,
+            )),
         }
     }
 }

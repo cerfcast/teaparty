@@ -423,7 +423,12 @@ pub fn handler(
     };
 
     // src and dest are "backward": They are from the perspective of the session sender!
-    responder.respond(response_stamp_msg.clone(), netconfig, session.dst.clone(), session.src.clone());
+    responder.respond(
+        response_stamp_msg.clone(),
+        netconfig,
+        session.dst.clone(),
+        session.src.clone(),
+    );
 
     // Update the session with the information about the response that we just wrote!
     if let Some(sessions) = sessions.as_ref() {
@@ -441,5 +446,4 @@ pub fn handler(
             unreachable!("The server is stateful -- we must have a session at this point.")
         }
     }
-
 }
