@@ -77,18 +77,23 @@ pub enum NetConfigurationItemKind {
     Ttl = 0,
     Ecn = 1,
     Dscp = 2,
+    Invalid = 3,
     MaxParameterKind = 4,
 }
 
 #[derive(Clone, Debug)]
 pub struct NetConfiguration {
     configurations: Vec<(NetConfigurationItem, u8)>,
+    originals: Vec<NetConfigurationItem>,
 }
 
 impl NetConfiguration {
     pub fn new() -> Self {
         NetConfiguration {
             configurations: [(NetConfigurationItem::Invalid, 0);
+                NetConfigurationItemKind::MaxParameterKind as usize]
+                .to_vec(),
+            originals: [(NetConfigurationItem::Invalid);
                 NetConfigurationItemKind::MaxParameterKind as usize]
                 .to_vec(),
         }
@@ -106,97 +111,130 @@ impl NetConfiguration {
             self.configurations[parameter as usize] = (arg, setter);
         }
     }
+
+    pub fn unconfigure(
+        &mut self,
+        socket: &UdpSocket,
+        logger: Logger,
+    ) -> Result<(), NetConfigurationError> {
+        for configuration in &mut self.originals {
+            Self::configure_one(configuration, socket, &logger)?;
+        }
+        Ok(())
+    }
+
     pub fn configure(
-        &self,
+        &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
         handlers: Handlers,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        for (configuration, setter) in &self.configurations {
-            let configuration_result = match configuration {
-                NetConfigurationItem::Dscp(value) => {
-                    info!(logger, "Configuring a DSCP value via net configuration.");
-                    let existing_ecn_value = match Ipv4Tos.get(&socket) {
-                        Ok(v) => v & 0x03, // Make sure that we only keep the ECN from the existing TOS value.
-                        Err(e) => {
-                            error!(
+        for (configuration, setter) in &mut self.configurations {
+            let configuration_result = Self::configure_one(configuration, socket, &logger);
+
+            match configuration_result {
+                Ok((orig_type, orig_value)) => self.originals[orig_type as usize] = orig_value,
+                Err(e) => {
+                    let erring_handler = handlers.get_handler(*setter).unwrap();
+                    let erring_handler = erring_handler.lock().unwrap();
+
+                    error!(
+                        logger,
+                        "Asking {} to handle a net configuration error: {}",
+                        erring_handler.tlv_name(),
+                        e
+                    );
+                    erring_handler.handle_netconfig_error(
+                        response,
+                        socket,
+                        *configuration,
+                        logger.clone(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn configure_one(
+        configuration: &NetConfigurationItem,
+        socket: &UdpSocket,
+        logger: &Logger,
+    ) -> Result<(NetConfigurationItemKind, NetConfigurationItem), NetConfigurationError> {
+        match configuration {
+            // DSCP
+            NetConfigurationItem::Dscp(value) => {
+                info!(logger, "Configuring a DSCP value via net configuration.");
+                let (orig, existing_ecn_value) = match Ipv4Tos.get(&socket) {
+                    Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8),
+                    Err(e) => {
+                        error!(
                                 logger,
                                 "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
                                 e
                             );
-                            0
-                        }
-                    };
+                        (0, 0)
+                    }
+                };
 
-                    let raw_dscp_value = Into::<u8>::into(*value) as i32 | existing_ecn_value;
-                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &raw_dscp_value) {
-                        error!(
+                let raw_dscp_value = Into::<u8>::into(*value) | existing_ecn_value;
+                if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &(raw_dscp_value as i32)) {
+                    error!(
                             logger,
                             "There was an error setting the DSCP value of the reflected packet via net configuration: {}",
                             set_tos_value_err
                         );
-                        Err(NetConfigurationError::CouldNotSet(
-                            *configuration,
-                            std::io::Error::other(set_tos_value_err.desc()),
-                        ))
-                    } else {
-                        Ok(())
-                    }
+                    Err(NetConfigurationError::CouldNotSet(
+                        *configuration,
+                        std::io::Error::other(set_tos_value_err.desc()),
+                    ))
+                } else {
+                    Ok((
+                        NetConfigurationItemKind::Dscp,
+                        // Don't forget to shift right -- into assumes that this is the case for DSCP values.
+                        NetConfigurationItem::Dscp((orig >> 2).into()),
+                    ))
                 }
-                NetConfigurationItem::Ecn(value) => {
-                    info!(logger, "Configuring an ECN value via net configuration.");
-                    let existing_dscp_value = match Ipv4Tos.get(&socket) {
-                        Ok(v) => v & 0xfc, // Make sure that we only keep the ECN from the existing TOS value.
-                        Err(e) => {
-                            error!(
+            }
+            // ECN
+            NetConfigurationItem::Ecn(value) => {
+                info!(logger, "Configuring an ECN value via net configuration.");
+                let (existing_dscp_value, orig) = match Ipv4Tos.get(&socket) {
+                    Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+                    Err(e) => {
+                        error!(
                                 logger,
                                 "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
                                 e
                             );
-                            0
-                        }
-                    };
+                        (0, 0)
+                    }
+                };
 
-                    let raw_tos_value = Into::<u8>::into(*value) as i32 | existing_dscp_value;
-                    if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &raw_tos_value) {
-                        error!(
+                let raw_tos_value = Into::<u8>::into(*value) | existing_dscp_value;
+                if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &(raw_tos_value as i32)) {
+                    error!(
                             logger,
                             "There was an error setting the ECN value of the reflected packet via net configuration: {}",
                             set_tos_value_err
                         );
-                        Err(NetConfigurationError::CouldNotSet(
-                            *configuration,
-                            std::io::Error::other(set_tos_value_err.desc()),
-                        ))
-                    } else {
-                        Ok(())
-                    }
+                    Err(NetConfigurationError::CouldNotSet(
+                        *configuration,
+                        std::io::Error::other(set_tos_value_err.desc()),
+                    ))
+                } else {
+                    Ok((
+                        NetConfigurationItemKind::Ecn,
+                        NetConfigurationItem::Ecn(orig.into()),
+                    ))
                 }
-                NetConfigurationItem::Ttl(_value) => {
-                    todo!()
-                }
-                NetConfigurationItem::Invalid => Ok(()),
-            };
-
-            if let Err(e) = configuration_result {
-                let erring_handler = handlers.get_handler(*setter).unwrap();
-                let erring_handler = erring_handler.lock().unwrap();
-
-                error!(
-                    logger,
-                    "Asking {} to handle a net configuration error: {}",
-                    erring_handler.tlv_name(),
-                    e
-                );
-                erring_handler.handle_netconfig_error(
-                    response,
-                    socket,
-                    *configuration,
-                    logger.clone(),
-                );
             }
+            // TTL
+            NetConfigurationItem::Ttl(_value) => {
+                todo!()
+            }
+            NetConfigurationItem::Invalid => Ok((NetConfigurationItemKind::Invalid, NetConfigurationItem::Invalid)),
         }
-        Ok(())
     }
 }
