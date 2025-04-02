@@ -203,6 +203,14 @@ local ecn_type_map =
 	[3] = "CE",
 }
 
+local rp_type_map =
+{
+	[0] = "Forward and Reverse DSCP; Forward Only ECN",
+	[1] = "Forward Only DSCP; Forward Only ECN", -- TODO: Confirm!
+	[2] = "Forward and Reverse DSCP; Forward and Reverse ECN",
+	[3] = "Forward Only DSCP; Forward and Reverse ECN",
+}
+
 -- TLV Dissectors
 
 
@@ -258,15 +266,17 @@ local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2
 	"DSCP2 Field")
 local ecn_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
-local rp_cos_tlv_protofield = ProtoField.bool("stamp.tlv.cos.rp", "RP", 16,
-	{ [1] = "Forward Path", [2] = "Forward and Reverse Path" }, 0x01,
+local rp_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.rp", "RP", base.HEX, rp_type_map, 0x0003,
 	"Reverse Path")
+local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN2", base.HEX, ecn_type_map, 0xc000,
+	"ECN2 Field")
 
 stamp_protocol.fields = { cos_tlv_protofield,
 	dscp1_cos_tlv_protofield,
 	dscp2_cos_tlv_protofield,
 	ecn_cos_tlv_protofield,
 	rp_cos_tlv_protofield,
+	ecn2_cos_tlv_protofield,
 }
 
 ------
@@ -286,6 +296,7 @@ local function tlv_cos_dissector(buffer, tree)
 	cos_tree:add(dscp2_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(ecn_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(rp_cos_tlv_protofield, buffer(0, 2))
+	cos_tree:add(ecn2_cos_tlv_protofield, buffer(2, 2))
 	return true
 end
 

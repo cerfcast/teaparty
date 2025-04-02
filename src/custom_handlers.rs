@@ -428,7 +428,8 @@ pub mod ch {
     pub struct ClassOfServiceTlv {
         dscp1: DscpValue,
         dscp2: DscpValue,
-        ecn: EcnValue,
+        ecn1: EcnValue,
+        ecn2: EcnValue,
         rp: u8,
     }
 
@@ -439,13 +440,7 @@ pub mod ch {
                 return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
             }
 
-            if tlv.value[1] & 0x3 != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
-                    "RP".to_string(),
-                )));
-            }
-
-            if tlv.value[2] != 0 || tlv.value[3] != 0 {
+            if tlv.value[2] & 0x3f != 0 || tlv.value[3] != 0 {
                 return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
                     "Reserved".to_string(),
                 )));
@@ -453,16 +448,33 @@ pub mod ch {
 
             let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
             let dscp2: DscpValue = (((tlv.value[0] & 0x3) << 4) | (tlv.value[1] >> 4)).into();
-            let ecn: EcnValue = ((tlv.value[1] & 0xf0) >> 2).into();
-
-            let rp = 0;
+            let ecn1: EcnValue = ((tlv.value[1] & 0x0c) >> 2).into();
+            let ecn2: EcnValue = ((tlv.value[2] & 0xc0) >> 6).into();
+            let rp: u8 = tlv.value[1] & 0x3;
 
             Ok(Self {
                 dscp1,
                 dscp2,
-                ecn,
+                ecn1,
+                ecn2,
                 rp,
             })
+        }
+    }
+
+    impl From<ClassOfServiceTlv> for Vec<u8> {
+        fn from(value: ClassOfServiceTlv) -> Self {
+            // Remember: Into trait will push the 6 bits of the DSCP into the msb!
+            let dscp1_b: u8 = value.dscp1.into();
+            let dscp2_b: u8 = value.dscp2.into();
+            let ecn1_b: u8 = value.ecn1.into();
+            let ecn2_b: u8 = value.ecn2.into();
+
+            let dscp_byte1 = dscp1_b | (dscp2_b >> 6);
+            let dscp_byte2 = (dscp2_b << 2) | (ecn1_b << 2) | value.rp & 0x3;
+            let reserved_byte1 = ecn2_b << 6;
+
+            vec![dscp_byte1, dscp_byte2, reserved_byte1, 0]
         }
     }
 
@@ -471,6 +483,9 @@ pub mod ch {
         ClassOfService {
             #[arg(long, default_value = "cs1")]
             dscp: DscpValue,
+
+            #[arg(long, default_value = "NotEct")]
+            ecn: EcnValue,
 
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
@@ -502,6 +517,7 @@ pub mod ch {
             let our_command = maybe_our_command.unwrap();
             let ClassOfServiceTlvCommand::ClassOfService {
                 dscp: user_dscp,
+                ecn: user_ecn,
                 next_tlv_command,
             } = our_command;
 
@@ -516,7 +532,12 @@ pub mod ch {
                     flags: Flags::new_request(),
                     tpe: Tlv::COS,
                     length: 4,
-                    value: vec![Into::<u8>::into(user_dscp), 0, 0, 0],
+                    value: vec![
+                        Into::<u8>::into(user_dscp),
+                        0,
+                        Into::<u8>::into(user_ecn) << 6,
+                        0,
+                    ],
                 },
                 next_tlv_command,
             ))
@@ -533,28 +554,30 @@ pub mod ch {
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Class of Service TLV handler!");
 
-            let cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
+            let mut cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
+
+            if cos_tlv.rp != 0 {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                    "RP".to_string(),
+                )));
+            }
 
             let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
+            // Remember: DSCP bits are in the msb!
             let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
 
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
 
-            let dscp_byte1 = Into::<u8>::into(cos_tlv.dscp1) | (dscp_argument >> 6);
-            let dscp_byte2 = (dscp_argument << 2) | (ecn_argument << 2);
+            cos_tlv.ecn1 = ecn_argument.into();
+            // Into from DscpValue to u8 assumes that the DSCP bits are in lsb.
+            cos_tlv.dscp2 = (dscp_argument >> 2).into();
 
-            info!(logger, "dscp_byte1: {:x}", dscp_byte1);
-            info!(logger, "dscp_byte2: {:x}", dscp_byte2);
+            if cos_tlv.ecn2 != EcnValue::NotEct {
+                cos_tlv.rp = 0x2;
+            }
 
             info!(logger, "Dscp requested back? {:?}", cos_tlv.dscp1);
-
-            let response = Tlv {
-                flags: Flags::new_response(),
-                tpe: self.tlv_type(),
-                length: 4,
-                value: vec![dscp_byte1, dscp_byte2, 0, 0],
-            };
 
             let dscp_netconfig = NetConfigurationItem::Dscp(cos_tlv.dscp1);
             netconfig.add_configuration(
@@ -562,6 +585,20 @@ pub mod ch {
                 dscp_netconfig,
                 self.tlv_type(),
             );
+
+            let ecn_netconfig = NetConfigurationItem::Ecn(cos_tlv.ecn2);
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Ecn,
+                ecn_netconfig,
+                self.tlv_type(),
+            );
+
+            let response = Tlv {
+                flags: Flags::new_response(),
+                tpe: self.tlv_type(),
+                length: 4,
+                value: cos_tlv.into(),
+            };
 
             Ok(response)
         }

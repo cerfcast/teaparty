@@ -21,7 +21,7 @@ use std::fmt::Debug;
 use clap::ValueEnum;
 
 #[repr(u8)]
-#[derive(Default, Clone, Copy, Debug, ValueEnum)]
+#[derive(Default, Clone, Copy, Debug, ValueEnum, PartialEq, Eq, PartialOrd)]
 pub enum EcnValue {
     #[default]
     NotEct = 0x0u8,
