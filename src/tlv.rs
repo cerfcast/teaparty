@@ -17,12 +17,18 @@
  */
 
 use std::{
-    fmt::Debug,
+    collections::HashMap,
+    fmt::{Debug, Formatter},
     ops::{BitAnd, BitOr},
     result::Result,
+    sync::LazyLock,
 };
 
-use crate::{custom_handlers::CustomHandlers, os::MacAddr, stamp::StampError};
+use crate::{
+    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv},
+    os::MacAddr,
+    stamp::StampError,
+};
 
 #[derive(Clone, PartialEq)]
 pub enum Error {
@@ -303,24 +309,51 @@ pub struct Tlv {
     pub value: Vec<u8>,
 }
 
+fn basic_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    let mut printable = f.debug_struct("Tlv");
+    printable.field("flags", &tlv.flags);
+    printable.field("length", &tlv.length);
+    printable.finish()
+}
+
+fn default_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    write!(f, " body: {:x?}", tlv.value)
+}
+
+fn cos_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let cos_tlv = ClassOfServiceTlv::try_from(tlv).unwrap();
+    write!(f, " body: {:?}", cos_tlv)
+}
+
+fn destination_port_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let dst_port_tlv = DestinationPortTlv::try_from(tlv).unwrap();
+    write!(f, " body: {:?}", dst_port_tlv)
+}
+
+#[allow(clippy::type_complexity)]
+static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
+    LazyLock::new(|| {
+        let mut m: HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result> = HashMap::new();
+        m.insert(Tlv::HEARTBEAT, default_tlv_display);
+        m.insert(Tlv::DESTINATION_PORT, destination_port_tlv_display);
+        m.insert(Tlv::HISTORY, default_tlv_display);
+        m.insert(Tlv::DSCPECN, default_tlv_display);
+        m.insert(Tlv::PADDING, default_tlv_display);
+        m.insert(Tlv::LOCATION, default_tlv_display);
+        m.insert(Tlv::TIMESTAMP, default_tlv_display);
+        m.insert(Tlv::COS, cos_tlv_display);
+        m.insert(Tlv::ACCESSREPORT, default_tlv_display);
+        m.insert(Tlv::FOLLOWUP, default_tlv_display);
+        m
+    });
+
 impl Debug for Tlv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let handlers = CustomHandlers::build();
-
-        let mut printable = f.debug_struct("Tlv");
-        printable.field("flags", &self.flags);
-
-        if let Some(handler) = handlers.get_handler(self.tpe) {
-            let handler = handler.lock().unwrap();
-            printable.field("type", &format_args!("{:?}", handler.tlv_name()));
-        } else {
-            printable.field("type", &format_args!("{:x?}", self.tpe));
-        }
-
-        printable
-            .field("length", &self.length)
-            .field("value", &format_args!("{:x?}", self.value))
-            .finish()
+        let handler = TLV_DISPLAY.get(&self.tpe).unwrap();
+        handler(self, f)
     }
 }
 

@@ -20,6 +20,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::handlers;
 
+// Allow dead code in here because it is an API and, yes, there
+// are fields that are not read ... yet.
+#[allow(dead_code)]
 pub mod ch {
     use std::net::{IpAddr, SocketAddr, UdpSocket};
 
@@ -296,7 +299,25 @@ pub mod ch {
         }
     }
 
-    pub struct DestinationPort {}
+    #[derive(Default, Debug)]
+    pub struct DestinationPortTlv {
+        pub port: u16,
+    }
+
+    impl TryFrom<&Tlv> for DestinationPortTlv {
+        type Error = StampError;
+        fn try_from(value: &Tlv) -> Result<Self, Self::Error> {
+            if value.length != 4 {
+                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
+            }
+            let port: u16 = u16::from_be_bytes(value.value[0..2].try_into().map_err(|_| {
+                StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                    "Could not extract port number from TLV value.".to_string(),
+                ))
+            })?);
+            Ok(Self { port })
+        }
+    }
 
     #[derive(Subcommand, Clone, Debug)]
     enum DestinationPortTlvCommand {
@@ -306,7 +327,7 @@ pub mod ch {
         },
     }
 
-    impl TlvHandler for DestinationPort {
+    impl TlvHandler for DestinationPortTlv {
         fn tlv_name(&self) -> String {
             "Destination Port".into()
         }
@@ -348,7 +369,7 @@ pub mod ch {
 
         fn handle(
             &self,
-            _tlv: &tlv::Tlv,
+            tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
             _client: SocketAddr,
@@ -403,7 +424,47 @@ pub mod ch {
         }
     }
 
-    pub struct ClassOfServiceTlv {}
+    #[derive(Default, Debug)]
+    pub struct ClassOfServiceTlv {
+        dscp1: DscpValue,
+        dscp2: DscpValue,
+        ecn: EcnValue,
+        rp: u8,
+    }
+
+    impl TryFrom<&Tlv> for ClassOfServiceTlv {
+        type Error = StampError;
+        fn try_from(tlv: &Tlv) -> Result<ClassOfServiceTlv, StampError> {
+            if tlv.length != 4 {
+                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
+            }
+
+            if tlv.value[1] & 0x3 != 0 {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                    "RP".to_string(),
+                )));
+            }
+
+            if tlv.value[2] != 0 || tlv.value[3] != 0 {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                    "Reserved".to_string(),
+                )));
+            }
+
+            let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
+            let dscp2: DscpValue = ((tlv.value[0] & 0x3) << 4 | tlv.value[1] >> 4).into();
+            let ecn: EcnValue = (tlv.value[1] & 0xf0 >> 2).into();
+
+            let rp = 0;
+
+            Ok(Self {
+                dscp1,
+                dscp2,
+                ecn,
+                rp,
+            })
+        }
+    }
 
     #[derive(Subcommand, Clone, Debug)]
     enum ClassOfServiceTlvCommand {
@@ -472,21 +533,7 @@ pub mod ch {
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Class of Service TLV handler!");
 
-            if tlv.length != 4 {
-                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
-            }
-
-            if tlv.value[1] & 0x3 != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
-                    "RP".to_string(),
-                )));
-            }
-
-            if tlv.value[2] != 0 || tlv.value[3] != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
-                    "Reserved".to_string(),
-                )));
-            }
+            let cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
 
             let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
             let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
@@ -494,14 +541,13 @@ pub mod ch {
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
 
-            let dscp_byte1 = tlv.value[0] | (dscp_argument >> 6);
+            let dscp_byte1 = Into::<u8>::into(cos_tlv.dscp1) | (dscp_argument >> 6);
             let dscp_byte2 = (dscp_argument << 2) | (ecn_argument << 2);
 
             info!(logger, "dscp_byte1: {:x}", dscp_byte1);
             info!(logger, "dscp_byte2: {:x}", dscp_byte2);
 
-            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
-            info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
+            info!(logger, "Dscp requested back? {:?}", cos_tlv.dscp1);
 
             let response = Tlv {
                 flags: Flags::new_response(),
@@ -510,7 +556,7 @@ pub mod ch {
                 value: vec![dscp_byte1, dscp_byte2, 0, 0],
             };
 
-            let dscp_netconfig = NetConfigurationItem::Dscp(dscp_requested_response);
+            let dscp_netconfig = NetConfigurationItem::Dscp(cos_tlv.dscp1);
             netconfig.add_configuration(
                 NetConfigurationItemKind::Dscp,
                 dscp_netconfig,
@@ -597,7 +643,7 @@ pub mod ch {
                 value: vec![crate::ip::DscpValue::AF13.into(), 0, 0, 0],
             };
 
-            let cos_handler = ClassOfServiceTlv {};
+            let cos_handler: ClassOfServiceTlv = Default::default();
 
             let test_logger = create_test_logger();
             let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
@@ -1573,6 +1619,7 @@ pub mod ch {
     }
 }
 
+use ch::{ClassOfServiceTlv, DestinationPortTlv};
 pub struct CustomHandlers {}
 
 impl CustomHandlers {
@@ -1582,9 +1629,11 @@ impl CustomHandlers {
         handlers.add(ecn_handler);
         let time_handler = Arc::new(Mutex::new(ch::TimeTlv {}));
         handlers.add(time_handler);
-        let destination_port_handler = Arc::new(Mutex::new(ch::DestinationPort {}));
+        let dst_port_tlv: DestinationPortTlv = Default::default();
+        let destination_port_handler = Arc::new(Mutex::new(dst_port_tlv));
         handlers.add(destination_port_handler);
-        let cos_handler = Arc::new(Mutex::new(ch::ClassOfServiceTlv {}));
+        let cos_tlv: ClassOfServiceTlv = Default::default();
+        let cos_handler = Arc::new(Mutex::new(cos_tlv));
         handlers.add(cos_handler);
         let location_handler = Arc::new(Mutex::new(ch::LocationTlv {}));
         handlers.add(location_handler);
