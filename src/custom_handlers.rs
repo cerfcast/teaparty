@@ -452,8 +452,8 @@ pub mod ch {
             }
 
             let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
-            let dscp2: DscpValue = ((tlv.value[0] & 0x3) << 4 | tlv.value[1] >> 4).into();
-            let ecn: EcnValue = (tlv.value[1] & 0xf0 >> 2).into();
+            let dscp2: DscpValue = (((tlv.value[0] & 0x3) << 4) | (tlv.value[1] >> 4)).into();
+            let ecn: EcnValue = ((tlv.value[1] & 0xf0) >> 2).into();
 
             let rp = 0;
 
