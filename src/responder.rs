@@ -125,11 +125,11 @@ impl Responder {
 
             // If there was a change requested, handle that request now.
             let response_src_socket = if src != modified_src {
-                let response_src_socket = UdpSocket::bind((src.ip(), src.port()));
+                let response_src_socket = UdpSocket::bind((modified_src.ip(), modified_src.port()));
 
                 info!(
                     logger,
-                    "A handler wanted to change the response's source to {}", src
+                    "A handler wanted to change the response's source to {}", modified_src
                 );
 
                 if let Err(e) = response_src_socket {
@@ -141,9 +141,9 @@ impl Responder {
                     return;
                 }
 
-                Some(response_src_socket.unwrap())
+                Arc::new(Mutex::new(response_src_socket.unwrap()))
             } else {
-                None
+                server.socket.clone()
             };
 
             // It's possible that the handlers also want to add some special configuration to the socket, too.
@@ -151,11 +151,8 @@ impl Responder {
                 // Take a lock on the socket that we are going to use to send the response packet. We do this locking
                 // because the handlers may want to make a change to the socket's configuration and attempting to
                 // read packets in this configuration could cause a problem.
-                let unlocked_socket_to_prepare = response_src_socket
-                    .map(|s| Arc::new(Mutex::new(s)))
-                    .unwrap_or(server.socket.clone());
 
-                let locked_socket_to_prepare = unlocked_socket_to_prepare.lock().unwrap();
+                let locked_socket_to_prepare = response_src_socket.lock().unwrap();
 
                 for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
                     if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
