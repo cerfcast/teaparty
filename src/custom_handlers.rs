@@ -356,7 +356,11 @@ pub mod ch {
             logger: slog::Logger,
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a destination port Tlv.");
-            Ok(_tlv.clone())
+
+            let mut result_tlv = tlv.clone();
+            result_tlv.flags.set_unrecognized(false);
+
+            Ok(result_tlv)
         }
         fn response_fixup(
             &self,
