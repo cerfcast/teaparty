@@ -26,6 +26,7 @@ use clap::Command;
 use slog::Logger;
 use slog::{debug, error, info, warn};
 
+use crate::asymmetry::Asymmetry;
 use crate::netconf::NetConfiguration;
 use crate::netconf::NetConfigurationItem;
 use crate::ntp;
@@ -121,6 +122,17 @@ pub trait TlvHandler {
         item: NetConfigurationItem,
         logger: Logger,
     );
+
+    #[allow(unused_variables)]
+    fn handle_asymmetry(
+        &self,
+        response: StampMsg,
+        socket: ServerSocket,
+        runtime: Arc<Asymmetry<()>>,
+        logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -206,6 +218,7 @@ pub fn handler(
     responder: Arc<responder::Responder>,
     server: ServerSocket,
     client_address: SocketAddr,
+    runtime: Arc<Asymmetry<()>>,
     logger: slog::Logger,
 ) {
     debug!(
@@ -437,13 +450,32 @@ pub fn handler(
             let entry = SessionHistoryEntry {
                 received_time: received_time.into(),
                 sender_time: src_stamp_msg.time,
-                sent_time: response_stamp_msg.time,
+                sent_time: response_stamp_msg.time.clone(),
                 sender_sequence: src_stamp_msg.sequence,
                 sequence: response_stamp_msg.sequence,
             };
             existing_session.history.add(entry);
         } else {
             unreachable!("The server is stateful -- we must have a session at this point.")
+        }
+    }
+
+    // Give each handler the chance to start some asymmetric processing.
+    for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
+        if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
+            // Notice that the lock use is in a scope!
+            let handler_name = { response_tlv_handler.lock().unwrap().tlv_name() };
+            if let Err(e) = response_tlv_handler.lock().unwrap().handle_asymmetry(
+                response_stamp_msg.clone(),
+                server.clone(),
+                runtime.clone(),
+                logger.clone(),
+            ) {
+                error!(
+                    logger,
+                    "Error starting asymmetric response handling for TLV {}: {}.", handler_name, e
+                );
+            }
         }
     }
 }

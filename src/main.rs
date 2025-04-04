@@ -532,6 +532,7 @@ fn server(
         let mut periodical = periodical.clone();
         ctrlc::set_handler({
             let mut server_cancellation = server_cancellation.clone();
+            let runtime = runtime.clone();
             move || {
                 // It would be nice to log something here, but we have to be careful
                 // about what can and cannot be done in a signal handler.
@@ -614,6 +615,7 @@ fn server(
             let handlers = handlers.clone();
             let server_cancellation = server_cancellation.clone();
             let server_socket = server_socket.clone();
+            let runtime = runtime.clone();
             thread::spawn(move || {
                 loop {
                     if server_cancellation.is_cancelled() {
@@ -655,6 +657,7 @@ fn server(
                                         let sessions = sessions.clone();
                                         let handlers = handlers.clone();
                                         let server_socket = server_socket.clone();
+                                        let runtime = runtime.clone();
                                         // If the server did not run forever, it may have been necessary
                                         // to `join` on this handle to make sure that the server did not
                                         // exit before the client was completely serviced.
@@ -668,6 +671,7 @@ fn server(
                                                 responder,
                                                 server_socket,
                                                 client_address,
+                                                runtime,
                                                 logger,
                                             );
                                         });
