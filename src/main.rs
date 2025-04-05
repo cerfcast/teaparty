@@ -292,6 +292,7 @@ fn client(
         body,
         hmac: None,
         tlvs,
+        raw_length: None,
     };
 
     let client_keymat = authenticated.map(|f| f.as_bytes().to_vec());

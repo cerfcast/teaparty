@@ -93,6 +93,7 @@ impl Periodicity {
                 body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice()).unwrap(),
                 hmac: None,
                 tlvs,
+                raw_length: None,
             };
 
             info!(logger, "Sending heartbeat to {:?}", addr);

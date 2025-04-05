@@ -20,6 +20,7 @@ use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::Sha256;
 
+use crate::handlers::HandlerError;
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
 use crate::tlv::{self, Tlvs};
@@ -68,6 +69,7 @@ impl Debug for StampParseAttemptType {
 pub enum StampError {
     Other(String),
     MissingRequiredArgument(TestArgumentKind),
+    HandlerError(HandlerError),
     Ntp(NtpError),
     Io(std::io::Error),
     MalformedTlv(tlv::Error),
@@ -103,6 +105,7 @@ impl Display for StampError {
             StampError::SignalHandlerFailure(message) => {
                 write!(f, "Error occurred setting the signal handler: {}", message)
             }
+            StampError::HandlerError(s) => write!(f, "Handler error: {:?}", s),
         }
     }
 }
@@ -690,6 +693,7 @@ pub struct StampMsg {
     pub body: StampMsgBody,
     pub hmac: Option<RawStampHmac>,
     pub tlvs: Tlvs,
+    pub raw_length: Option<usize>,
 }
 
 const DEFAULT_KEY: &[u8] = &[0x00];
@@ -860,6 +864,7 @@ impl TryFrom<&[u8]> for StampMsg {
             body,
             hmac,
             tlvs,
+            raw_length: Some(raw.len()),
         })
     }
 }
@@ -1284,6 +1289,7 @@ mod stamp_test_messages_with_tlvs {
             body: Default::default(),
             hmac: None,
             tlvs,
+            raw_length: None,
         };
 
         let serialized_msg = Into::<Vec<u8>>::into(msg);

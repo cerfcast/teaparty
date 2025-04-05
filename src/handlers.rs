@@ -48,6 +48,11 @@ use crate::tlv::Tlv;
 
 pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 
+#[derive(Debug, Clone)]
+pub enum HandlerError {
+    MissingRawSize,
+}
+
 /// An object that participates in handling STAMP messages
 /// with certain TLVs.
 ///
@@ -77,6 +82,11 @@ pub trait TlvHandler {
 
     /// The type of the TLV for which this object will respond.
     fn tlv_type(&self) -> u8;
+
+    #[allow(unused_variables)]
+    fn request_fixup(&self, request: &mut StampMsg, logger: Logger) -> Result<(), StampError> {
+        Ok(())
+    }
 
     /// The means of generating a TLV that goes into a STAMP reflector
     /// packet for a received STAMP packet with type that matches [`TlvHandler::tlv_type`].
@@ -244,7 +254,7 @@ pub fn handler(
         "The following arguments are available for this test:\n {:?}", test_arguments
     );
 
-    let (src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
+    let (mut src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
         StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => (maybe_stamp_msg.unwrap(), true),
         StampMsgBody::Send(StampSendBodyType::UnAuthenticated(_)) => {
             (maybe_stamp_msg.unwrap(), false)
@@ -343,13 +353,21 @@ pub fn handler(
             return;
         }
 
+        for handler in handlers.handlers.iter() {
+            let handler = handler.lock().unwrap();
+            if let Err(err) = handler.request_fixup(&mut src_stamp_msg, logger.clone()) {
+                error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its request fixup: {}", handler.tlv_name(), err);
+                return;
+            }
+        }
+
         // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
         // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
         let mut tlv_response = src_stamp_msg.tlvs.clone();
         for tlv in &mut tlv_response.tlvs {
             if !tlv.is_valid_request() {
                 error!(
-                    logger,
+                    logger.clone(),
                     "Abandoning Tlv processing because a Tlv's flags contained the malformed flag."
                 );
                 break;
@@ -377,6 +395,7 @@ pub fn handler(
                         break;
                     }
                     Err(e) => {
+                        // TODO: Check
                         error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
                     }
                 }
@@ -419,6 +438,7 @@ pub fn handler(
             },
             hmac: None,
             tlvs: tlv_response,
+            raw_length: None,
         };
 
         if client_authenticated {
