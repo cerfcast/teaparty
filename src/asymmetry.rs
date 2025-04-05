@@ -18,7 +18,7 @@ pub struct TaskResult<T> {
 
 pub struct Task<T> {
     pub when: Instant,
-    pub what: Box<dyn Fn() -> TaskResult<T> + Send>,
+    pub what: Box<dyn FnMut() -> TaskResult<T> + Send>,
 }
 
 pub struct Asymmetry<T> {
@@ -225,7 +225,7 @@ impl<T> Asymmetry<T> {
             // Is there an event waiting?
             while self.next_can_run(Instant::now()) {
                 // Let's do it!
-                if let Some(task) = self.complete() {
+                if let Some(mut task) = self.complete() {
                     // Execute the task.
                     let result = (task.what)();
 

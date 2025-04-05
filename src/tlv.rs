@@ -25,7 +25,7 @@ use std::{
 };
 
 use crate::{
-    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv},
+    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv, ReflectedControlTlv},
     os::MacAddr,
     stamp::StampError,
 };
@@ -332,6 +332,11 @@ fn destination_port_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Resul
     let dst_port_tlv = DestinationPortTlv::try_from(tlv).unwrap();
     write!(f, " body: {:?}", dst_port_tlv)
 }
+fn reflected_test_control_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let reflected_control_tlv = ReflectedControlTlv::try_from(tlv).unwrap();
+    write!(f, " body: {:?}", reflected_control_tlv)
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -347,6 +352,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::COS, cos_tlv_display);
         m.insert(Tlv::ACCESSREPORT, default_tlv_display);
         m.insert(Tlv::FOLLOWUP, default_tlv_display);
+        m.insert(Tlv::REFLECTED_CONTROL, reflected_test_control_tlv_display);
         m
     });
 
@@ -446,6 +452,7 @@ impl Tlv {
     pub const DESTINATION_PORT: u8 = 177;
     pub const HISTORY: u8 = 178;
     pub const DSCPECN: u8 = 179;
+    pub const REFLECTED_CONTROL: u8 = 180;
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
     pub const TIMESTAMP: u8 = 3;
@@ -529,6 +536,28 @@ impl Tlvs {
                 });
             }
         });
+    }
+
+    pub fn count_extra_padding_bytes(&self) -> usize {
+        self.tlvs.iter().fold(0, |existing, next| {
+            if next.tpe == Tlv::PADDING {
+                existing + next.length as usize
+            } else {
+                existing
+            }
+        })
+    }
+
+    pub fn contains(&self, tpe: u8) -> bool {
+        self.tlvs.iter().any(|tlv| tlv.tpe == tpe)
+    }
+
+    pub fn find(&self, tpe: u8) -> Option<&Tlv> {
+        self.tlvs.iter().find(|tlv| tlv.tpe == tpe)
+    }
+
+    pub fn drop_all_matching(&mut self, tpe: u8) {
+        self.tlvs.retain(|tlv| tlv.tpe != tpe);
     }
 }
 

@@ -93,6 +93,7 @@ impl Periodicity {
                 body: TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 30].as_slice()).unwrap(),
                 hmac: None,
                 tlvs,
+                raw_length: None,
             };
 
             info!(logger, "Sending heartbeat to {:?}", addr);
@@ -186,13 +187,18 @@ impl Periodicity {
                     {
                         info!(
                         logger,
-                        "Session (source ip: {}, dst ip: {}, ssid: {:?}, sequence: {}) is too old, removing it.",
+                        "Session (source ip: {}, dst ip: {}, ssid: {:?}, sequence: {}, reference_count: {}) is too old, maybe removing it.",
                         session.src,
                         session.dst,
                         session.ssid,
-                        sessions.get(session).unwrap().sequence
+                        sessions.get(session).unwrap().sequence,
+                        data.reference_count
                     );
-                        sessions.remove(session);
+
+                        if data.reference_count == 0 {
+                            info!(logger, "Yes, that session was removed.");
+                            sessions.remove(session);
+                        }
                     }
                 }
             }

@@ -33,6 +33,7 @@ use crate::ntp;
 use crate::parameters::TestArgumentKind;
 use crate::parameters::TestArguments;
 use crate::responder;
+use crate::responder::Responder;
 use crate::server::ServerSocket;
 use crate::server::Session;
 use crate::server::SessionData;
@@ -47,6 +48,11 @@ use crate::tlv;
 use crate::tlv::Tlv;
 
 pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
+
+#[derive(Debug, Clone)]
+pub enum HandlerError {
+    MissingRawSize,
+}
 
 /// An object that participates in handling STAMP messages
 /// with certain TLVs.
@@ -71,12 +77,20 @@ pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 /// > the socket unchanged with respect to its configuration before it was
 /// > first [`TlvHandler::prepare_response_socket`]'d by this handler.
 pub trait TlvHandler {
+    /// The name of the TLV.
     fn tlv_name(&self) -> String;
 
     fn tlv_cli_command(&self, command: Command) -> Command;
 
     /// The type of the TLV for which this object will respond.
     fn tlv_type(&self) -> u8;
+
+    /// Modify a STAMP test packet before it is subjected to normal
+    /// TLV handling.
+    #[allow(unused_variables)]
+    fn request_fixup(&self, request: &mut StampMsg, logger: Logger) -> Result<(), StampError> {
+        Ok(())
+    }
 
     /// The means of generating a TLV that goes into a STAMP reflector
     /// packet for a received STAMP packet with type that matches [`TlvHandler::tlv_type`].
@@ -108,6 +122,7 @@ pub trait TlvHandler {
         logger: Logger,
     ) -> SocketAddr;
 
+    /// Do final fixup of the STAMP response before it is reflected.
     fn response_fixup(
         &self,
         response: &mut StampMsg,
@@ -115,6 +130,10 @@ pub trait TlvHandler {
         logger: Logger,
     ) -> Result<(), StampError>;
 
+    /// Handle any errors that resulted from a failure to apply requested netconfig
+    /// to response.
+    ///
+    /// `item` is the netconfig that could not be applied.
     fn handle_netconfig_error(
         &self,
         response: &mut StampMsg,
@@ -123,11 +142,18 @@ pub trait TlvHandler {
         logger: Logger,
     );
 
-    #[allow(unused_variables)]
+    /// Startup any asymmetric processing resulting from STAMP test packet.
+    ///
+    /// If any asymmetric processing is required, this function can handle the
+    /// creation of that processing by referring to `runtime`, among others.
+    #[allow(unused_variables, clippy::too_many_arguments)]
     fn handle_asymmetry(
         &self,
         response: StampMsg,
-        socket: ServerSocket,
+        sessions: Option<Sessions>,
+        base_destination: SocketAddr,
+        base_src: SocketAddr,
+        responder: Arc<Responder>,
         runtime: Arc<Asymmetry<()>>,
         logger: Logger,
     ) -> Result<(), StampError> {
@@ -244,7 +270,7 @@ pub fn handler(
         "The following arguments are available for this test:\n {:?}", test_arguments
     );
 
-    let (src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
+    let (mut src_stamp_msg, client_authenticated) = match maybe_stamp_msg.as_ref().unwrap().body {
         StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => (maybe_stamp_msg.unwrap(), true),
         StampMsgBody::Send(StampSendBodyType::UnAuthenticated(_)) => {
             (maybe_stamp_msg.unwrap(), false)
@@ -343,13 +369,21 @@ pub fn handler(
             return;
         }
 
+        for handler in handlers.handlers.iter() {
+            let handler = handler.lock().unwrap();
+            if let Err(err) = handler.request_fixup(&mut src_stamp_msg, logger.clone()) {
+                error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its request fixup: {}", handler.tlv_name(), err);
+                return;
+            }
+        }
+
         // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
         // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
         let mut tlv_response = src_stamp_msg.tlvs.clone();
         for tlv in &mut tlv_response.tlvs {
             if !tlv.is_valid_request() {
                 error!(
-                    logger,
+                    logger.clone(),
                     "Abandoning Tlv processing because a Tlv's flags contained the malformed flag."
                 );
                 break;
@@ -377,6 +411,7 @@ pub fn handler(
                         break;
                     }
                     Err(e) => {
+                        // TODO: Check
                         error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
                     }
                 }
@@ -419,6 +454,7 @@ pub fn handler(
             },
             hmac: None,
             tlvs: tlv_response,
+            raw_length: None,
         };
 
         if client_authenticated {
@@ -467,7 +503,10 @@ pub fn handler(
             let handler_name = { response_tlv_handler.lock().unwrap().tlv_name() };
             if let Err(e) = response_tlv_handler.lock().unwrap().handle_asymmetry(
                 response_stamp_msg.clone(),
-                server.clone(),
+                sessions.clone(),
+                session.src.clone(),
+                session.dst.clone(),
+                responder.clone(),
                 runtime.clone(),
                 logger.clone(),
             ) {

@@ -24,18 +24,24 @@ use crate::handlers;
 // are fields that are not read ... yet.
 #[allow(dead_code)]
 pub mod ch {
-    use std::net::{IpAddr, SocketAddr, UdpSocket};
+    use std::{
+        net::{IpAddr, SocketAddr, UdpSocket},
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use clap::{ArgMatches, Command, FromArgMatches, Subcommand, ValueEnum};
     use slog::{error, info, warn, Logger};
 
     use crate::{
-        handlers::{TlvHandler, TlvRequestResult},
+        asymmetry::{Asymmetry, TaskResult},
+        handlers::{HandlerError, TlvHandler, TlvRequestResult},
         ip::{DscpValue, EcnValue},
         netconf::{NetConfiguration, NetConfigurationItem, NetConfigurationItemKind},
         ntp::TimeSource,
         parameters::{TestArgumentKind, TestArguments},
-        server::SessionData,
+        responder::Responder,
+        server::{Session, SessionData, Sessions},
         stamp::{StampError, StampMsg},
         tlv::{self, Flags, Tlv, Tlvs},
     };
@@ -1654,9 +1660,360 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (Followup) that does not set net configuration items.");
         }
     }
+
+    #[derive(Debug, Default)]
+    pub struct ReflectedControlTlv {
+        reflected_length: u32,
+        count: u32,
+        interval: u32,
+    }
+
+    impl ReflectedControlTlv {
+        pub const MINIMUM_LENGTH: u16 = 12;
+    }
+
+    impl From<ReflectedControlTlv> for Vec<u8> {
+        fn from(value: ReflectedControlTlv) -> Self {
+            let mut bytes = vec![0u8; 12];
+            bytes[0..4].copy_from_slice(&value.reflected_length.to_be_bytes());
+            bytes[4..8].copy_from_slice(&value.count.to_be_bytes());
+            bytes[8..12].copy_from_slice(&value.interval.to_be_bytes());
+
+            bytes
+        }
+    }
+
+    impl TryFrom<&Tlv> for ReflectedControlTlv {
+        type Error = StampError;
+        fn try_from(value: &Tlv) -> Result<ReflectedControlTlv, Self::Error> {
+            if value.value.len() != Self::MINIMUM_LENGTH as usize {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                    "Length".to_string(),
+                    Self::MINIMUM_LENGTH as usize,
+                    value.value.len(),
+                )));
+            }
+            let reflected_length: u32 =
+                u32::from_be_bytes(value.value[0..4].try_into().map_err(|_| {
+                    StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                        "reflected_length".to_string(),
+                    ))
+                })?);
+
+            let count: u32 = u32::from_be_bytes(value.value[4..8].try_into().map_err(|_| {
+                StampError::MalformedTlv(tlv::Error::FieldValueInvalid("count".to_string()))
+            })?);
+
+            let interval: u32 =
+                u32::from_be_bytes(value.value[8..12].try_into().map_err(|_| {
+                    StampError::MalformedTlv(tlv::Error::FieldValueInvalid("interval".to_string()))
+                })?);
+            Ok(ReflectedControlTlv {
+                reflected_length,
+                count,
+                interval,
+            })
+        }
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum ReflectedControlTlvCommand {
+        ReflectedControl {
+            #[arg(long)]
+            reflected_length: u32,
+
+            #[arg(long)]
+            count: u32,
+
+            #[arg(long, value_parser=parse_duration)]
+            interval: Duration,
+
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    fn parse_duration(duration_str: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
+        let seconds: u64 = duration_str.parse()?;
+        Ok(Duration::from_secs(seconds))
+    }
+
+    impl TlvHandler for ReflectedControlTlv {
+        fn tlv_name(&self) -> String {
+            "Reflected test packet control".into()
+        }
+
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            ReflectedControlTlvCommand::augment_subcommands(command)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::REFLECTED_CONTROL
+        }
+
+        fn request(
+            &self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = ReflectedControlTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let ReflectedControlTlvCommand::ReflectedControl {
+                reflected_length: user_reflected_length,
+                count: user_count,
+                interval: user_interval,
+                next_tlv_command,
+            } = our_command;
+
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: ReflectedControlTlv::MINIMUM_LENGTH,
+                    value: ReflectedControlTlv {
+                        reflected_length: user_reflected_length,
+                        count: user_count,
+                        interval: user_interval.as_nanos().try_into().unwrap(),
+                    }
+                    .into(),
+                },
+                next_tlv_command,
+            ))
+        }
+
+        fn request_fixup(&self, request: &mut StampMsg, logger: Logger) -> Result<(), StampError> {
+            info!(
+                logger,
+                "Reflected Packet Control TLV is fixing up a request (in particular, its length)"
+            );
+            if !request.tlvs.contains(Tlv::REFLECTED_CONTROL) {
+                return Ok(());
+            }
+
+            // Calculate the number of bytes in the length attributable to extra padding.
+            let padding_length = request.tlvs.count_extra_padding_bytes();
+
+            // Determine what the Session Sender wants the reflected packet's size to be.
+            let reflected_control_tlv: ReflectedControlTlv = request
+                .tlvs
+                .find(Tlv::REFLECTED_CONTROL)
+                .unwrap()
+                .try_into()?;
+            let reflected_control_tlv_requested_length = reflected_control_tlv.reflected_length;
+
+            // Determine a "skinny" length -- the length of the test packet without padding.
+            let raw_packet_msg_length = request
+                .raw_length
+                .ok_or(StampError::HandlerError(HandlerError::MissingRawSize))?;
+            let skinny_packet_msg_length = raw_packet_msg_length - padding_length;
+
+            // In all cases we will drop the padding TLVs.
+            // Although we might add some back later!
+            request.tlvs.drop_all_matching(Tlv::PADDING);
+            request.raw_length = Some(skinny_packet_msg_length);
+
+            info!(
+                logger,
+                "Reflected Packet Control TLV made the test packet skinnier: {}",
+                skinny_packet_msg_length
+            );
+
+            // After lopping off all the extra padding TLVs, the length the Session Sender requested
+            // for the reflected packet may be longer!
+            if skinny_packet_msg_length < reflected_control_tlv_requested_length as usize {
+                // Calculate the amount of padding that we need to add back.
+                let needed_padding_length =
+                    reflected_control_tlv_requested_length as usize - raw_packet_msg_length;
+
+                // And add it back.
+                request.tlvs.tlvs.push(Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::PADDING,
+                    length: needed_padding_length as u16,
+                    value: vec![0; needed_padding_length],
+                });
+
+                info!(
+                    logger,
+                    "Reflected Packet Control TLV made test packet too skinny but readjusted: {}",
+                    skinny_packet_msg_length
+                );
+                request.raw_length = Some(skinny_packet_msg_length + needed_padding_length);
+            }
+            Ok(())
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            _session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am in the Reflected Packet Control TLV handler!");
+
+            let reflected_control_tlv = TryInto::<ReflectedControlTlv>::try_into(tlv)?;
+
+            let response = Tlv {
+                flags: Flags::new_response(),
+                tpe: self.tlv_type(),
+                length: Self::MINIMUM_LENGTH,
+                value: reflected_control_tlv.into(),
+            };
+            Ok(response)
+        }
+        fn response_fixup(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            Ok(())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(
+                logger,
+                "Preparing the response target in the Reflected Test Packet Control TLV."
+            );
+            address
+        }
+        fn handle_netconfig_error(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Reflected Test Packet Control TLV) that does not set net configuration items.");
+        }
+
+        fn handle_asymmetry(
+            &self,
+            response: StampMsg,
+            sessions: Option<Sessions>,
+            base_destination: SocketAddr,
+            base_src: SocketAddr,
+            responder: Arc<Responder>,
+            runtime: Arc<Asymmetry<()>>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            let mut found_tlv: Option<Tlv> = None;
+            for tlv in response.tlvs.tlvs.iter().clone() {
+                if tlv.tpe == self.tlv_type() {
+                    found_tlv = Some(tlv.clone());
+                }
+            }
+
+            if let Some(tlv) = found_tlv {
+                let reflected_test_control_tlv: ReflectedControlTlv =
+                    TryFrom::<&Tlv>::try_from(&tlv)?;
+
+                // Get our ducks in a row ...
+                let mut sessions = sessions.clone();
+                let mut sent_packet_count = 0usize;
+
+                // Before we get started, let's bump up the reference count on the
+                // session so that it's not taken away from us.
+                if let Some(sessions) = sessions.as_mut() {
+                    let query_session =
+                        Session::new(base_destination, base_src, response.ssid.clone());
+                    info!(
+                        logger,
+                        "Increasing reference count on session {:?}", query_session
+                    );
+                    sessions.increase_refcount(query_session);
+                }
+
+                let doer = move || {
+                    info!(
+                        logger,
+                        "I'm here because of a Reflected Test Packet Control TLV."
+                    );
+
+                    // We need this query in several places ... let's just make it once.
+                    let query_session =
+                        Session::new(base_destination, base_src, response.ssid.clone());
+
+                    if sent_packet_count >= reflected_test_control_tlv.count as usize {
+                        info!(
+                        logger,
+                        "Asymmetric execution resulting from a reflected test control tlv is done."
+                    );
+                        // Before we go, we should make sure that we give up our pin on the session.
+                        if let Some(sessions) = sessions.as_ref() {
+                            info!(
+                                logger,
+                                "Decreasing reference count on session {:?}", query_session
+                            );
+                            sessions.decrease_refcount(query_session);
+                        }
+
+                        return TaskResult {
+                            next: None,
+                            result: (),
+                        };
+                    }
+
+                    let mut actual_response_msg = response.clone();
+
+                    if let Some(sessions) = sessions.as_mut() {
+                        if let Some(mut session_data) = sessions.get_data(&query_session) {
+                            session_data.sequence += 1;
+                            actual_response_msg.sequence = session_data.sequence;
+                        }
+                    }
+
+                    info!(
+                        logger,
+                        "About to send the {} asymmetric packet resulting from a reflected test control TLV.", sent_packet_count
+                    );
+                    sent_packet_count += 1;
+
+                    responder.respond(
+                        actual_response_msg,
+                        NetConfiguration::new(),
+                        base_src,
+                        base_destination,
+                    );
+
+                    TaskResult {
+                        next: Some(
+                            Instant::now()
+                                + Duration::from_nanos(reflected_test_control_tlv.interval.into()),
+                        ),
+                        result: (),
+                    }
+                };
+
+                runtime.add(crate::asymmetry::Task {
+                    when: Instant::now()
+                        + Duration::from_nanos(reflected_test_control_tlv.interval.into()),
+                    what: Box::new(doer),
+                });
+            }
+            Ok(())
+        }
+    }
 }
 
-use ch::{ClassOfServiceTlv, DestinationPortTlv};
+use ch::{ClassOfServiceTlv, DestinationPortTlv, ReflectedControlTlv};
 pub struct CustomHandlers {}
 
 impl CustomHandlers {
@@ -1684,6 +2041,9 @@ impl CustomHandlers {
         handlers.add(history_handler);
         let followup_handler = Arc::new(Mutex::new(ch::FollowupTlv {}));
         handlers.add(followup_handler);
+        let reflected_control_tlv: ReflectedControlTlv = Default::default();
+        let reflected_control_handler = Arc::new(Mutex::new(reflected_control_tlv));
+        handlers.add(reflected_control_handler);
 
         handlers
     }

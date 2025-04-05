@@ -31,6 +31,7 @@ use nix::{
         SetSockOpt,
     },
 };
+use owning_ref::MutexGuardRefMut;
 use serde::{ser::SerializeStruct, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -264,6 +265,7 @@ mod session_history_tests {
 #[derive(Serialize, Debug, Clone)]
 pub struct SessionData {
     pub sequence: u32,
+    pub reference_count: usize,
     pub last: std::time::SystemTime,
     pub key: Option<Vec<u8>>,
     pub history: SessionHistory,
@@ -273,6 +275,7 @@ impl SessionData {
     pub fn new(history_length: usize) -> SessionData {
         Self {
             sequence: 0u32,
+            reference_count: 0,
             last: std::time::SystemTime::now(),
             key: None,
             history: SessionHistory::new(history_length),
@@ -361,6 +364,44 @@ impl Sessions {
 
         sessions.insert(new, new_sd);
         Ok(())
+    }
+
+    pub fn increase_refcount(&self, session: Session) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        match sessions.get_mut(&session) {
+            Some(session) => {
+                session.reference_count += 1;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn decrease_refcount(&self, session: Session) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        match sessions.get_mut(&session) {
+            Some(session) => {
+                session.reference_count -= 1;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn get_data<'a, 'b: 'a>(
+        &'b mut self,
+        session: &Session,
+    ) -> Option<MutexGuardRefMut<'a, HashMap<Session, SessionData>, SessionData>> {
+        let owning = self.sessions.lock().unwrap();
+        {
+            if !owning.contains_key(session) {
+                return None;
+            }
+        }
+
+        let mowning = MutexGuardRefMut::new(owning);
+        let mowning = mowning.map_mut(|owner| owner.get_mut(session).unwrap());
+        Some(mowning)
     }
 }
 
