@@ -169,17 +169,18 @@ The `tlvs` subcommand will put TLVs into the test packet.
 Usage: teaparty sender tlvs [COMMAND]
 
 Commands:
-  dscp-ecn          
-  time              
-  destination-port  
-  class-of-service  
-  location          
-  unrecognized      
-  padding           
-  access-report     
-  history           
-  followup          
-  help              Print this message or the help of the given subcommand(s)
+  dscp-ecn           
+  time               
+  destination-port   
+  class-of-service   
+  location           
+  unrecognized       
+  padding            
+  access-report      
+  history            
+  followup           
+  reflected-control  
+  help               Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help  Print help
@@ -195,6 +196,7 @@ Options:
 | unrecognized | _Special_| Will include a TLV whose type is unrecognized |
 | padding | Padding | Will pad out a STAMP packet with 64 bytes (by default); customize with the `-s` option |
 | history | History | Will include a TLV that requests information about the previous _N_ reflected packets in the current session (defaults to 3; customize with `--length`) |
+| reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
 
 _Example_:
 
@@ -262,6 +264,7 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Destination port (sender) | &#9989; |
 | History (reflector) | &#9989; |
 | History (sender) | &#9989; |
+| Reflected Test Packet Control ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/))| &#9989; (more testing required, but support starting in [48c274b](https://github.com/cerfcast/teaparty/commit/48c274ba935a00f4652aead5accd6156def3d6cb))|
 
 ### Testing
 
