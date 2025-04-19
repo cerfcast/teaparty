@@ -25,9 +25,10 @@ use std::{
 };
 
 use crate::{
-    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv, ReflectedControlTlv},
+    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv},
     os::MacAddr,
     stamp::StampError,
+    tlv, util,
 };
 
 #[derive(Clone, PartialEq)]
@@ -37,6 +38,7 @@ pub enum Error {
     FieldNotZerod(String),
     FieldWrongSized(String, usize, usize),
     FieldValueInvalid(String),
+    DuplicateTlv,
 }
 
 impl Debug for Error {
@@ -44,6 +46,10 @@ impl Debug for Error {
         match self {
             Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {}", r),
             Error::NotEnoughData => write!(f, "TLV length exceeded available data"),
+            Error::DuplicateTlv => write!(
+                f,
+                "More than one TLV with a type that can be present at most once"
+            ),
             Error::FieldNotZerod(field) => write!(f, "TLV field named {} was not zerod.", field),
             Error::FieldWrongSized(field, wanted, got) => write!(
                 f,
@@ -337,6 +343,11 @@ fn reflected_test_control_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt:
     let reflected_control_tlv = ReflectedControlTlv::try_from(tlv).unwrap();
     write!(f, " body: {:?}", reflected_control_tlv)
 }
+fn hmac_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let hmac_tlv = HmacTlv::try_from(tlv).unwrap();
+    write!(f, " body: {:x?}", hmac_tlv)
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -353,6 +364,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::ACCESSREPORT, default_tlv_display);
         m.insert(Tlv::FOLLOWUP, default_tlv_display);
         m.insert(Tlv::REFLECTED_CONTROL, reflected_test_control_tlv_display);
+        m.insert(Tlv::HMAC_TLV, hmac_tlv_display);
         m
     });
 
@@ -459,6 +471,7 @@ impl Tlv {
     pub const COS: u8 = 4;
     pub const ACCESSREPORT: u8 = 6;
     pub const FOLLOWUP: u8 = 7;
+    pub const HMAC_TLV: u8 = 8;
 
     /// Make a Tlv for padding.
     pub fn extra_padding(len: u16) -> Self {
@@ -507,10 +520,19 @@ impl Tlv {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tlvs {
     pub tlvs: Vec<Tlv>,
+    pub hmac_tlv: Option<Tlv>,
     pub malformed: Option<MalformedTlv>,
 }
 
 impl Tlvs {
+    pub fn new() -> Self {
+        Tlvs {
+            tlvs: vec![],
+            hmac_tlv: None,
+            malformed: None,
+        }
+    }
+
     pub fn handle_malformed_response(&mut self) {
         let invalid_tlvs = if let Some(first_bad) = self
             .tlvs
@@ -538,6 +560,39 @@ impl Tlvs {
         });
     }
 
+    pub fn type_iter(&self) -> Vec<u8> {
+        self.tlvs
+            .iter()
+            .chain(self.hmac_tlv.iter())
+            .map(|f| f.tpe)
+            .collect()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tlv> {
+        self.tlvs.iter_mut().chain(self.hmac_tlv.iter_mut())
+    }
+
+    pub fn add_tlv(&mut self, tlv: Tlv) -> Result<(), tlv::Error> {
+        if tlv.tpe == Tlv::HMAC_TLV {
+            if self.hmac_tlv.is_none() {
+                self.hmac_tlv = Some(tlv);
+                return Ok(());
+            }
+            return Err(tlv::Error::DuplicateTlv);
+        } else {
+            self.tlvs.push(tlv);
+        }
+        Ok(())
+    }
+
+    pub fn hmac(&self, sequence: u32, key: &[u8]) -> Result<Vec<u8>, StampError> {
+        let mut data_to_hmac: Vec<u8> = vec![];
+        data_to_hmac.extend_from_slice(&sequence.to_be_bytes());
+        data_to_hmac.extend_from_slice(&self.bytes(false));
+
+        util::authenticate(&data_to_hmac, key).map_err(|_| StampError::InvalidSignature)
+    }
+
     pub fn count_extra_padding_bytes(&self) -> usize {
         self.tlvs.iter().fold(0, |existing, next| {
             if next.tpe == Tlv::PADDING {
@@ -559,15 +614,43 @@ impl Tlvs {
     pub fn drop_all_matching(&mut self, tpe: u8) {
         self.tlvs.retain(|tlv| tlv.tpe != tpe);
     }
+
+    pub fn move_hmac_tlv_to_end(&mut self) {
+        let maybe_hmac_tlv = self.find(Tlv::HMAC_TLV).cloned();
+
+        self.drop_all_matching(Tlv::HMAC_TLV);
+
+        if let Some(hmac_tlv) = maybe_hmac_tlv {
+            self.tlvs.push(hmac_tlv);
+        }
+    }
+
+    pub fn bytes(&self, include_hmac: bool) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+
+        for tlv in &self.tlvs {
+            result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
+        }
+        if include_hmac {
+            self.hmac_tlv
+                .iter()
+                .for_each(|hmac| result.extend_from_slice(Into::<Vec<u8>>::into(hmac).as_slice()));
+        }
+
+        self.malformed
+            .iter()
+            .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
+
+        result
+    }
 }
 
 impl TryFrom<&[u8]> for Tlvs {
     type Error = StampError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let mut tlvs: Vec<Tlv> = vec![];
+        let mut tlvs = Tlvs::new();
 
-        let mut malformed: Option<MalformedTlv> = None;
         let mut raw_idx = 0usize;
         while raw_idx < value.len() {
             match TryInto::<Tlv>::try_into(&value[raw_idx..]) {
@@ -575,11 +658,11 @@ impl TryFrom<&[u8]> for Tlvs {
                     // We are _not_ safe: The malformed flag may be set.
                     if !tlv.flags.get_malformed() {
                         raw_idx += tlv.length as usize + Tlv::FtlSize;
-                        tlvs.push(tlv);
+                        tlvs.add_tlv(tlv).map_err(StampError::MalformedTlv)?;
                     } else {
                         // Even if we were able to parse the TLV, if the
                         // malformed flag is set, we have to bail out.
-                        malformed = Some(MalformedTlv::new(
+                        tlvs.malformed = Some(MalformedTlv::new(
                             Error::InvalidFlag("Malformed is indicated.".to_string()),
                             value[raw_idx..].to_vec(),
                         ));
@@ -587,28 +670,18 @@ impl TryFrom<&[u8]> for Tlvs {
                     }
                 }
                 Err(reason) => {
-                    malformed = Some(MalformedTlv::new(reason, value[raw_idx..].to_vec()));
+                    tlvs.malformed = Some(MalformedTlv::new(reason, value[raw_idx..].to_vec()));
                     break;
                 }
             }
         }
-        Ok(Tlvs { tlvs, malformed })
+        Ok(tlvs)
     }
 }
 
 impl From<Tlvs> for Vec<u8> {
     fn from(value: Tlvs) -> Self {
-        let mut result: Vec<u8> = vec![];
-
-        for tlv in value.tlvs {
-            result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
-        }
-        value
-            .malformed
-            .iter()
-            .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
-
-        result
+        value.bytes(true)
     }
 }
 
@@ -700,5 +773,30 @@ mod tlvs_invalid_flags_test {
         assert!(tlvs.tlvs.is_empty());
         let malformed = tlvs.malformed.unwrap();
         assert!(malformed.bytes.len() == 2 * (1 + 1 + 2 + 8));
+    }
+}
+
+#[cfg(test)]
+mod test_tlvs_methods {
+    use super::{Tlv, Tlvs};
+
+    #[test]
+    fn test_move_hmac_tlv_to_end() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(padding_tlv);
+
+        tlvs.move_hmac_tlv_to_end();
+
+        assert!(tlvs.tlvs[1] == hmac_tlv);
     }
 }

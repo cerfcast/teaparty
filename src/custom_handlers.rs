@@ -162,10 +162,11 @@ pub mod ch {
 
             Ok(response)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -273,10 +274,11 @@ pub mod ch {
             };
             Ok(response)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -389,10 +391,11 @@ pub mod ch {
 
             Ok(result_tlv)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -608,10 +611,11 @@ pub mod ch {
 
             Ok(response)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -779,6 +783,7 @@ pub mod ch {
 
             let mut sub_tlvs = Tlvs {
                 tlvs: Default::default(),
+                hmac_tlv: None,
                 malformed: None,
             };
             sub_tlvs.tlvs.extend(vec![
@@ -957,10 +962,11 @@ pub mod ch {
             address
         }
 
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             response: &mut StampMsg,
             socket: &UdpSocket,
+            _session: &Option<SessionData>,
             logger: Logger,
         ) -> Result<(), StampError> {
             info!(logger, "Preparing the response socket in the Location Tlv.");
@@ -1140,10 +1146,11 @@ pub mod ch {
             );
             address
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1230,10 +1237,11 @@ pub mod ch {
             response.flags = Flags::new_response();
             Ok(response)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1397,10 +1405,11 @@ pub mod ch {
             );
             address
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1515,10 +1524,11 @@ pub mod ch {
             info!(logger, "Preparing the response target in the History Tlv.");
             address
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1631,10 +1641,11 @@ pub mod ch {
             })
         }
 
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1790,7 +1801,12 @@ pub mod ch {
             ))
         }
 
-        fn request_fixup(&self, request: &mut StampMsg, logger: Logger) -> Result<(), StampError> {
+        fn request_fixup(
+            &self,
+            request: &mut StampMsg,
+            _session: &Option<SessionData>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
             info!(
                 logger,
                 "Reflected Packet Control TLV is fixing up a request (in particular, its length)"
@@ -1873,10 +1889,11 @@ pub mod ch {
             };
             Ok(response)
         }
-        fn response_fixup(
+        fn pre_send_fixup(
             &self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
@@ -1982,7 +1999,7 @@ pub mod ch {
 
                     info!(
                         logger,
-                        "About to send the {} asymmetric packet resulting from a reflected test control TLV.", sent_packet_count
+                        "About to send the {} asymmetric packet resulting from a Reflected Test Control TLV.", sent_packet_count
                     );
                     sent_packet_count += 1;
 
@@ -2011,9 +2028,174 @@ pub mod ch {
             Ok(())
         }
     }
+
+    #[derive(Debug, Default)]
+    pub struct HmacTlv {
+        hmac: [u8; HmacTlv::LENGTH as usize],
+    }
+
+    impl HmacTlv {
+        pub const LENGTH: u16 = 16;
+    }
+
+    impl From<HmacTlv> for Vec<u8> {
+        fn from(value: HmacTlv) -> Self {
+            let mut bytes = vec![0u8; HmacTlv::LENGTH as usize];
+            bytes[0..HmacTlv::LENGTH as usize].copy_from_slice(&value.hmac);
+
+            bytes
+        }
+    }
+
+    impl TryFrom<&Tlv> for HmacTlv {
+        type Error = StampError;
+        fn try_from(value: &Tlv) -> Result<HmacTlv, Self::Error> {
+            if value.value.len() != Self::LENGTH as usize {
+                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                    "Length".to_string(),
+                    Self::LENGTH as usize,
+                    value.value.len(),
+                )));
+            }
+
+            let mut hmac_result = HmacTlv { hmac: [0; 16] };
+            hmac_result.hmac.copy_from_slice(&value.value);
+            Ok(hmac_result)
+        }
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum HmacTlvCommand {
+        Hmac { next_tlv_command: Vec<String> },
+    }
+
+    impl TlvHandler for HmacTlv {
+        fn tlv_name(&self) -> String {
+            "HMAC TLV".into()
+        }
+
+        fn tlv_cli_command(&self, command: Command) -> Command {
+            HmacTlvCommand::augment_subcommands(command)
+        }
+
+        fn tlv_type(&self) -> u8 {
+            Tlv::HMAC_TLV
+        }
+
+        fn request_fixup(
+            &self,
+            request: &mut StampMsg,
+            _session: &Option<SessionData>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            if let Some(hmac_tlv) = request.tlvs.hmac_tlv.clone() {
+                if let Some(SessionData { key: Some(key), .. }) = _session {
+                    let hmac = request.tlvs.hmac(request.sequence, key)?;
+                    if hmac_tlv.value != hmac {
+                        info!(logger, "Verification of the TLV HMAC on a received STAMP packet failed; expected {:x?} vs received {:x?}", hmac_tlv.value, hmac);
+                        return Err(StampError::InvalidSignature);
+                    }
+                }
+            }
+
+            Ok(())
+        }
+
+        fn request(
+            &self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = HmacTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let HmacTlvCommand::Hmac { next_tlv_command } = our_command;
+
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: self.tlv_type(),
+                    length: HmacTlv::LENGTH,
+                    value: HmacTlv { hmac: [0; 16] }.into(),
+                },
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            _session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "Handling an HMAC TLV!");
+
+            let hmac_tlv = TryInto::<HmacTlv>::try_into(tlv)?;
+
+            let response = Tlv {
+                flags: Flags::new_response(),
+                tpe: self.tlv_type(),
+                length: Self::LENGTH,
+                value: hmac_tlv.into(),
+            };
+            Ok(response)
+        }
+        fn pre_send_fixup(
+            &self,
+            response: &mut StampMsg,
+            _socket: &UdpSocket,
+            session: &Option<SessionData>,
+            _logger: Logger,
+        ) -> Result<(), StampError> {
+            if let Some(SessionData {
+                sequence: _,
+                reference_count: _,
+                last: _,
+                key: Some(key),
+                history: _,
+            }) = session
+            {
+                if response.tlvs.hmac_tlv.is_some() {
+                    let hmac = response.tlvs.hmac(response.sequence, key)?;
+                    response.tlvs.hmac_tlv.as_mut().unwrap().value = hmac;
+                }
+            }
+            Ok(())
+        }
+
+        fn prepare_response_target(
+            &self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(logger, "Preparing the response target in the HMAC TLV.");
+            address
+        }
+        fn handle_netconfig_error(
+            &self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (HMAC TLV) that does not set net configuration items.");
+        }
+    }
 }
 
-use ch::{ClassOfServiceTlv, DestinationPortTlv, ReflectedControlTlv};
+use ch::{ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv};
 pub struct CustomHandlers {}
 
 impl CustomHandlers {
@@ -2044,7 +2226,9 @@ impl CustomHandlers {
         let reflected_control_tlv: ReflectedControlTlv = Default::default();
         let reflected_control_handler = Arc::new(Mutex::new(reflected_control_tlv));
         handlers.add(reflected_control_handler);
-
+        let hmac_tlv: HmacTlv = Default::default();
+        let hmac_tlv_handler = Arc::new(Mutex::new(hmac_tlv));
+        handlers.add(hmac_tlv_handler);
         handlers
     }
 }

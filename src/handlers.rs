@@ -46,6 +46,7 @@ use crate::stamp::StampResponseBody;
 use crate::stamp::StampSendBodyType;
 use crate::tlv;
 use crate::tlv::Tlv;
+use crate::tlv::Tlvs;
 
 pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
 
@@ -88,7 +89,12 @@ pub trait TlvHandler {
     /// Modify a STAMP test packet before it is subjected to normal
     /// TLV handling.
     #[allow(unused_variables)]
-    fn request_fixup(&self, request: &mut StampMsg, logger: Logger) -> Result<(), StampError> {
+    fn request_fixup(
+        &self,
+        request: &mut StampMsg,
+        session: &Option<SessionData>,
+        logger: Logger,
+    ) -> Result<(), StampError> {
         Ok(())
     }
 
@@ -122,11 +128,12 @@ pub trait TlvHandler {
         logger: Logger,
     ) -> SocketAddr;
 
-    /// Do final fixup of the STAMP response before it is reflected.
-    fn response_fixup(
+    /// Do final fixup of STAMP message before it is transmitted.
+    fn pre_send_fixup(
         &self,
         response: &mut StampMsg,
         socket: &UdpSocket,
+        session: &Option<SessionData>,
         logger: Logger,
     ) -> Result<(), StampError>;
 
@@ -196,20 +203,17 @@ impl Handlers {
             .fold(command, |e, tlv| tlv.lock().unwrap().tlv_cli_command(e))
     }
 
-    pub fn get_requests(&self, args: Option<TestArguments>, matches: &mut ArgMatches) -> Vec<Tlv> {
-        let matches = matches.subcommand_matches("sender");
-        if matches.is_none() {
-            return vec![];
-        }
+    pub fn get_requests(
+        &self,
+        args: Option<TestArguments>,
+        matches: &mut ArgMatches,
+    ) -> Option<Tlvs> {
+        let matches = matches.subcommand_matches("sender")?;
+        let matches = matches.subcommand_matches("tlvs")?;
 
-        let matches = matches.unwrap().subcommand_matches("tlvs");
-        if matches.is_none() {
-            return vec![];
-        }
+        let mut tlvs = Tlvs::new();
 
-        let mut tlvs: Vec<Tlv> = vec![];
-
-        let mut matches = matches.unwrap().clone();
+        let mut matches = matches.clone();
         loop {
             let command = self
                 .handlers
@@ -217,7 +221,7 @@ impl Handlers {
                 .find_map(|h| h.lock().unwrap().request(args.clone(), &mut matches));
 
             if let Some((tlv, _)) = &command {
-                tlvs.push(tlv.clone());
+                tlvs.add_tlv(tlv.clone()).ok()?;
             }
 
             let next_tlv_command = if let Some((_, Some(remainder))) = command {
@@ -230,7 +234,7 @@ impl Handlers {
                 .get_cli_commands()
                 .get_matches_from(next_tlv_command.split(" "));
         }
-        tlvs
+        Some(tlvs)
     }
 }
 
@@ -371,7 +375,9 @@ pub fn handler(
 
         for handler in handlers.handlers.iter() {
             let handler = handler.lock().unwrap();
-            if let Err(err) = handler.request_fixup(&mut src_stamp_msg, logger.clone()) {
+            if let Err(err) =
+                handler.request_fixup(&mut src_stamp_msg, &session_data, logger.clone())
+            {
                 error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its request fixup: {}", handler.tlv_name(), err);
                 return;
             }
@@ -380,7 +386,7 @@ pub fn handler(
         // Let each of the Tlv handlers have a chance to generate a Tlv response for any Tlvs in the session-sender
         // test packet. The only Tlvs left in the tlvs array are valid (after the earlier check).
         let mut tlv_response = src_stamp_msg.tlvs.clone();
-        for tlv in &mut tlv_response.tlvs {
+        for tlv in &mut tlv_response.iter_mut() {
             if !tlv.is_valid_request() {
                 error!(
                     logger.clone(),

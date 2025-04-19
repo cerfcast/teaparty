@@ -32,7 +32,7 @@ use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
-use server::{ServerCancellation, ServerSocket, Sessions};
+use server::{ServerCancellation, ServerSocket, SessionData, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::ErrorKind::TimedOut;
@@ -41,7 +41,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tlv::Tlvs;
 
 #[macro_use]
 extern crate rocket;
@@ -63,6 +62,7 @@ mod server;
 mod stamp;
 mod test;
 mod tlv;
+mod util;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -258,25 +258,20 @@ fn client(
         );
     }
 
-    let mut tlvs = handlers.get_requests(Some(test_arguments), &mut extra_args);
+    let mut tlvs = handlers
+        .get_requests(Some(test_arguments), &mut extra_args)
+        .unwrap_or_default();
 
-    tlvs.extend(
-        malformed
-            .map(|o| match o {
-                MalformedWhy::BadFlags => {
-                    vec![tlv::Tlv::malformed_request(22)]
-                }
-                MalformedWhy::BadLength => {
-                    vec![tlv::Tlv::malformed_tlv(22)]
-                }
-            })
-            .unwrap_or_default(),
-    );
-
-    let tlvs = Tlvs {
-        tlvs,
-        malformed: None,
-    };
+    malformed.iter().for_each(|o| match o {
+        MalformedWhy::BadFlags => {
+            tlvs.add_tlv(tlv::Tlv::malformed_request(22))
+                .expect("Should be able to add a malformed TLV to the test packet.");
+        }
+        MalformedWhy::BadLength => {
+            tlvs.add_tlv(tlv::Tlv::malformed_request(22))
+                .expect("Should be able to add a malformed TLV to the test packet.");
+        }
+    });
 
     let body = if authenticated.is_some() {
         TryInto::<StampMsgBody>::try_into([MBZ_VALUE; 68].as_slice())?
@@ -298,6 +293,30 @@ fn client(
     let client_keymat = authenticated.map(|f| f.as_bytes().to_vec());
 
     client_msg.hmac = client_msg.authenticate(&client_keymat)?;
+
+    // Let the handlers fixup according to this session data.
+    // Note: The session data here is only populated with the key -- future features
+    // may need other parts of the session data.
+    let mut fixup_session_data = SessionData::new(0);
+    fixup_session_data.key = client_keymat.clone();
+    let fixup_session_data = Some(fixup_session_data);
+
+    for request_tlvs in client_msg
+        .tlvs
+        .tlvs
+        .clone()
+        .iter()
+        .chain(client_msg.tlvs.hmac_tlv.clone().iter())
+    {
+        if let Some(handler) = handlers.get_handler(request_tlvs.tpe) {
+            let _ = handler.lock().unwrap().pre_send_fixup(
+                &mut client_msg,
+                &server_socket,
+                &fixup_session_data,
+                logger.clone(),
+            );
+        }
+    }
 
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
@@ -334,7 +353,7 @@ fn client(
         return Err(e);
     }
 
-    let deserialized_response = deserialized_response.unwrap();
+    let mut deserialized_response = deserialized_response.unwrap();
     info!(logger, "Deserialized response: {:?}", deserialized_response);
 
     let authentication_result = match deserialized_response.authenticate(&client_keymat) {
@@ -361,6 +380,20 @@ fn client(
             "An authenticated packet arrived which could not be validated: {}", e
         );
         return Err(e);
+    }
+
+    for tlv_tpe in deserialized_response.tlvs.type_iter() {
+        if let Some(handler) = handlers.get_handler(tlv_tpe) {
+            let handler = handler.lock().unwrap();
+            if let Err(err) = handler.request_fixup(
+                &mut deserialized_response,
+                &fixup_session_data,
+                logger.clone(),
+            ) {
+                error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its request fixup: {}", handler.tlv_name(), err);
+                return Err(err);
+            }
+        }
     }
 
     // Let's compare what we got back to what we sent!
@@ -593,7 +626,7 @@ fn server(
         // No matter what is the type of the listener, now that there is a generator it can be
         // used to get packets sent by clients. We create a new thread to service each generator.
 
-        let responder = Arc::new(responder::Responder::new());
+        let responder = Arc::new(responder::Responder::new(sessions.clone()));
         let responder_canceller = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // TODO

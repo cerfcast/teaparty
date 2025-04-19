@@ -82,6 +82,7 @@ impl Periodicity {
 
             let tlvs = Tlvs {
                 tlvs: vec![tlv::Tlv::heartbeat(mac)],
+                hmac_tlv: None,
                 malformed: None,
             };
 
@@ -179,7 +180,10 @@ impl Periodicity {
             {
                 let mut sessions = sessions.as_ref().unwrap().sessions.lock().unwrap();
                 for (session, data) in sessions.clone().iter() {
-                    info!(logger, "Session last referenced at: {:?}", data.last);
+                    info!(
+                        logger,
+                        "Session {:?} last referenced at: {:?}", session, data.last
+                    );
                     if std::time::SystemTime::now()
                         .duration_since(data.last)
                         .unwrap()

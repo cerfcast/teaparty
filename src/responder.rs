@@ -28,7 +28,12 @@ use slog::Logger;
 use slog::{error, info};
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::{handlers::Handlers, netconf::NetConfiguration, server::ServerSocket, stamp::StampMsg};
+use crate::{
+    handlers::Handlers,
+    netconf::NetConfiguration,
+    server::{ServerSocket, Session, Sessions},
+    stamp::StampMsg,
+};
 
 pub struct Responder {
     #[allow(clippy::type_complexity)]
@@ -36,10 +41,11 @@ pub struct Responder {
         Arc<Mutex<std::sync::mpsc::Receiver<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>>>,
     #[allow(clippy::type_complexity)]
     send: Arc<Mutex<std::sync::mpsc::Sender<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>>>,
+    sessions: Option<Sessions>,
 }
 
 impl Responder {
-    pub fn new() -> Self {
+    pub fn new(sessions: Option<Sessions>) -> Self {
         #[allow(clippy::type_complexity)]
         let (tx, rx): (
             Sender<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>,
@@ -48,6 +54,7 @@ impl Responder {
         Responder {
             recv: Arc::new(Mutex::new(rx)),
             send: Arc::new(Mutex::new(tx)),
+            sessions,
         }
     }
 
@@ -154,11 +161,18 @@ impl Responder {
 
                 let locked_socket_to_prepare = response_src_socket.lock().unwrap();
 
-                for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
-                    if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-                        if let Err(e) = response_tlv_handler.lock().unwrap().response_fixup(
+                let query_session = Session::new(dest, src, stamp_msg.ssid.clone());
+                let maybe_session_data = self
+                    .sessions
+                    .as_ref()
+                    .and_then(|v| v.sessions.lock().unwrap().get(&query_session).cloned());
+
+                for tlv_tpe in stamp_msg.tlvs.type_iter() {
+                    if let Some(response_tlv_handler) = handlers.get_handler(tlv_tpe) {
+                        if let Err(e) = response_tlv_handler.lock().unwrap().pre_send_fixup(
                             &mut stamp_msg,
                             &locked_socket_to_prepare,
+                            &maybe_session_data,
                             logger.clone(),
                         ) {
                             error!(logger, "There was an error letting handlers do their final response fixups: {}. Abandoning response.", e);

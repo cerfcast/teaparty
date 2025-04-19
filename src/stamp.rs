@@ -16,14 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use hmac::{Hmac, Mac};
 use serde::Serialize;
-use sha2::Sha256;
 
 use crate::handlers::HandlerError;
 use crate::ntp::{self, ErrorEstimate, NtpError, NtpTime};
 use crate::parameters::TestArgumentKind;
 use crate::tlv::{self, Tlvs};
+use crate::util;
 
 use std::fmt::{Debug, Display};
 
@@ -703,17 +702,10 @@ impl StampMsg {
         match &self.body {
             StampMsgBody::Response(StampResponseBodyType::Authenticated(_))
             | StampMsgBody::Send(StampSendBodyType::Authenticated(_)) => {
-                let mut hmacer =
-                    Hmac::<Sha256>::new_from_slice(key.as_ref().unwrap_or(&DEFAULT_KEY.to_vec()))
-                        .map_err(|e| StampError::Other(e.to_string()))?;
-
                 let body_bytes: Vec<u8> = self.base_into_bytes();
-
-                hmacer.update(&body_bytes);
-                let hmac = RawStampHmac {
-                    hmac: hmacer.finalize().into_bytes()[0..16].to_vec(),
-                };
-                Ok(Some(hmac))
+                let result =
+                    util::authenticate(&body_bytes, key.as_ref().unwrap_or(&DEFAULT_KEY.to_vec()))?;
+                Ok(Some(RawStampHmac { hmac: result }))
             }
             _ => Ok(None),
         }
@@ -1276,6 +1268,7 @@ mod stamp_test_messages_with_tlvs {
 
         let tlvs = Tlvs {
             tlvs: [tlv::Tlv::extra_padding(12)].to_vec(),
+            hmac_tlv: None,
             malformed: None,
         };
         let msg = StampMsg {
