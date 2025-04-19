@@ -180,6 +180,7 @@ Commands:
   history            
   followup           
   reflected-control  
+  hmac
   help               Print this message or the help of the given subcommand(s)
 
 Options:
@@ -197,6 +198,7 @@ Options:
 | padding | Padding | Will pad out a STAMP packet with 64 bytes (by default); customize with the `-s` option |
 | history | History | Will include a TLV that requests information about the previous _N_ reflected packets in the current session (defaults to 3; customize with `--length`) |
 | reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
+| hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 
 _Example_:
 
@@ -248,8 +250,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Access report (sender) | &#9989; |
 | Follow-up Telemetry (reflector) | &#9989; |
 | Follow-up Telemetry (sender) | &#9989; |
-| HMAC (reflector) | &#10060; |
-| HMAC (sender) | &#10060; |
+| HMAC (reflector) | &#9989; |
+| HMAC (sender) | &#9989; |
 
 
 #### Yet-to-be-standardized TLVs
