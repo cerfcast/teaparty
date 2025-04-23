@@ -1672,23 +1672,23 @@ pub mod ch {
         }
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct ReflectedControlTlv {
-        reflected_length: u32,
-        count: u32,
+        reflected_length: u16,
+        count: u16,
         interval: u32,
     }
 
     impl ReflectedControlTlv {
-        pub const MINIMUM_LENGTH: u16 = 12;
+        pub const MINIMUM_LENGTH: u16 = 8;
     }
 
     impl From<ReflectedControlTlv> for Vec<u8> {
         fn from(value: ReflectedControlTlv) -> Self {
-            let mut bytes = vec![0u8; 12];
-            bytes[0..4].copy_from_slice(&value.reflected_length.to_be_bytes());
-            bytes[4..8].copy_from_slice(&value.count.to_be_bytes());
-            bytes[8..12].copy_from_slice(&value.interval.to_be_bytes());
+            let mut bytes = vec![0u8; 8];
+            bytes[0..2].copy_from_slice(&value.reflected_length.to_be_bytes());
+            bytes[2..4].copy_from_slice(&value.count.to_be_bytes());
+            bytes[4..8].copy_from_slice(&value.interval.to_be_bytes());
 
             bytes
         }
@@ -1704,21 +1704,20 @@ pub mod ch {
                     value.value.len(),
                 )));
             }
-            let reflected_length: u32 =
-                u32::from_be_bytes(value.value[0..4].try_into().map_err(|_| {
+            let reflected_length: u16 =
+                u16::from_be_bytes(value.value[0..2].try_into().map_err(|_| {
                     StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
                         "reflected_length".to_string(),
                     ))
                 })?);
 
-            let count: u32 = u32::from_be_bytes(value.value[4..8].try_into().map_err(|_| {
+            let count: u16 = u16::from_be_bytes(value.value[2..4].try_into().map_err(|_| {
                 StampError::MalformedTlv(tlv::Error::FieldValueInvalid("count".to_string()))
             })?);
 
-            let interval: u32 =
-                u32::from_be_bytes(value.value[8..12].try_into().map_err(|_| {
-                    StampError::MalformedTlv(tlv::Error::FieldValueInvalid("interval".to_string()))
-                })?);
+            let interval: u32 = u32::from_be_bytes(value.value[4..8].try_into().map_err(|_| {
+                StampError::MalformedTlv(tlv::Error::FieldValueInvalid("interval".to_string()))
+            })?);
             Ok(ReflectedControlTlv {
                 reflected_length,
                 count,
@@ -1731,10 +1730,10 @@ pub mod ch {
     enum ReflectedControlTlvCommand {
         ReflectedControl {
             #[arg(long)]
-            reflected_length: u32,
+            reflected_length: u16,
 
             #[arg(long)]
-            count: u32,
+            count: u16,
 
             #[arg(long, value_parser=parse_duration)]
             interval: Duration,
