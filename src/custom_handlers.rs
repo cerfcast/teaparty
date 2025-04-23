@@ -654,7 +654,7 @@ pub mod ch {
     }
 
     #[cfg(test)]
-    mod stamp_class_of_service_tlv_handlers {
+    mod stamp_class_of_service_tlv_handler_tests {
         use std::net::{Ipv4Addr, SocketAddrV4};
 
         use crate::{
@@ -2029,6 +2029,33 @@ pub mod ch {
         }
     }
 
+    #[cfg(test)]
+    mod stamp_reflected_control_handler_tests {
+        use crate::tlv::{Flags, Tlv};
+
+        use super::ReflectedControlTlv;
+
+        #[test]
+        fn simple_reflected_control_tlv_parser_roundtrip() {
+            let reflected_control_tlv = ReflectedControlTlv {
+                reflected_length: 50,
+                count: 20,
+                interval: 5,
+            };
+            let reflected_control_tlv_bytes = Into::<Vec<u8>>::into(reflected_control_tlv.clone());
+            let raw_tlv = Tlv {
+                tpe: Tlv::REFLECTED_CONTROL,
+                length: reflected_control_tlv_bytes.len() as u16,
+                value: reflected_control_tlv_bytes,
+                flags: Flags::new_request(),
+            };
+            let parsed_reflected_control_tlv = TryInto::<ReflectedControlTlv>::try_into(&raw_tlv)
+                .expect("Should be able to parse the roundtrip bytes.");
+
+            assert!(reflected_control_tlv == parsed_reflected_control_tlv);
+        }
+    }
+
     #[derive(Debug, Default)]
     pub struct HmacTlv {
         hmac: [u8; HmacTlv::LENGTH as usize],
@@ -2050,6 +2077,13 @@ pub mod ch {
     impl TryFrom<&Tlv> for HmacTlv {
         type Error = StampError;
         fn try_from(value: &Tlv) -> Result<HmacTlv, Self::Error> {
+            if value.tpe != Tlv::HMAC_TLV {
+                return Err(StampError::MalformedTlv(tlv::Error::WrongType(
+                    Tlv::HMAC_TLV,
+                    value.tpe,
+                )));
+            }
+
             if value.value.len() != Self::LENGTH as usize {
                 return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
                     "Length".to_string(),
@@ -2191,6 +2225,64 @@ pub mod ch {
             _logger: Logger,
         ) {
             panic!("There was a net configuration error in a handler (HMAC TLV) that does not set net configuration items.");
+        }
+    }
+
+    #[cfg(test)]
+    mod stamp_hmac_tlv_handler_tests {
+        use crate::{
+            stamp::StampError,
+            tlv::{self, Flags, Tlv},
+        };
+
+        use super::HmacTlv;
+
+        #[test]
+        fn simple_hmac_tlv_parser_roundtrip() {
+            let hmac_bytes = vec![0xeu8; HmacTlv::LENGTH as usize];
+            let hmac_tlv = HmacTlv {
+                hmac: hmac_bytes.clone().try_into().unwrap(),
+            };
+            let hmac_tlv_serialized = Into::<Vec<u8>>::into(hmac_tlv);
+
+            assert!(hmac_tlv_serialized == hmac_bytes);
+        }
+
+        #[test]
+        fn simple_hmac_tlv_parser_too_big() {
+            let raw_tlv = tlv::Tlv {
+                length: HmacTlv::LENGTH + 5,
+                value: vec![0xeu8; HmacTlv::LENGTH as usize + 5],
+                flags: Flags::new_request(),
+                tpe: Tlv::HMAC_TLV,
+            };
+            let hmac_tlv = TryInto::<HmacTlv>::try_into(&raw_tlv);
+
+            assert!(hmac_tlv.is_err());
+            assert!(matches!(
+                hmac_tlv,
+                Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(..)))
+            ));
+        }
+
+        #[test]
+        fn simple_hmac_tlv_parser_wrong_type() {
+            let raw_tlv = tlv::Tlv {
+                length: HmacTlv::LENGTH + 5,
+                value: vec![0xeu8; HmacTlv::LENGTH as usize + 5],
+                flags: Flags::new_request(),
+                tpe: Tlv::HEARTBEAT,
+            };
+            let hmac_tlv = TryInto::<HmacTlv>::try_into(&raw_tlv);
+
+            assert!(hmac_tlv.is_err());
+            assert!(matches!(
+                hmac_tlv,
+                Err(StampError::MalformedTlv(tlv::Error::WrongType(
+                    Tlv::HMAC_TLV,
+                    Tlv::HEARTBEAT
+                )))
+            ));
         }
     }
 }

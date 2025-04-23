@@ -35,6 +35,7 @@ use crate::{
 pub enum Error {
     InvalidFlag(String),
     NotEnoughData,
+    WrongType(u8, u8),
     FieldNotZerod(String),
     FieldWrongSized(String, usize, usize),
     FieldValueInvalid(String),
@@ -58,6 +59,14 @@ impl Debug for Error {
             ),
             Error::FieldValueInvalid(field) => {
                 write!(f, "TLV field named {} had invalid value.", field)
+            }
+            Error::WrongType(expected, got) => {
+                write!(
+                    f,
+                    "TLV of type {} expected but got {}.",
+                    Tlv::type_to_string(*expected),
+                    Tlv::type_to_string(*got)
+                )
             }
         }
     }
@@ -472,6 +481,24 @@ impl Tlv {
     pub const ACCESSREPORT: u8 = 6;
     pub const FOLLOWUP: u8 = 7;
     pub const HMAC_TLV: u8 = 8;
+
+    pub fn type_to_string(tpe: u8) -> String {
+        match tpe {
+            Self::HEARTBEAT => "Heartbeat".into(),
+            Self::DESTINATION_PORT => "Destination Port".into(),
+            Self::HISTORY => "History".into(),
+            Self::DSCPECN => "DSCP ECN".into(),
+            Self::REFLECTED_CONTROL => "Reflected Control".into(),
+            Self::PADDING => "Padding".into(),
+            Self::LOCATION => "Location".into(),
+            Self::TIMESTAMP => "Timestamp".into(),
+            Self::COS => "Class of Service".into(),
+            Self::ACCESSREPORT => "Access Report".into(),
+            Self::FOLLOWUP => "Followup".into(),
+            Self::HMAC_TLV => "HMAC".into(),
+            _ => "Unrecognized".into(),
+        }
+    }
 
     /// Make a Tlv for padding.
     pub fn extra_padding(len: u16) -> Self {
