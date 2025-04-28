@@ -162,15 +162,6 @@ pub mod ch {
 
             Ok(response)
         }
-        fn pre_send_fixup(
-            &self,
-            _response: &mut StampMsg,
-            _socket: &UdpSocket,
-            _session: &Option<SessionData>,
-            _logger: Logger,
-        ) -> Result<(), StampError> {
-            Ok(())
-        }
 
         fn prepare_response_target(
             &self,
@@ -273,15 +264,6 @@ pub mod ch {
                 value: response_data.to_vec(),
             };
             Ok(response)
-        }
-        fn pre_send_fixup(
-            &self,
-            _response: &mut StampMsg,
-            _socket: &UdpSocket,
-            _session: &Option<SessionData>,
-            _logger: Logger,
-        ) -> Result<(), StampError> {
-            Ok(())
         }
 
         fn prepare_response_target(
@@ -390,15 +372,6 @@ pub mod ch {
             result_tlv.flags.set_unrecognized(false);
 
             Ok(result_tlv)
-        }
-        fn pre_send_fixup(
-            &self,
-            _response: &mut StampMsg,
-            _socket: &UdpSocket,
-            _session: &Option<SessionData>,
-            _logger: Logger,
-        ) -> Result<(), StampError> {
-            Ok(())
         }
 
         fn prepare_response_target(
@@ -610,15 +583,6 @@ pub mod ch {
             };
 
             Ok(response)
-        }
-        fn pre_send_fixup(
-            &self,
-            _response: &mut StampMsg,
-            _socket: &UdpSocket,
-            _session: &Option<SessionData>,
-            _logger: Logger,
-        ) -> Result<(), StampError> {
-            Ok(())
         }
 
         fn prepare_response_target(

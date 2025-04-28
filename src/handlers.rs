@@ -131,11 +131,13 @@ pub trait TlvHandler {
     /// Do final fixup of STAMP message before it is transmitted.
     fn pre_send_fixup(
         &self,
-        response: &mut StampMsg,
-        socket: &UdpSocket,
-        session: &Option<SessionData>,
-        logger: Logger,
-    ) -> Result<(), StampError>;
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _session: &Option<SessionData>,
+        _logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
 
     /// Handle any errors that resulted from a failure to apply requested netconfig
     /// to response.
