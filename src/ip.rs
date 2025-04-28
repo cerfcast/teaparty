@@ -128,7 +128,7 @@ impl From<u8> for DscpValue {
             38 => DscpValue::AF43,
             46 => DscpValue::EF,
             44 => DscpValue::VOICEADMIT,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }

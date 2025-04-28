@@ -2173,10 +2173,7 @@ pub mod ch {
                 .all(|(l, r)| l == r));
         }
 
-        use crate::{
-            custom_handlers::ch::LocationTlv,
-            netconf,
-        };
+        use crate::{custom_handlers::ch::LocationTlv, netconf};
 
         #[test]
         fn parse_sub_tlv() {
