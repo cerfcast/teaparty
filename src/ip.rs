@@ -92,6 +92,7 @@ pub enum DscpValue {
 }
 
 impl From<DscpValue> for u8 {
+    // The resulting value will already be shifted into the upper two bits.
     fn from(value: DscpValue) -> Self {
         (value as u8) << 2
     }
@@ -101,6 +102,9 @@ impl From<u8> for DscpValue {
     fn from(value: u8) -> Self {
         // NOTE: We expect that the given value to convert
         // is _already_ shifted to the right!
+        if 0xc0 & value != 0 {
+            return DscpValue::Invalid;
+        }
         match value {
             0 => DscpValue::CS0,
             8 => DscpValue::CS1,
@@ -124,7 +128,7 @@ impl From<u8> for DscpValue {
             38 => DscpValue::AF43,
             46 => DscpValue::EF,
             44 => DscpValue::VOICEADMIT,
-            _ => DscpValue::Invalid,
+            _ => unreachable!()
         }
     }
 }
@@ -147,6 +151,31 @@ mod test_dscp_conversions {
     }
 
     #[test]
+    fn test_dscp_from_dscp_value_to_raw() {
+        assert!(Into::<u8>::into(DscpValue::AF11) == 10 << 2);
+    }
+
+    #[test]
+    fn test_dscp_from_dscp_value_to_raw_2() {
+        assert!(Into::<u8>::into(DscpValue::AF33) == 30 << 2);
+    }
+
+    #[test]
+    fn test_dscp_raw_roundtrip() {
+        let res = Into::<u8>::into(DscpValue::AF33);
+        assert!(res == 30 << 2);
+        assert!(matches!(Into::<DscpValue>::into(res >> 2), DscpValue::AF33));
+    }
+
+    #[test]
+    fn test_dscp_raw_roundtrip_fail() {
+        let res = Into::<u8>::into(DscpValue::AF33);
+        assert!(res == 30 << 2);
+        // Testing here that an unshifted value will fail.
+        assert!(!matches!(Into::<DscpValue>::into(res), DscpValue::AF33));
+    }
+
+    #[test]
     fn test_dscp_from_etherparse_to_raw() {
         let value = unsafe { Ipv4Dscp::new_unchecked(36) };
         assert!(value.value() == 36)
@@ -156,5 +185,69 @@ mod test_dscp_conversions {
     fn test_dscp_from_etherparse_to_dscp_value() {
         let value = unsafe { Ipv4Dscp::new_unchecked(28) };
         assert!(matches!(Into::<DscpValue>::into(value), DscpValue::AF32))
+    }
+
+    #[test]
+    fn test_dscp_upper_bits_filled_error() {
+        let value = 0xff;
+        assert!(matches!(Into::<DscpValue>::into(value), DscpValue::Invalid))
+    }
+}
+
+#[cfg(test)]
+mod test_ecn_conversions {
+    use etherparse::Ipv4Ecn;
+
+    use crate::ip::EcnValue;
+
+    #[test]
+    fn test_ecn_from_raw_to_ecn_value_ect1() {
+        assert!(matches!(Into::<EcnValue>::into(1), EcnValue::Ect1))
+    }
+    #[test]
+    fn test_ecn_from_raw_to_ecn_value_ect2() {
+        assert!(matches!(Into::<EcnValue>::into(2), EcnValue::Ect0))
+    }
+
+    #[test]
+    fn test_ecn_from_ecn_value_ect1_to_raw() {
+        assert!(Into::<u8>::into(EcnValue::Ect1) == 1);
+    }
+    #[test]
+    fn test_ecn_from_ecn_value_ect0_to_raw() {
+        assert!(Into::<u8>::into(EcnValue::Ect0) == 2);
+    }
+
+    #[test]
+    fn test_ecn_from_etherparse_to_ecn_value() {
+        let value = Ipv4Ecn::ONE;
+        assert!(matches!(Into::<EcnValue>::into(value), EcnValue::Ect1));
+    }
+
+    #[test]
+    fn test_ecn_from_etherparse_to_ecn_value2() {
+        let value = Ipv4Ecn::TWO;
+        assert!(matches!(Into::<EcnValue>::into(value), EcnValue::Ect0));
+    }
+
+    #[test]
+    fn test_ecn_from_etherparse_to_raw() {
+        let value = Ipv4Ecn::ONE;
+        assert!(value.value() == 1);
+        assert!(Into::<u8>::into(value) == 1);
+    }
+
+    #[test]
+    fn test_ecn_from_etherparse_to_raw2() {
+        let value = Ipv4Ecn::TWO;
+        assert!(value.value() == 2);
+        assert!(Into::<u8>::into(value) == 2);
+    }
+
+    #[test]
+    fn test_ecn_from_etherparse_to_raw3() {
+        let value = Ipv4Ecn::TRHEE;
+        assert!(value.value() == 3);
+        assert!(Into::<u8>::into(value) == 3);
     }
 }
