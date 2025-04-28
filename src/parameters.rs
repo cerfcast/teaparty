@@ -102,8 +102,8 @@ pub struct TestArguments {
     arguments: Vec<TestArgument>,
 }
 
-impl TestArguments {
-    pub fn empty_arguments() -> Self {
+impl Default for TestArguments {
+    fn default() -> Self {
         TestArguments {
             arguments: [TestArgument::Invalid; TestArgumentKind::MaxParameterKind as usize]
                 .to_vec(),

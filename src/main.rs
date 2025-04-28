@@ -202,7 +202,7 @@ fn client(
     let server_socket =
         UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
 
-    let mut test_arguments = TestArguments::empty_arguments();
+    let mut test_arguments: TestArguments = Default::default();
 
     let mut tos_byte: u8 = 0;
 
