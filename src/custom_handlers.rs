@@ -617,78 +617,6 @@ pub mod ch {
         }
     }
 
-    #[cfg(test)]
-    mod stamp_class_of_service_tlv_handler_tests {
-        use std::net::{Ipv4Addr, SocketAddrV4};
-
-        use crate::{
-            handlers::TlvHandler,
-            netconf::NetConfiguration,
-            parameters::{TestArgument, TestArguments},
-            server::SessionData,
-            tlv::{Flags, Tlv},
-        };
-
-        use crate::test::stamp_handler_test_support::create_test_logger;
-
-        use super::ClassOfServiceTlv;
-
-        #[test]
-        fn simple_cos_handler_extract_pack_test() {
-            let mut args = TestArguments::empty_arguments();
-
-            // AF23 is 0x16 (see below)
-            args.add_argument(
-                crate::parameters::TestArgumentKind::Dscp,
-                TestArgument::Dscp(crate::ip::DscpValue::AF23),
-            );
-            args.add_argument(
-                crate::parameters::TestArgumentKind::Ecn,
-                TestArgument::Ecn(crate::ip::EcnValue::NotEct), // Use NotEct to keep things "simple"
-            );
-
-            let test_request_tlv = Tlv {
-                flags: Flags::new_request(),
-                tpe: Tlv::COS,
-                length: 4,
-                value: vec![crate::ip::DscpValue::AF13.into(), 0, 0, 0],
-            };
-
-            let cos_handler: ClassOfServiceTlv = Default::default();
-
-            let test_logger = create_test_logger();
-            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
-
-            let mut netconfig = NetConfiguration::new();
-
-            let mut test_session_data: Option<SessionData> = None;
-
-            let result = cos_handler
-                .handle(
-                    &test_request_tlv,
-                    &args,
-                    &mut netconfig,
-                    address.into(),
-                    &mut test_session_data,
-                    test_logger,
-                )
-                .expect("COS handler should have worked");
-
-            let expected_result = [
-                Into::<u8>::into(crate::ip::DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
-                (0x16 << 4), // Shift 0x16 (see above) left to put the bottom 4 bits in the top 4 bits of a u8.
-                0,
-                0,
-            ];
-
-            assert!(result
-                .value
-                .iter()
-                .zip(expected_result.iter())
-                .all(|(l, r)| l == r));
-        }
-    }
-
     pub struct LocationTlv {}
 
     impl LocationTlv {
@@ -978,71 +906,6 @@ pub mod ch {
             _logger: Logger,
         ) {
             panic!("There was a net configuration error in a handler (Location) that does not set net configuration items.");
-        }
-    }
-
-    #[cfg(test)]
-    mod stamp_location_tlv_handler_tests {
-        use std::net::{Ipv4Addr, SocketAddrV4};
-
-        use crate::{
-            custom_handlers::ch::LocationTlv,
-            handlers::TlvHandler,
-            netconf,
-            parameters::TestArguments,
-            server::SessionData,
-            tlv::{self, Tlv},
-        };
-
-        use crate::test::stamp_handler_test_support::create_test_logger;
-
-        #[test]
-        fn parse_sub_tlv() {
-            let mut outter_raw_data: [u8; 2 * Tlv::FtlSize + 12] = [0; 2 * Tlv::FtlSize + 12];
-            outter_raw_data[0] = 0x20;
-            outter_raw_data[1] = 0x02;
-            outter_raw_data[2..4].copy_from_slice(&u16::to_be_bytes((Tlv::FtlSize + 12) as u16));
-
-            let mut inner_raw_data: [u8; Tlv::FtlSize + 12] = [0; Tlv::FtlSize + 12];
-
-            // TLV Flag
-            inner_raw_data[4] = 0x20;
-            // TLV Type
-            inner_raw_data[5] = 0xfe;
-            // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
-            inner_raw_data[6..8].copy_from_slice(&u16::to_be_bytes(9));
-            // TLV Data
-            inner_raw_data[8..16].copy_from_slice(&u64::to_be_bytes(0));
-
-            outter_raw_data[4..].copy_from_slice(&inner_raw_data);
-
-            let handler = LocationTlv {};
-            let arguments = TestArguments::empty_arguments();
-            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
-            let tlv = TryInto::<Tlv>::try_into(outter_raw_data.as_slice())
-                .expect("Outter TLV should parse");
-
-            let logger = create_test_logger();
-            let mut netconfig = netconf::NetConfiguration::new();
-
-            let mut test_session_data: Option<SessionData> = None;
-
-            let handled = handler
-                .handle(
-                    &tlv,
-                    &arguments,
-                    &mut netconfig,
-                    address.into(),
-                    &mut test_session_data,
-                    logger,
-                )
-                .expect("Inner TLV should parse");
-
-            let reparsed_sub_tlv = TryInto::<Tlv>::try_into(&handled.value.as_slice()[4..])
-                .expect_err("Handled TLV should _not_ reparse");
-
-            assert!(matches!(reparsed_sub_tlv, tlv::Error::NotEnoughData));
-            assert!(handled.value[4] & 0x40 != 0);
         }
     }
 
@@ -1992,33 +1855,6 @@ pub mod ch {
         }
     }
 
-    #[cfg(test)]
-    mod stamp_reflected_control_handler_tests {
-        use crate::tlv::{Flags, Tlv};
-
-        use super::ReflectedControlTlv;
-
-        #[test]
-        fn simple_reflected_control_tlv_parser_roundtrip() {
-            let reflected_control_tlv = ReflectedControlTlv {
-                reflected_length: 50,
-                count: 20,
-                interval: 5,
-            };
-            let reflected_control_tlv_bytes = Into::<Vec<u8>>::into(reflected_control_tlv.clone());
-            let raw_tlv = Tlv {
-                tpe: Tlv::REFLECTED_CONTROL,
-                length: reflected_control_tlv_bytes.len() as u16,
-                value: reflected_control_tlv_bytes,
-                flags: Flags::new_request(),
-            };
-            let parsed_reflected_control_tlv = TryInto::<ReflectedControlTlv>::try_into(&raw_tlv)
-                .expect("Should be able to parse the roundtrip bytes.");
-
-            assert!(reflected_control_tlv == parsed_reflected_control_tlv);
-        }
-    }
-
     #[derive(Debug, Default)]
     pub struct HmacTlv {
         hmac: [u8; HmacTlv::LENGTH as usize],
@@ -2192,7 +2028,7 @@ pub mod ch {
     }
 
     #[cfg(test)]
-    mod stamp_hmac_tlv_handler_tests {
+    mod custom_handlers_test {
         use crate::{
             stamp::StampError,
             tlv::{self, Flags, Tlv},
@@ -2246,6 +2082,149 @@ pub mod ch {
                     Tlv::HEARTBEAT
                 )))
             ));
+        }
+
+        use super::ReflectedControlTlv;
+
+        #[test]
+        fn simple_reflected_control_tlv_parser_roundtrip() {
+            let reflected_control_tlv = ReflectedControlTlv {
+                reflected_length: 50,
+                count: 20,
+                interval: 5,
+            };
+            let reflected_control_tlv_bytes = Into::<Vec<u8>>::into(reflected_control_tlv.clone());
+            let raw_tlv = Tlv {
+                tpe: Tlv::REFLECTED_CONTROL,
+                length: reflected_control_tlv_bytes.len() as u16,
+                value: reflected_control_tlv_bytes,
+                flags: Flags::new_request(),
+            };
+            let parsed_reflected_control_tlv = TryInto::<ReflectedControlTlv>::try_into(&raw_tlv)
+                .expect("Should be able to parse the roundtrip bytes.");
+
+            assert!(reflected_control_tlv == parsed_reflected_control_tlv);
+        }
+        use std::net::{Ipv4Addr, SocketAddrV4};
+
+        use crate::{
+            handlers::TlvHandler,
+            netconf::NetConfiguration,
+            parameters::{TestArgument, TestArguments},
+            server::SessionData,
+        };
+
+        use crate::test::stamp_handler_test_support::create_test_logger;
+
+        use super::ClassOfServiceTlv;
+
+        #[test]
+        fn simple_cos_handler_extract_pack_test() {
+            let mut args: TestArguments = Default::default();
+
+            // AF23 is 0x16 (see below)
+            args.add_argument(
+                crate::parameters::TestArgumentKind::Dscp,
+                TestArgument::Dscp(crate::ip::DscpValue::AF23),
+            );
+            args.add_argument(
+                crate::parameters::TestArgumentKind::Ecn,
+                TestArgument::Ecn(crate::ip::EcnValue::NotEct), // Use NotEct to keep things "simple"
+            );
+
+            let test_request_tlv = Tlv {
+                flags: Flags::new_request(),
+                tpe: Tlv::COS,
+                length: 4,
+                value: vec![crate::ip::DscpValue::AF13.into(), 0, 0, 0],
+            };
+
+            let cos_handler: ClassOfServiceTlv = Default::default();
+
+            let test_logger = create_test_logger();
+            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
+
+            let mut netconfig = NetConfiguration::new();
+
+            let mut test_session_data: Option<SessionData> = None;
+
+            let result = cos_handler
+                .handle(
+                    &test_request_tlv,
+                    &args,
+                    &mut netconfig,
+                    address.into(),
+                    &mut test_session_data,
+                    test_logger,
+                )
+                .expect("COS handler should have worked");
+
+            let expected_result = [
+                Into::<u8>::into(crate::ip::DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
+                (0x16 << 4), // Shift 0x16 (see above) left to put the bottom 4 bits in the top 4 bits of a u8.
+                0,
+                0,
+            ];
+
+            assert!(result
+                .value
+                .iter()
+                .zip(expected_result.iter())
+                .all(|(l, r)| l == r));
+        }
+
+        use crate::{
+            custom_handlers::ch::LocationTlv,
+            netconf,
+        };
+
+        #[test]
+        fn parse_sub_tlv() {
+            let mut outter_raw_data: [u8; 2 * Tlv::FtlSize + 12] = [0; 2 * Tlv::FtlSize + 12];
+            outter_raw_data[0] = 0x20;
+            outter_raw_data[1] = 0x02;
+            outter_raw_data[2..4].copy_from_slice(&u16::to_be_bytes((Tlv::FtlSize + 12) as u16));
+
+            let mut inner_raw_data: [u8; Tlv::FtlSize + 12] = [0; Tlv::FtlSize + 12];
+
+            // TLV Flag
+            inner_raw_data[4] = 0x20;
+            // TLV Type
+            inner_raw_data[5] = 0xfe;
+            // TLV Length: There are only 8 bytes in the "value" of the Tlv, but we say that there are 9.
+            inner_raw_data[6..8].copy_from_slice(&u16::to_be_bytes(9));
+            // TLV Data
+            inner_raw_data[8..16].copy_from_slice(&u64::to_be_bytes(0));
+
+            outter_raw_data[4..].copy_from_slice(&inner_raw_data);
+
+            let handler = LocationTlv {};
+            let arguments: TestArguments = Default::default();
+            let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
+            let tlv = TryInto::<Tlv>::try_into(outter_raw_data.as_slice())
+                .expect("Outter TLV should parse");
+
+            let logger = create_test_logger();
+            let mut netconfig = netconf::NetConfiguration::new();
+
+            let mut test_session_data: Option<SessionData> = None;
+
+            let handled = handler
+                .handle(
+                    &tlv,
+                    &arguments,
+                    &mut netconfig,
+                    address.into(),
+                    &mut test_session_data,
+                    logger,
+                )
+                .expect("Inner TLV should parse");
+
+            let reparsed_sub_tlv = TryInto::<Tlv>::try_into(&handled.value.as_slice()[4..])
+                .expect_err("Handled TLV should _not_ reparse");
+
+            assert!(matches!(reparsed_sub_tlv, tlv::Error::NotEnoughData));
+            assert!(handled.value[4] & 0x40 != 0);
         }
     }
 }
