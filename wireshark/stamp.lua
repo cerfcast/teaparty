@@ -225,7 +225,7 @@ local dscp2_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.dscp2
 local ecn2_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.ecn2", "ECN2", base.HEX, ecn_type_map, 0x03,
 	"ECN2 Field")
 local rp_dscp_ecn_tlv_protofield = ProtoField.bool("stamp.tlv.dscp_ecn.rp", "RP", 8,
-	{ [1] = "Forward Path", [2] = "Forward and Reverse Path" }, 0x01,
+	{ [1] = "Forward Path", [2] = "Forward and Reverse Path" }, 0x80,
 	"Reverse Path")
 
 stamp_protocol.fields = { dscp_ecn_tlv_protofield,
@@ -253,9 +253,36 @@ local function tlv_dscp_ecn_dissector(buffer, tree)
 	dscp_ecn_tree:add(ecn1_dscp_ecn_tlv_protofield, buffer(0, 1))
 	dscp_ecn_tree:add(dscp2_dscp_ecn_tlv_protofield, buffer(1, 1))
 	dscp_ecn_tree:add(ecn2_dscp_ecn_tlv_protofield, buffer(1, 1))
-	dscp_ecn_tree:add(rp_dscp_ecn_tlv_protofield, buffer(1, 1))
+	dscp_ecn_tree:add(rp_dscp_ecn_tlv_protofield, buffer(2, 1))
 	return true
 end
+
+-- TLV Dissectors: HMAC
+
+local hmac_tlv_protofield = ProtoField.bytes("stamp.tlv.hmac", "HMAC TLV")
+local hmac_hmac_tlv_protofield  = ProtoField.bytes("stamp.tlv.hmac.hmac", "HMAC")
+
+stamp_protocol.fields = { hmac_tlv_protofield,
+	hmac_hmac_tlv_protofield,
+}
+
+------
+--- Dissect the HMAC TLV.
+-- Dissect the contents of a [HMAC](https://www.rfc-editor.org/rfc/rfc8972.html#name-hmac-tlv)
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid HMAC TLV.
+local function tlv_hmac_dissector(buffer, tree)
+	if buffer:len() < 16 then
+		return false
+	end
+
+	local hmac_tree = tree:add(hmac_tlv_protofield, buffer(0))
+	hmac_tree.text = "HMAC"
+	hmac_tree:add(hmac_hmac_tlv_protofield, buffer(0))
+	return true
+end
+
 
 -- TLV Dissectors: COS
 
@@ -418,9 +445,9 @@ local function tlv_followup_dissector(buffer, tree)
 end
 
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup"}
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup", [0x8] = "HMAC"}
 local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector,
-	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector }
+	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector, [0x08] = tlv_hmac_dissector }
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
