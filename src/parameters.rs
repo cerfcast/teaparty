@@ -47,24 +47,10 @@ impl From<TestArgument> for Vec<u8> {
     fn from(value: TestArgument) -> Vec<u8> {
         match value {
             TestArgument::Ttl(_) | TestArgument::Ecn(_) | TestArgument::Dscp(_) => {
-                panic!("Should not ask to convert a Peer MAC Address Argument into two bytes.")
+                panic!("Should not ask to convert a TTL, ECN or DSCP Test Argument into a vector of bytes.")
             }
             TestArgument::PeerMacAddress(v) => v.mac.to_vec(),
             TestArgument::Invalid => vec![],
-        }
-    }
-}
-
-impl From<TestArgument> for u16 {
-    fn from(value: TestArgument) -> u16 {
-        match value {
-            TestArgument::Ttl(ttl) => ttl as u16,
-            TestArgument::Ecn(ecn) => ecn as u16,
-            TestArgument::Dscp(value) => value as u16,
-            TestArgument::PeerMacAddress(_) => {
-                panic!("Should not ask to convert a Peer MAC Address Argument into two bytes.")
-            }
-            TestArgument::Invalid => -1i32 as u16,
         }
     }
 }
@@ -73,7 +59,7 @@ impl From<TestArgument> for u8 {
     fn from(value: TestArgument) -> u8 {
         match value {
             TestArgument::Ttl(ttl) => ttl,
-            TestArgument::Ecn(ecn) => ecn as u8,
+            TestArgument::Ecn(ecn) => Into::<u8>::into(ecn),
             TestArgument::Dscp(value) => Into::<u8>::into(value),
             TestArgument::PeerMacAddress(_) => {
                 panic!("Should not ask to convert a Peer MAC Address Argument into a byte.")
