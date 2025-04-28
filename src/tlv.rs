@@ -157,6 +157,7 @@ impl Flags {
         }
         self.value = op(self.value, flag_value)
     }
+    // Simply returning the value of the flag -- semantics of I are odd.
     pub fn get_integrity(&self) -> bool {
         self.value & 0x20 != 0
     }
@@ -205,6 +206,46 @@ mod test {
     }
 
     #[test]
+    fn test_flag_um() {
+        let v: u8 = 0x80 | 0x40;
+        let f: Flags = v.try_into().unwrap();
+
+        assert!(f.get_unrecognized());
+        assert!(f.get_malformed());
+        assert!(!f.get_integrity());
+    }
+
+    #[test]
+    fn test_flag_u() {
+        let v: u8 = 0x80;
+        let f: Flags = v.try_into().unwrap();
+
+        assert!(f.get_unrecognized());
+        assert!(!f.get_malformed());
+        assert!(!f.get_integrity());
+    }
+
+    #[test]
+    fn test_flag_ui() {
+        let v: u8 = 0x80 | 0x20;
+        let f: Flags = v.try_into().unwrap();
+
+        assert!(f.get_unrecognized());
+        assert!(!f.get_malformed());
+        assert!(f.get_integrity());
+    }
+
+    #[test]
+    fn test_flag_i() {
+        let v: u8 = 0x20;
+        let f: Flags = v.try_into().unwrap();
+
+        assert!(!f.get_unrecognized());
+        assert!(!f.get_malformed());
+        assert!(f.get_integrity());
+    }
+
+    #[test]
     fn test_flag_reserved_bits() {
         let value = 0x90;
         let result = TryInto::<Flags>::try_into(value);
@@ -220,6 +261,50 @@ mod test {
         f.set_integrity(true);
 
         assert!(Into::<u8>::into(f) == (0x80u8 | 0x40u8 | 0x20u8));
+    }
+
+    #[test]
+    fn test_u8_ui() {
+        let mut f: Flags = Flags::new();
+
+        f.set_unrecognized(true);
+        f.set_malformed(false);
+        f.set_integrity(true);
+
+        assert!(Into::<u8>::into(f) == (0x80u8 | 0x20u8));
+    }
+
+    #[test]
+    fn test_u8_u() {
+        let mut f: Flags = Flags::new();
+
+        f.set_unrecognized(true);
+        f.set_malformed(false);
+        f.set_integrity(false);
+
+        assert!(Into::<u8>::into(f) == (0x80u8));
+    }
+
+    #[test]
+    fn test_u8_mi() {
+        let mut f: Flags = Flags::new();
+
+        f.set_unrecognized(false);
+        f.set_malformed(true);
+        f.set_integrity(true);
+
+        assert!(Into::<u8>::into(f) == (0x40u8 | 0x20u8));
+    }
+
+    #[test]
+    fn test_u8_i() {
+        let mut f: Flags = Flags::new();
+
+        f.set_unrecognized(false);
+        f.set_malformed(false);
+        f.set_integrity(true);
+
+        assert!(Into::<u8>::into(f) == (0x20u8));
     }
 
     #[test]
