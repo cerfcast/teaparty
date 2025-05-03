@@ -1,0 +1,66 @@
+module ietf-stamp {
+  yang-version 1.1;
+  namespace "urn:ietf:params:xml:ns:yang:ietf-stamp";
+  prefix configuration;
+
+  import "ietf-inet-types" {
+    prefix "ietf-inet";
+  }
+
+  contact
+    "Author: Greg Mirsky (gregimirsky@gmail.com), Will Hawkins (whh8b@obs.cr)";
+
+  organization
+    "IETF IPPM (IP Performance Metrics) Working Group";
+
+  description
+    "Model for configuration options for STAMP Session Senders and Reflectors";
+
+  revision "2025-05-03" {
+    reference
+      "RFC 8762: Simple Two-Way Active Measurement Protocol";
+  }
+
+  typedef timestamp {
+    description
+      "Format of timestamp fields in STAMP packet.";
+    type enumeration {
+      enum ntp {
+        description
+          "NTP format";
+      }
+      enum ptpv2 {
+        description
+          "PTPv2 format";
+      }
+    }
+    default ntp;
+  }
+
+  container reflector {
+    presence
+      "STAMP Reflector";
+    description
+      "STAMP Reflector";
+    container configuration {
+      description
+        "STAMP Reflector Configuration";
+      presence
+        "STAMP Reflector Configuration";
+      leaf reflector-port-no {
+        description
+          "The port number on which the Reflector listens";
+        mandatory true;
+        type ietf-inet:port-number {
+          range "862 | 1024..49151 | 49152..65535";
+        }
+      }
+      leaf timestamp-format {
+        description
+          "The format of the timestamps used in packets sent by the Reflector.";
+        type timestamp;
+        default ntp;
+      }
+    }
+  }
+}

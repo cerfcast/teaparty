@@ -1,6 +1,7 @@
 ## Teaparty
 
-An open source implementation of the Simple Two-Way Active Measurement Protocol ([RFC 8762](https://datatracker.ietf.org/doc/html/rfc8762)).
+An open source implementation of the Simple Two-Way Active Measurement Protocol ([RFC 8762](https://datatracker.ietf.org/doc/html/rfc8762)). Most of the documentation here is Teaparty specific. However, see [STAMP Protocol](#stamp-protocol) for documentation about what is available in this repository that is useful for _anyone_ working with the STAMP protocol.
+
 
 ### Building
 
@@ -272,3 +273,9 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 
 In addition to unit tests, there are tools for end-to-end tests in the `testing_data` directory. See [`testing_data/README.md`](./testing_data/README.md)
 for more information.
+
+### STAMP Protocol
+
+There is early work on a YANG model for the configuration of a Session Sender and/or Reflector in the [`yang`](./yang/) directory. Start with [`yang/yang.md`](./yang/yang.md) if you are interested in contributing -- and, _yes_, we would _love_ it!
+
+There is a Lua-based STAMP dissector for Wireshark in the [`wireshark`](./wireshark/) directory. There are usage instructions and other details for potential contributors in [`wireshark/README.md`](./wireshark/README.md). Again, we would _love_ contributors!
