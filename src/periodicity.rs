@@ -82,7 +82,6 @@ impl Periodicity {
 
             let tlvs = Tlvs {
                 tlvs: vec![tlv::Tlv::heartbeat(mac)],
-                hmac_tlv: None,
                 malformed: None,
             };
 

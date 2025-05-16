@@ -632,7 +632,6 @@ impl Tlv {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tlvs {
     pub tlvs: Vec<Tlv>,
-    pub hmac_tlv: Option<Tlv>,
     pub malformed: Option<MalformedTlv>,
 }
 
@@ -640,18 +639,15 @@ impl Tlvs {
     pub fn new() -> Self {
         Tlvs {
             tlvs: vec![],
-            hmac_tlv: None,
             malformed: None,
         }
     }
 
     pub fn handle_malformed_response(&mut self) {
-        let invalid_tlvs = if let Some(first_bad) = self
-            .tlvs
-            .clone()
-            .into_iter()
-            .position(|tlv| tlv.flags.get_malformed())
-        {
+        let hmac_in_invalid_spot = !self.hmac_in_valid_position();
+        let invalid_tlvs = if let Some(first_bad) = self.tlvs.clone().into_iter().position(|tlv| {
+            tlv.flags.get_malformed() || (hmac_in_invalid_spot && tlv.tpe == Tlv::HMAC_TLV)
+        }) {
             self.tlvs.split_off(first_bad)
         } else {
             vec![]
@@ -673,36 +669,50 @@ impl Tlvs {
     }
 
     pub fn type_iter(&self) -> Vec<u8> {
-        self.tlvs
-            .iter()
-            .chain(self.hmac_tlv.iter())
-            .map(|f| f.tpe)
-            .collect()
+        self.tlvs.iter().map(|f| f.tpe).collect()
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tlv> {
-        self.tlvs.iter_mut().chain(self.hmac_tlv.iter_mut())
+        self.tlvs.iter_mut()
     }
 
     pub fn add_tlv(&mut self, tlv: Tlv) -> Result<(), tlv::Error> {
-        if tlv.tpe == Tlv::HMAC_TLV {
-            if self.hmac_tlv.is_none() {
-                self.hmac_tlv = Some(tlv);
-                return Ok(());
-            }
-            return Err(tlv::Error::DuplicateTlv);
-        } else {
-            self.tlvs.push(tlv);
-        }
+        self.tlvs.push(tlv);
         Ok(())
     }
 
-    pub fn hmac(&self, sequence: u32, key: &[u8]) -> Result<Vec<u8>, StampError> {
+    pub fn hmac_in_valid_position(&self) -> bool {
+        let x: Vec<_> = self
+            .tlvs
+            .iter()
+            .skip_while(|v| v.tpe != Tlv::HMAC_TLV)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .skip_while(|v| v.tpe == Tlv::PADDING)
+            .collect();
+        x.len() <= 1
+    }
+    pub fn calculate_hmac(&mut self, sequence: u32, key: &[u8]) -> Result<Vec<u8>, StampError> {
         let mut data_to_hmac: Vec<u8> = vec![];
         data_to_hmac.extend_from_slice(&sequence.to_be_bytes());
-        data_to_hmac.extend_from_slice(&self.bytes(false));
-
+        data_to_hmac.extend_from_slice(&self.hmacable_bytes());
         util::authenticate(&data_to_hmac, key).map_err(|_| StampError::InvalidSignature)
+    }
+
+    pub fn stamp_hmac(&mut self, sequence: u32, key: &[u8]) -> Result<Option<Vec<u8>>, StampError> {
+        if !self.hmac_in_valid_position() {
+            return Ok(None);
+        }
+
+        let hmac = self.calculate_hmac(sequence, key)?;
+
+        if let Some(hmac_tlv) = self.tlvs.iter_mut().find(|v| v.tpe == Tlv::HMAC_TLV) {
+            hmac_tlv.value = hmac.clone();
+            return Ok(Some(hmac));
+        }
+
+        Ok(None)
     }
 
     pub fn count_extra_padding_bytes(&self) -> usize {
@@ -727,26 +737,11 @@ impl Tlvs {
         self.tlvs.retain(|tlv| tlv.tpe != tpe);
     }
 
-    pub fn move_hmac_tlv_to_end(&mut self) {
-        let maybe_hmac_tlv = self.find(Tlv::HMAC_TLV).cloned();
-
-        self.drop_all_matching(Tlv::HMAC_TLV);
-
-        if let Some(hmac_tlv) = maybe_hmac_tlv {
-            self.tlvs.push(hmac_tlv);
-        }
-    }
-
-    pub fn bytes(&self, include_hmac: bool) -> Vec<u8> {
+    pub fn bytes(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
 
         for tlv in &self.tlvs {
             result.extend_from_slice(Into::<Vec<u8>>::into(tlv).as_slice());
-        }
-        if include_hmac {
-            self.hmac_tlv
-                .iter()
-                .for_each(|hmac| result.extend_from_slice(Into::<Vec<u8>>::into(hmac).as_slice()));
         }
 
         self.malformed
@@ -754,6 +749,28 @@ impl Tlvs {
             .for_each(|mal| result.extend_from_slice(Into::<Vec<u8>>::into(mal).as_slice()));
 
         result
+    }
+
+    pub fn hmacable_bytes(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+
+        for tlv in &self.tlvs {
+            // If there is an HMAC TLV and we are asked to stop,
+            // then let's stop!
+            if tlv.tpe == Tlv::HMAC_TLV {
+                break;
+            }
+            let tlv_bytes = Into::<Vec<u8>>::into(tlv);
+            if tlv.tpe == Tlv::PADDING {
+                result.extend_from_slice(&tlv_bytes.as_slice()[0..4]);
+            } else {
+                result.extend_from_slice(&tlv_bytes);
+            }
+        }
+
+        result
+        // Note: The HMAC will never cover the bytes from malformed TLVs. So, don't
+        // worry about those.
     }
 }
 
@@ -793,7 +810,7 @@ impl TryFrom<&[u8]> for Tlvs {
 
 impl From<Tlvs> for Vec<u8> {
     fn from(value: Tlvs) -> Self {
-        value.bytes(true)
+        value.bytes()
     }
 }
 
@@ -890,10 +907,12 @@ mod tlvs_invalid_flags_test {
 
 #[cfg(test)]
 mod test_tlvs_methods {
+    use crate::tlv::Flags;
+
     use super::{Tlv, Tlvs};
 
     #[test]
-    fn test_move_hmac_tlv_to_end() {
+    fn test_hmac_in_valid_spot_simple() {
         let hmac_tlv = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
@@ -902,13 +921,351 @@ mod test_tlvs_methods {
         };
         let padding_tlv = Tlv::extra_padding(16);
 
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
         let mut tlvs = Tlvs::new();
 
+        tlvs.tlvs.push(dscp_ecn.clone());
         tlvs.tlvs.push(hmac_tlv.clone());
         tlvs.tlvs.push(padding_tlv);
 
-        tlvs.move_hmac_tlv_to_end();
+        assert!(tlvs.hmac_in_valid_position());
 
-        assert!(tlvs.tlvs[1] == hmac_tlv);
+        tlvs.handle_malformed_response();
+        assert!(tlvs.malformed.is_none());
+    }
+
+    #[test]
+    fn test_hmac_in_valid_spot_bad_simple() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(dscp_ecn.clone());
+        tlvs.tlvs.push(padding_tlv);
+
+        assert!(!tlvs.hmac_in_valid_position());
+    }
+
+    #[test]
+    fn test_hmac_in_valid_spot_multiple_trailing_padding() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(dscp_ecn.clone());
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+
+        assert!(tlvs.hmac_in_valid_position());
+
+        tlvs.handle_malformed_response();
+        assert!(tlvs.malformed.is_none());
+    }
+
+    #[test]
+    fn test_hmac_in_valid_spot_multiple_trailing_padding_bad() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(dscp_ecn.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+
+        assert!(!tlvs.hmac_in_valid_position());
+    }
+
+    #[test]
+    fn test_hmac_in_valid_spot_malformed() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(dscp_ecn.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+
+        assert!(tlvs.malformed.is_none());
+        tlvs.handle_malformed_response();
+        assert!(tlvs.malformed.is_some());
+
+        assert_eq!(tlvs.malformed.unwrap().bytes.len(), (0x10 + 0x4) * 5);
+    }
+
+    #[test]
+    fn test_hmac_in_valid_spot_malformed_two_options() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let padding_tlv = Tlv::extra_padding(16);
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut tlvs = Tlvs::new();
+
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+        tlvs.tlvs.push(hmac_tlv.clone());
+        tlvs.tlvs.push(dscp_ecn.clone());
+        tlvs.tlvs.push(padding_tlv.clone());
+
+        assert!(tlvs.malformed.is_none());
+        tlvs.handle_malformed_response();
+        assert!(tlvs.malformed.is_some());
+
+        assert_eq!(tlvs.malformed.unwrap().bytes.len(), (0x10 + 0x4) * 5);
+    }
+
+    #[test]
+    fn test_hmac_extra_padding_value_skipped() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let basic_padding_tlv = Tlv::extra_padding(16);
+        let basic_padding_tlv_bytes: Vec<_> = basic_padding_tlv.clone().into();
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut basic = Tlvs::new();
+
+        basic.tlvs.push(basic_padding_tlv.clone());
+        basic.tlvs.push(dscp_ecn.clone());
+        basic.tlvs.push(hmac_tlv.clone());
+        basic.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_basic = basic
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        let mut errored = Tlvs::new();
+
+        let mut errored_padding_tlv = basic_padding_tlv.clone();
+
+        // Change the flags in the Extra Padding TLV
+        errored_padding_tlv.value[0] = 0x55;
+        let error_padding_tlv_bytes: Vec<_> = errored_padding_tlv.clone().into();
+
+        errored.tlvs.push(errored_padding_tlv.clone());
+        errored.tlvs.push(dscp_ecn.clone());
+        errored.tlvs.push(hmac_tlv.clone());
+        // Keep the same Padding TLV _after_ the HMAC to make sure that it is ignored.
+        errored.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_errored = errored
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv_bytes);
+        println!("error padding Tlv bytes: {:x?}", error_padding_tlv_bytes);
+
+        println!("hmac basic: {:x?}", hmac_basic);
+        println!("hmac errored: {:x?}", hmac_errored);
+
+        assert!(basic_padding_tlv_bytes != error_padding_tlv_bytes);
+        assert!(hmac_basic == hmac_errored);
+    }
+
+    #[test]
+    fn test_hmac_multiple_extra_padding_value_skipped() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let basic_padding_tlv = Tlv::extra_padding(16);
+
+        let basic_padding_tlv2 = Tlv::extra_padding(14);
+        let basic_padding_tlv2_bytes: Vec<_> = basic_padding_tlv2.clone().into();
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut basic = Tlvs::new();
+
+        basic.tlvs.push(basic_padding_tlv.clone());
+        basic.tlvs.push(basic_padding_tlv2.clone());
+        basic.tlvs.push(dscp_ecn.clone());
+        basic.tlvs.push(hmac_tlv.clone());
+        basic.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_basic = basic
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        let mut errored = Tlvs::new();
+
+        let mut errored_padding_tlv2 = basic_padding_tlv2.clone();
+
+        // Change the flags in the Extra Padding TLV
+        errored_padding_tlv2.value[0] = 0x55;
+        let error_padding_tlv2_bytes: Vec<_> = errored_padding_tlv2.clone().into();
+
+        errored.tlvs.push(basic_padding_tlv.clone());
+        errored.tlvs.push(errored_padding_tlv2.clone());
+        errored.tlvs.push(dscp_ecn.clone());
+        errored.tlvs.push(hmac_tlv.clone());
+        // Keep the same Padding TLV _after_ the HMAC to make sure that it is ignored.
+        errored.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_errored = errored
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv2_bytes);
+        println!("error padding Tlv bytes: {:x?}", error_padding_tlv2_bytes);
+
+        println!("hmac basic: {:x?}", hmac_basic);
+        println!("hmac errored: {:x?}", hmac_errored);
+
+        assert!(basic_padding_tlv2_bytes != error_padding_tlv2_bytes);
+        assert!(hmac_basic == hmac_errored);
+    }
+
+    #[test]
+    fn test_hmac_extra_padding_tlv_not_skipped() {
+        let hmac_tlv = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::HMAC_TLV,
+            value: vec![0; 16],
+        };
+        let basic_padding_tlv = Tlv::extra_padding(16);
+        let basic_padding_tlv2 = Tlv::extra_padding(14);
+        let basic_padding_tlv2_bytes: Vec<_> = basic_padding_tlv2.clone().into();
+
+        let dscp_ecn = Tlv {
+            length: 16,
+            flags: super::Flags::new_request(),
+            tpe: Tlv::DSCPECN,
+            value: vec![0; 16],
+        };
+
+        let mut basic = Tlvs::new();
+
+        basic.tlvs.push(basic_padding_tlv.clone());
+        basic.tlvs.push(basic_padding_tlv2.clone());
+        basic.tlvs.push(dscp_ecn.clone());
+        basic.tlvs.push(hmac_tlv.clone());
+        basic.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_basic = basic
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        let mut errored = Tlvs::new();
+
+        let mut errored_padding_tlv2 = basic_padding_tlv2.clone();
+
+        // Change the flags in the Extra Padding TLV
+        errored_padding_tlv2.flags = Flags::new_request();
+        let error_padding_tlv2_bytes: Vec<_> = errored_padding_tlv2.clone().into();
+
+        errored.tlvs.push(basic_padding_tlv.clone());
+        // Put the errored one here!
+        errored.tlvs.push(errored_padding_tlv2.clone());
+        errored.tlvs.push(dscp_ecn.clone());
+        errored.tlvs.push(hmac_tlv.clone());
+        // Keep the same Padding TLV _after_ the HMAC to make sure that it is ignored.
+        errored.tlvs.push(basic_padding_tlv.clone());
+
+        let hmac_errored = errored
+            .calculate_hmac(22, b"testing")
+            .expect("Should have been able to calculate the HMAC.");
+
+        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv2_bytes);
+        println!("error padding Tlv bytes: {:x?}", error_padding_tlv2_bytes);
+
+        println!("hmac basic: {:x?}", hmac_basic);
+        println!("hmac errored: {:x?}", hmac_errored);
+
+        assert!(basic_padding_tlv2_bytes != error_padding_tlv2_bytes);
+        assert!(hmac_basic != hmac_errored);
     }
 }

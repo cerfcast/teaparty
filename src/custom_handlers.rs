@@ -675,7 +675,6 @@ pub mod ch {
 
             let mut sub_tlvs = Tlvs {
                 tlvs: Default::default(),
-                hmac_tlv: None,
                 malformed: None,
             };
             sub_tlvs.tlvs.extend(vec![
@@ -1921,17 +1920,27 @@ pub mod ch {
             _session: &Option<SessionData>,
             logger: Logger,
         ) -> Result<(), StampError> {
-            if let Some(hmac_tlv) = request.tlvs.hmac_tlv.clone() {
-                if let Some(SessionData { key: Some(key), .. }) = _session {
-                    let hmac = request.tlvs.hmac(request.sequence, key)?;
-                    if hmac_tlv.value != hmac {
-                        info!(logger, "Verification of the TLV HMAC on a received STAMP packet failed; expected {:x?} vs received {:x?}", hmac_tlv.value, hmac);
-                        return Err(StampError::InvalidSignature);
-                    }
-                }
+            // By now we know that there is nothing malformed. We can safely call find
+            // without worrying about getting two results.
+            if !request.tlvs.contains(Tlv::HMAC_TLV) {
+                return Ok(());
             }
 
-            Ok(())
+            if let Some(SessionData { key: Some(key), .. }) = _session {
+                let hmac = request.tlvs.calculate_hmac(request.sequence, key)?;
+                if let Some(hmac_tlv) = request.tlvs.find(Tlv::HMAC_TLV) {
+                    if hmac_tlv.value == hmac {
+                        return Ok(());
+                    }
+                    info!(logger, "Verification of the TLV HMAC on a received STAMP packet failed; expected {:x?} vs received {:x?}", hmac_tlv.value, hmac);
+                    return Err(StampError::InvalidSignature);
+                }
+            }
+            info!(
+                logger,
+                "Verification of the TLV HMAC failed because of missing session."
+            );
+            Err(StampError::InvalidSignature)
         }
 
         fn request(
@@ -1999,10 +2008,7 @@ pub mod ch {
                 history: _,
             }) = session
             {
-                if response.tlvs.hmac_tlv.is_some() {
-                    let hmac = response.tlvs.hmac(response.sequence, key)?;
-                    response.tlvs.hmac_tlv.as_mut().unwrap().value = hmac;
-                }
+                response.tlvs.stamp_hmac(response.sequence, key)?;
             }
             Ok(())
         }

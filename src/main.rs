@@ -301,13 +301,7 @@ fn client(
     fixup_session_data.key = client_keymat.clone();
     let fixup_session_data = Some(fixup_session_data);
 
-    for request_tlvs in client_msg
-        .tlvs
-        .tlvs
-        .clone()
-        .iter()
-        .chain(client_msg.tlvs.hmac_tlv.clone().iter())
-    {
+    for request_tlvs in client_msg.tlvs.tlvs.clone().iter() {
         if let Some(handler) = handlers.get_handler(request_tlvs.tpe) {
             let _ = handler.lock().unwrap().pre_send_fixup(
                 &mut client_msg,

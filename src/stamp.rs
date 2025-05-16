@@ -846,7 +846,11 @@ impl TryFrom<&[u8]> for StampMsg {
             None
         };
 
-        let tlvs: Tlvs = raw[raw_idx..].try_into()?;
+        let mut tlvs: Tlvs = raw[raw_idx..].try_into()?;
+
+        // Even though the TLVs parsed, there could still be malformation (e.g.,
+        // an HMAC TLV in the wrong spot).
+        tlvs.handle_malformed_response();
 
         Ok(StampMsg {
             sequence,
@@ -1268,7 +1272,6 @@ mod stamp_test_messages_with_tlvs {
 
         let tlvs = Tlvs {
             tlvs: [tlv::Tlv::extra_padding(12)].to_vec(),
-            hmac_tlv: None,
             malformed: None,
         };
         let msg = StampMsg {

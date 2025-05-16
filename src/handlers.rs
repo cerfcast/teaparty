@@ -287,6 +287,11 @@ pub fn handler(
         }
     };
 
+    if src_stamp_msg.tlvs.malformed.is_some() {
+        error!(logger, "Incoming message had malformed TLVs.");
+        return;
+    }
+
     info!(
         logger,
         "Handling a{} STAMP packet: {:?}",
