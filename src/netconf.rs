@@ -19,6 +19,7 @@
 use std::fmt::{Debug, Display};
 use std::net::UdpSocket;
 
+use nix::sys::socket::sockopt::Ipv6TClass;
 use nix::sys::socket::{sockopt::Ipv4Tos, GetSockOpt, SetSockOpt};
 use slog::Logger;
 use slog::{error, info};
@@ -166,20 +167,41 @@ impl NetConfiguration {
             // DSCP
             NetConfigurationItem::Dscp(value) => {
                 info!(logger, "Configuring a DSCP value via net configuration.");
-                let (orig, existing_ecn_value) = match Ipv4Tos.get(&socket) {
-                    Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8),
-                    Err(e) => {
-                        error!(
+
+                let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+
+                let (orig, existing_ecn_value) = if is_ipv4 {
+                    match Ipv4Tos.get(&socket) {
+                        Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8),
+                        Err(e) => {
+                            error!(
                                 logger,
                                 "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
                                 e
                             );
-                        (0, 0)
+                            (0, 0)
+                        }
+                    }
+                } else {
+                    match Ipv6TClass.get(&socket) {
+                        Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+                        Err(e) => {
+                            error!(
+                                logger,
+                                "There was an error getting the existing TOS values (IPv6) when attempting to do a net configuration: {}; assuming it was empty!",
+                                e
+                            );
+                            (0, 0)
+                        }
                     }
                 };
 
                 let raw_dscp_value = Into::<u8>::into(*value) | existing_ecn_value;
-                if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &(raw_dscp_value as i32)) {
+                if let Err(set_tos_value_err) = if is_ipv4 {
+                    Ipv4Tos.set(&socket, &(raw_dscp_value as i32))
+                } else {
+                    Ipv6TClass.set(&socket, &(raw_dscp_value as i32))
+                } {
                     error!(
                             logger,
                             "There was an error setting the DSCP value of the reflected packet via net configuration: {}",
@@ -200,20 +222,41 @@ impl NetConfiguration {
             // ECN
             NetConfigurationItem::Ecn(value) => {
                 info!(logger, "Configuring an ECN value via net configuration.");
-                let (existing_dscp_value, orig) = match Ipv4Tos.get(&socket) {
-                    Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
-                    Err(e) => {
-                        error!(
+
+                let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+
+                let (existing_dscp_value, orig) = if is_ipv4 {
+                    match Ipv4Tos.get(&socket) {
+                        Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+                        Err(e) => {
+                            error!(
                                 logger,
                                 "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
                                 e
                             );
-                        (0, 0)
+                            (0, 0)
+                        }
+                    }
+                } else {
+                    match Ipv6TClass.get(&socket) {
+                        Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+                        Err(e) => {
+                            error!(
+                                logger,
+                                "There was an error getting the existing TOS values (IPv6) when attempting to do a net configuration: {}; assuming it was empty!",
+                                e
+                            );
+                            (0, 0)
+                        }
                     }
                 };
 
                 let raw_tos_value = Into::<u8>::into(*value) | existing_dscp_value;
-                if let Err(set_tos_value_err) = Ipv4Tos.set(&socket, &(raw_tos_value as i32)) {
+                if let Err(set_tos_value_err) = if is_ipv4 {
+                    Ipv4Tos.set(&socket, &(raw_tos_value as i32))
+                } else {
+                    Ipv6TClass.set(&socket, &(raw_tos_value as i32))
+                } {
                     error!(
                             logger,
                             "There was an error setting the ECN value of the reflected packet via net configuration: {}",

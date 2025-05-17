@@ -26,7 +26,7 @@ use etherparse::Ethernet2Header;
 use handlers::Handlers;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
-use nix::sys::socket::sockopt::Ipv4Tos;
+use nix::sys::socket::sockopt::{Ipv4Tos, Ipv6TClass};
 use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
@@ -36,7 +36,7 @@ use server::{ServerCancellation, ServerSocket, SessionData, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::ErrorKind::TimedOut;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -199,63 +199,118 @@ fn client(
 
     info!(logger, "Connecting to the server at {}", server_addr);
 
-    let server_socket =
-        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?;
+    let server_socket = if server_addr.is_ipv4() {
+        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?
+    } else {
+        UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), src_port))?
+    };
 
     let mut test_arguments: TestArguments = Default::default();
 
     let mut tos_byte: u8 = 0;
 
     if let Some(socket_ecn) = set_socket_ecn {
-        info!(
-            logger,
-            "About to configure the sending value of the IpV4 ECN on the server socket."
-        );
-        tos_byte |= Into::<u8>::into(socket_ecn);
-        let set_tos_value = tos_byte as i32;
-        if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
-            error!(
+        if server_addr.is_ipv4() {
+            info!(
                 logger,
-                "There was an error configuring the client socket: {}", set_tos_value_err
+                "About to configure the sending value of the IpV4 ECN on the server socket."
             );
-            return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            )));
+            tos_byte |= Into::<u8>::into(socket_ecn);
+            let set_tos_value = tos_byte as i32;
+            if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let ecn_argment = TestArgument::Ecn(socket_ecn);
+            test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IpV4 ECN on the server socket."
+            );
+        } else {
+            info!(
+                logger,
+                "About to configure the sending value of the IpV6 ECN (via Traffic Class) on the server socket."
+            );
+            tos_byte |= Into::<u8>::into(socket_ecn);
+            let set_tos_value = tos_byte as i32;
+            if let Err(set_tos_value_err) = Ipv6TClass.set(&server_socket, &set_tos_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let ecn_argment = TestArgument::Ecn(socket_ecn);
+            test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IpV6 ECN (via Traffic Class) on the server socket."
+            );
         }
-
-        let ecn_argment = TestArgument::Ecn(socket_ecn);
-        test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
-
-        info!(
-            logger,
-            "Done configuring the sending value of the IpV4 ECN on the server socket."
-        );
     }
 
     if let Some(socket_dscp) = set_socket_dscp {
-        info!(
-            logger,
-            "About to configure the sending value of the IpV4 DSCP on the server socket."
-        );
-        tos_byte |= Into::<u8>::into(socket_dscp);
-        let set_tos_value = tos_byte as i32;
-        if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
-            error!(
+        if server_addr.is_ipv4() {
+            info!(
                 logger,
-                "There was an error configuring the client socket: {}", set_tos_value_err
+                "About to configure the sending value of the IpV4 DSCP on the server socket."
             );
-            return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                std::io::ErrorKind::ConnectionRefused,
-            )));
+            tos_byte |= Into::<u8>::into(socket_dscp);
+            let set_tos_value = tos_byte as i32;
+            if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let dscp_argment = TestArgument::Dscp(socket_dscp);
+            test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IpV4 DSCP on the server socket."
+            );
+        } else {
+            info!(
+                logger,
+                "About to configure the sending value of the IpV6 DSCP (via Traffic Class) on the server socket."
+            );
+            tos_byte |= Into::<u8>::into(socket_dscp);
+            let set_tos_value = tos_byte as i32;
+            if let Err(set_tos_value_err) = Ipv6TClass.set(&server_socket, &set_tos_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let dscp_argment = TestArgument::Dscp(socket_dscp);
+            test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IpV6 DSCP (via Traffic Class) on the server socket."
+            );
         }
-
-        let dscp_argment = TestArgument::Dscp(socket_dscp);
-        test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
-
-        info!(
-            logger,
-            "Done configuring the sending value of the IpV4 DSCP on the server socket."
-        );
     }
 
     let mut tlvs = handlers

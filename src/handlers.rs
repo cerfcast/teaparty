@@ -303,15 +303,9 @@ pub fn handler(
         src_stamp_msg
     );
 
-    let server_address = if let SocketAddr::V4(v4) = server.socket_addr {
-        v4
-    } else {
-        panic!("Ipv6 not supported yet.")
-    };
-
     let session = Session::new(
-        client_address.into(),
-        server_address.into(),
+        client_address,
+        server.socket_addr,
         src_stamp_msg.ssid.clone(),
     );
 

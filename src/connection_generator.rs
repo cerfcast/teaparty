@@ -18,25 +18,26 @@
 
 use std::{
     fmt::Debug,
-    io::IoSliceMut,
+    io::{Error, IoSliceMut},
     net::{IpAddr, SocketAddr},
     os::fd::AsRawFd,
     time,
 };
 
+use either::Either::{Left, Right};
 use etherparse::{
-    Ethernet2Header, IpNumber, Ipv4Dscp, Ipv4Ecn, Ipv4Header, Ipv6Header, LinkSlice, NetSlice,
-    SlicedPacket, TransportSlice, UdpHeader,
+    ip_number::UDP, Ethernet2Header, IpNumber, Ipv4Dscp, Ipv4Ecn, Ipv4Header, Ipv6Header,
+    LinkSlice, NetSlice, SlicedPacket, TransportSlice, UdpHeader,
 };
 use mio::{Events, Interest};
 use nix::{
     errno::Errno,
-    sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrIn},
+    sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrStorage},
 };
 use pnet::datalink::DataLinkReceiver;
-use slog::{error, info, trace};
+use slog::{error, info, trace, warn};
 
-use crate::server::ServerSocket;
+use crate::{server::ServerSocket, util::to_socketaddr};
 
 #[derive(Debug)]
 pub enum ConnectionGeneratorError {
@@ -239,7 +240,7 @@ impl ConnectionGenerator {
 
                 let server = server.socket.lock().unwrap();
                 let mut iov = [IoSliceMut::new(&mut buffer)];
-                match recvmsg::<SockaddrIn>(
+                match recvmsg::<SockaddrStorage>(
                     server.as_raw_fd(),
                     &mut iov,
                     Some(&mut cmsg_buffer),
@@ -251,59 +252,85 @@ impl ConnectionGenerator {
                             "Read {} bytes from the server socket.", result.bytes
                         );
 
-                        let client_ip = result.address.unwrap().ip();
-                        let client_ip_addr_bytes = client_ip.octets();
-
-                        let server_ip_addr_bytes = if let IpAddr::V4(addr) = server_socket_addr.ip()
-                        {
-                            addr.octets()
-                        } else {
-                            todo!("Support for IPv6 is not ready.")
-                        };
-
+                        let client_ip = to_socketaddr(result.address.unwrap());
                         let mut dscp_recv: Option<u8> = None;
                         let mut ttl_recv: Option<i32> = None;
+                        let mut traffic_class: Option<i32> = None;
 
                         for c in result.cmsgs().unwrap() {
                             match c {
                                 ControlMessageOwned::Ipv4Tos(val) => dscp_recv = Some(val),
                                 ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val),
+                                ControlMessageOwned::Ipv6TClass(val) => traffic_class = Some(val),
+                                ControlMessageOwned::Ipv6HopLimit(val) => ttl_recv = Some(val),
                                 _ => unreachable!(),
                             }
                         }
 
-                        if dscp_recv.is_none() || ttl_recv.is_none() {
-                            return Err(ConnectionGeneratorError::ExtractionError);
+                        if dscp_recv.is_none() && ttl_recv.is_none() && traffic_class.is_none() {
+                            warn!(logger, "No cmsg information available!\n");
+                            //return Err(ConnectionGeneratorError::ExtractionError);
                         }
 
-                        let ttl_recv = TryInto::<u8>::try_into(ttl_recv.unwrap()).map_err(|e| {
-                            error!(
+                        let ttl_recv =
+                            TryInto::<u8>::try_into(ttl_recv.unwrap_or(0x0)).map_err(|e| {
+                                error!(
                                 logger,
                                 "There was an error extracting the TTL received from network: {}",
                                 e
                             );
-                            ConnectionGeneratorError::ExtractionError
-                        })?;
-                        let dscp_recv = dscp_recv.unwrap();
+                                ConnectionGeneratorError::ExtractionError
+                            })?;
+                        let dscp_recv = dscp_recv.unwrap_or(0x0);
+                        let ip_hdr = match (client_ip.ip(), server_socket_addr.ip()) {
+                            (IpAddr::V4(cv4), IpAddr::V4(sv4)) => either::Left(
+                                Ipv4Header::new(
+                                    500,
+                                    ttl_recv,
+                                    IpNumber::UDP,
+                                    cv4.octets(),
+                                    sv4.octets(),
+                                )
+                                .unwrap(),
+                            ),
+                            (IpAddr::V6(cv6), IpAddr::V6(sv6)) => either::Right(Ipv6Header {
+                                payload_length: 500,
+                                hop_limit: ttl_recv,
+                                traffic_class: traffic_class.unwrap_or(0x0) as u8,
+                                flow_label: Default::default(),
+                                next_header: UDP,
+                                source: cv6.octets(),
+                                destination: sv6.octets(),
+                            }),
+                            _ => {
+                                error!(
+                                    logger,
+                                    "There was an unrecognized client/server protocol combination."
+                                );
+                                return Err(ConnectionGeneratorError::IoError(Error::other(
+                                    "Unrecognized client/server protocol combination.",
+                                )));
+                            }
+                        };
 
-                        let mut ip_hdr = Ipv4Header::new(
-                            500,
-                            ttl_recv,
-                            IpNumber::UDP,
-                            client_ip_addr_bytes,
-                            server_ip_addr_bytes,
-                        )
-                        .unwrap();
-
-                        ip_hdr.dscp = Ipv4Dscp::try_new(dscp_recv >> 2).unwrap();
-                        ip_hdr.ecn = Ipv4Ecn::try_new(dscp_recv & 0x3).unwrap();
-
-                        Ok((
-                            None,
-                            either::Left(ip_hdr),
-                            result.iovs().nth(0).unwrap().to_vec(),
-                            result.address.unwrap().into(),
-                        ))
+                        match ip_hdr {
+                            Left(mut ip_hdr) => {
+                                ip_hdr.dscp = Ipv4Dscp::try_new(dscp_recv >> 2).unwrap();
+                                ip_hdr.ecn = Ipv4Ecn::try_new(dscp_recv & 0x3).unwrap();
+                                Ok((
+                                    None,
+                                    either::Left(ip_hdr),
+                                    result.iovs().nth(0).unwrap().to_vec(),
+                                    client_ip,
+                                ))
+                            }
+                            Right(ip6_hdr) => Ok((
+                                None,
+                                either::Right(ip6_hdr),
+                                result.iovs().nth(0).unwrap().to_vec(),
+                                client_ip,
+                            )),
+                        }
                     }
                     Err(Errno::EWOULDBLOCK) => Err(ConnectionGeneratorError::WouldBlock),
                     Err(e) => Err(ConnectionGeneratorError::IoError(e.into())),

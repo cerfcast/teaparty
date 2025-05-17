@@ -17,13 +17,13 @@
  */
 
 use std::{
-    net::{SocketAddr, SocketAddrV4, UdpSocket},
+    net::{SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     sync::{mpsc::channel, Arc, Mutex},
     time::Duration,
 };
 
-use nix::sys::socket::{sendto, MsgFlags, SockaddrIn};
+use nix::sys::socket::{sendto, MsgFlags};
 use slog::Logger;
 use slog::{error, info};
 use std::sync::mpsc::{Receiver, Sender};
@@ -33,6 +33,7 @@ use crate::{
     netconf::NetConfiguration,
     server::{ServerSocket, Session, Sessions},
     stamp::StampMsg,
+    util::to_sockaddr_storage,
 };
 
 pub struct Responder {
@@ -62,15 +63,11 @@ impl Responder {
         &self,
         data: &[u8],
         socket: &UdpSocket,
-        addr: SocketAddrV4,
+        addr: SocketAddr,
     ) -> Result<usize, std::io::Error> {
-        sendto(
-            socket.as_raw_fd(),
-            data,
-            &Into::<SockaddrIn>::into(addr),
-            MsgFlags::empty(),
-        )
-        .map_err(|e| std::io::Error::other(e.to_string()))
+        let saddr = to_sockaddr_storage(addr);
+        sendto(socket.as_raw_fd(), data, &saddr, MsgFlags::empty())
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 
     pub fn respond(
@@ -194,18 +191,10 @@ impl Responder {
                 info!(logger, "Responding with stamp msg: {:x?}", stamp_msg);
 
                 let write_result = {
-                    let destination_ip = match dest {
-                        SocketAddr::V4(v4) => v4,
-                        _ => {
-                            error!(logger, "Could not convert the session's src IP address into a V4 destination address");
-                            return;
-                        }
-                    };
-
                     self.write(
                         &Into::<Vec<u8>>::into(stamp_msg.clone()),
                         &locked_socket_to_prepare,
-                        destination_ip,
+                        dest,
                     )
                 };
 

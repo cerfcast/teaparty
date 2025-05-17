@@ -25,9 +25,9 @@ use std::{
 
 use crate::{ntp, stamp::Ssid};
 use nix::{
-    libc::cmsghdr,
+    libc::{self, cmsghdr},
     sys::socket::{
-        sockopt::{IpRecvTos, Ipv4RecvTtl},
+        sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv6RecvHopLimit, Ipv6RecvTClass},
         SetSockOpt,
     },
 };
@@ -432,11 +432,20 @@ impl ServerSocket {
 
     pub fn configure_cmsg(&mut self) -> Result<(), std::io::Error> {
         let socket = self.socket.lock().unwrap();
-        let set_ttl_value = true;
-        Ipv4RecvTtl.set(&*socket, &set_ttl_value)?;
-        let set_tos_value = true;
-        IpRecvTos.set(&*socket, &set_tos_value)?;
-        Ok(())
+
+        if self.socket_addr.is_ipv4() {
+            let set_ttl_value = true;
+            Ipv4RecvTtl.set(&*socket, &set_ttl_value)?;
+            let set_tos_value = true;
+            IpRecvTos.set(&*socket, &set_tos_value)?;
+            Ok(())
+        } else {
+            let set_tclass_value = true;
+            Ipv6RecvTClass.set(&*socket, &set_tclass_value)?;
+            let set_hoplimit_value = true;
+            Ipv6RecvHopLimit.set(&*socket, &set_hoplimit_value)?;
+            Ok(())
+        }
     }
 
     fn align_to<T>(size: usize) -> usize {
@@ -446,11 +455,19 @@ impl ServerSocket {
     }
 
     pub fn get_cmsg_buffer(&self) -> Vec<u8> {
-        let tos_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
-            + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-        let ttl_size = ServerSocket::align_to::<usize>(std::mem::size_of::<u8>())
-            + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-        vec![0u8; tos_size + ttl_size]
+        if self.socket_addr.is_ipv4() {
+            let tos_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
+                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+            let ttl_size = ServerSocket::align_to::<usize>(std::mem::size_of::<u8>())
+                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+            vec![0u8; tos_size + ttl_size]
+        } else {
+            let tclass_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
+                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+            let hoplimit_size = ServerSocket::align_to::<usize>(std::mem::size_of::<libc::c_int>())
+                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
+            vec![0u8; tclass_size + hoplimit_size]
+        }
     }
 }
 

@@ -223,9 +223,7 @@ impl TestParameter for TtlTestParameter {
     ) -> Option<TestArgument> {
         match ip_hdr {
             IpHeaders::Left(ipv4) => Some(TestArgument::Ttl(ipv4.time_to_live)),
-            IpHeaders::Right(_) => {
-                todo!()
-            }
+            IpHeaders::Right(ipv6) => Some(TestArgument::Ttl(ipv6.hop_limit)),
         }
     }
 }
@@ -245,9 +243,7 @@ impl TestParameter for EcnTestParameter {
     ) -> Option<TestArgument> {
         match ip_hdr {
             IpHeaders::Left(ipv4) => Some(TestArgument::Ecn(ipv4.ecn.into())),
-            IpHeaders::Right(_) => {
-                todo!()
-            }
+            IpHeaders::Right(ipv6) => Some(TestArgument::Ecn((ipv6.traffic_class & 0x3).into())),
         }
     }
 }
@@ -268,9 +264,9 @@ impl TestParameter for DscpTestParameter {
         //Some(TestArgument::Dscp(ip_hdr.dscp))
         match ip_hdr {
             IpHeaders::Left(ipv4) => Some(TestArgument::Dscp(Into::<DscpValue>::into(ipv4.dscp))),
-            IpHeaders::Right(_) => {
-                todo!()
-            }
+            IpHeaders::Right(ipv6) => Some(TestArgument::Dscp(Into::<DscpValue>::into(
+                ipv6.traffic_class >> 2,
+            ))),
         }
     }
 }
