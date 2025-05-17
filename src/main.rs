@@ -213,7 +213,7 @@ fn client(
         if server_addr.is_ipv4() {
             info!(
                 logger,
-                "About to configure the sending value of the IpV4 ECN on the server socket."
+                "About to configure the sending value of the IPv4 ECN on the server socket."
             );
             tos_byte |= Into::<u8>::into(socket_ecn);
             let set_tos_value = tos_byte as i32;
@@ -232,12 +232,12 @@ fn client(
 
             info!(
                 logger,
-                "Done configuring the sending value of the IpV4 ECN on the server socket."
+                "Done configuring the sending value of the IPv4 ECN on the server socket."
             );
         } else {
             info!(
                 logger,
-                "About to configure the sending value of the IpV6 ECN (via Traffic Class) on the server socket."
+                "About to configure the sending value of the IPv6 ECN (via Traffic Class) on the server socket."
             );
             tos_byte |= Into::<u8>::into(socket_ecn);
             let set_tos_value = tos_byte as i32;
@@ -256,7 +256,7 @@ fn client(
 
             info!(
                 logger,
-                "Done configuring the sending value of the IpV6 ECN (via Traffic Class) on the server socket."
+                "Done configuring the sending value of the IPv6 ECN (via Traffic Class) on the server socket."
             );
         }
     }
@@ -265,7 +265,7 @@ fn client(
         if server_addr.is_ipv4() {
             info!(
                 logger,
-                "About to configure the sending value of the IpV4 DSCP on the server socket."
+                "About to configure the sending value of the IPv4 DSCP on the server socket."
             );
             tos_byte |= Into::<u8>::into(socket_dscp);
             let set_tos_value = tos_byte as i32;
@@ -284,12 +284,12 @@ fn client(
 
             info!(
                 logger,
-                "Done configuring the sending value of the IpV4 DSCP on the server socket."
+                "Done configuring the sending value of the IPv4 DSCP on the server socket."
             );
         } else {
             info!(
                 logger,
-                "About to configure the sending value of the IpV6 DSCP (via Traffic Class) on the server socket."
+                "About to configure the sending value of the IPv6 DSCP (via Traffic Class) on the server socket."
             );
             tos_byte |= Into::<u8>::into(socket_dscp);
             let set_tos_value = tos_byte as i32;
@@ -308,7 +308,7 @@ fn client(
 
             info!(
                 logger,
-                "Done configuring the sending value of the IpV6 DSCP (via Traffic Class) on the server socket."
+                "Done configuring the sending value of the IPv6 DSCP (via Traffic Class) on the server socket."
             );
         }
     }
