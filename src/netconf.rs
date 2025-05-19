@@ -212,11 +212,17 @@ impl NetConfiguration {
                         std::io::Error::other(set_tos_value_err.desc()),
                     ))
                 } else {
-                    Ok((
-                        NetConfigurationItemKind::Dscp,
-                        // Don't forget to shift right -- into assumes that this is the case for DSCP values.
-                        NetConfigurationItem::Dscp((orig >> 2).into()),
-                    ))
+                    match (orig >> 2).try_into() {
+                        Ok(dscp) => Ok((
+                            NetConfigurationItemKind::Dscp,
+                            // Don't forget to shift right -- into assumes that this is the case for DSCP values.
+                            NetConfigurationItem::Dscp(dscp),
+                        )),
+                        Err(e) => Err(NetConfigurationError::CouldNotSet(
+                            *configuration,
+                            std::io::Error::other(e),
+                        )),
+                    }
                 }
             }
             // ECN

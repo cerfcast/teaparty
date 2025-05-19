@@ -263,10 +263,14 @@ impl TestParameter for DscpTestParameter {
     ) -> Option<TestArgument> {
         //Some(TestArgument::Dscp(ip_hdr.dscp))
         match ip_hdr {
-            IpHeaders::Left(ipv4) => Some(TestArgument::Dscp(Into::<DscpValue>::into(ipv4.dscp))),
-            IpHeaders::Right(ipv6) => Some(TestArgument::Dscp(Into::<DscpValue>::into(
-                ipv6.traffic_class >> 2,
-            ))),
+            IpHeaders::Left(ipv4) => TryInto::<DscpValue>::try_into(ipv4.dscp)
+                .map(TestArgument::Dscp)
+                .map(Some)
+                .unwrap_or(None),
+            IpHeaders::Right(ipv6) => TryInto::<DscpValue>::try_into(ipv6.traffic_class >> 2)
+                .map(TestArgument::Dscp)
+                .map(Some)
+                .unwrap_or(None),
         }
     }
 }

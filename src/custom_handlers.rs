@@ -133,7 +133,7 @@ pub mod ch {
             let dscp_ecn_response = dscp_argument | ecn_argument;
 
             let ecn_requested_response: EcnValue = (tlv.value[0] & 0x3).into();
-            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
+            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).try_into()?;
 
             info!(logger, "Ecn requested back? {:?}", ecn_requested_response);
             info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
@@ -428,8 +428,9 @@ pub mod ch {
                 )));
             }
 
-            let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).into();
-            let dscp2: DscpValue = (((tlv.value[0] & 0x3) << 4) | (tlv.value[1] >> 4)).into();
+            let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).try_into()?;
+            let dscp2: DscpValue =
+                (((tlv.value[0] & 0x3) << 4) | (tlv.value[1] >> 4)).try_into()?;
             let ecn1: EcnValue = ((tlv.value[1] & 0x0c) >> 2).into();
             let ecn2: EcnValue = ((tlv.value[2] & 0xc0) >> 6).into();
             let rp: u8 = tlv.value[1] & 0x3;
@@ -553,7 +554,7 @@ pub mod ch {
 
             cos_tlv.ecn1 = ecn_argument.into();
             // Into from DscpValue to u8 assumes that the DSCP bits are in lsb.
-            cos_tlv.dscp2 = (dscp_argument >> 2).into();
+            cos_tlv.dscp2 = (dscp_argument >> 2).try_into()?;
 
             if cos_tlv.ecn2 != EcnValue::NotEct {
                 cos_tlv.rp = 0x2;

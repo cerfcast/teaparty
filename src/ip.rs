@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::fmt::Debug;
+use std::{fmt::Debug, io};
 
 use clap::ValueEnum;
 
@@ -98,44 +98,52 @@ impl From<DscpValue> for u8 {
     }
 }
 
-impl From<u8> for DscpValue {
-    fn from(value: u8) -> Self {
+impl TryFrom<u8> for DscpValue {
+    type Error = io::Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         // NOTE: We expect that the given value to convert
         // is _already_ shifted to the right!
         if 0xc0 & value != 0 {
-            return DscpValue::Invalid;
+            return Err(io::Error::other(format!(
+                "Invalid raw DSCP value: {}",
+                value
+            )));
         }
         match value {
-            0 => DscpValue::CS0,
-            8 => DscpValue::CS1,
-            16 => DscpValue::CS2,
-            24 => DscpValue::CS3,
-            32 => DscpValue::CS4,
-            40 => DscpValue::CS5,
-            48 => DscpValue::CS6,
-            56 => DscpValue::CS7,
-            10 => DscpValue::AF11,
-            12 => DscpValue::AF12,
-            14 => DscpValue::AF13,
-            18 => DscpValue::AF21,
-            20 => DscpValue::AF22,
-            22 => DscpValue::AF23,
-            26 => DscpValue::AF31,
-            28 => DscpValue::AF32,
-            30 => DscpValue::AF33,
-            34 => DscpValue::AF41,
-            36 => DscpValue::AF42,
-            38 => DscpValue::AF43,
-            46 => DscpValue::EF,
-            44 => DscpValue::VOICEADMIT,
-            _ => unreachable!(),
+            0 => Ok(DscpValue::CS0),
+            8 => Ok(DscpValue::CS1),
+            16 => Ok(DscpValue::CS2),
+            24 => Ok(DscpValue::CS3),
+            32 => Ok(DscpValue::CS4),
+            40 => Ok(DscpValue::CS5),
+            48 => Ok(DscpValue::CS6),
+            56 => Ok(DscpValue::CS7),
+            10 => Ok(DscpValue::AF11),
+            12 => Ok(DscpValue::AF12),
+            14 => Ok(DscpValue::AF13),
+            18 => Ok(DscpValue::AF21),
+            20 => Ok(DscpValue::AF22),
+            22 => Ok(DscpValue::AF23),
+            26 => Ok(DscpValue::AF31),
+            28 => Ok(DscpValue::AF32),
+            30 => Ok(DscpValue::AF33),
+            34 => Ok(DscpValue::AF41),
+            36 => Ok(DscpValue::AF42),
+            38 => Ok(DscpValue::AF43),
+            46 => Ok(DscpValue::EF),
+            44 => Ok(DscpValue::VOICEADMIT),
+            _ => Err(io::Error::other(format!(
+                "Invalid raw DSCP value: {}",
+                value
+            ))),
         }
     }
 }
 
-impl From<etherparse::Ipv4Dscp> for DscpValue {
-    fn from(value: etherparse::Ipv4Dscp) -> Self {
-        Into::<Self>::into(value.value())
+impl TryFrom<etherparse::Ipv4Dscp> for DscpValue {
+    type Error = io::Error;
+    fn try_from(value: etherparse::Ipv4Dscp) -> Result<Self, Self::Error> {
+        TryInto::<Self>::try_into(value.value())
     }
 }
 
@@ -147,7 +155,10 @@ mod test_dscp_conversions {
 
     #[test]
     fn test_dscp_from_raw_to_dscp_value() {
-        assert!(matches!(Into::<DscpValue>::into(56), DscpValue::CS7))
+        assert!(matches!(
+            TryInto::<DscpValue>::try_into(56),
+            Ok(DscpValue::CS7)
+        ))
     }
 
     #[test]
@@ -164,15 +175,20 @@ mod test_dscp_conversions {
     fn test_dscp_raw_roundtrip() {
         let res = Into::<u8>::into(DscpValue::AF33);
         assert!(res == 30 << 2);
-        assert!(matches!(Into::<DscpValue>::into(res >> 2), DscpValue::AF33));
+        assert!(matches!(
+            TryInto::<DscpValue>::try_into(res >> 2),
+            Ok(DscpValue::AF33)
+        ));
     }
 
     #[test]
     fn test_dscp_raw_roundtrip_fail() {
         let res = Into::<u8>::into(DscpValue::AF33);
         assert!(res == 30 << 2);
-        // Testing here that an unshifted value will fail.
-        assert!(!matches!(Into::<DscpValue>::into(res), DscpValue::AF33));
+        assert!(!matches!(
+            TryInto::<DscpValue>::try_into(res),
+            Ok(DscpValue::AF33)
+        ));
     }
 
     #[test]
@@ -184,13 +200,16 @@ mod test_dscp_conversions {
     #[test]
     fn test_dscp_from_etherparse_to_dscp_value() {
         let value = unsafe { Ipv4Dscp::new_unchecked(28) };
-        assert!(matches!(Into::<DscpValue>::into(value), DscpValue::AF32))
+        assert!(matches!(
+            TryInto::<DscpValue>::try_into(value),
+            Ok(DscpValue::AF32)
+        ))
     }
 
     #[test]
     fn test_dscp_upper_bits_filled_error() {
         let value = 0xff;
-        assert!(matches!(Into::<DscpValue>::into(value), DscpValue::Invalid))
+        assert!(TryInto::<DscpValue>::try_into(value).is_err())
     }
 }
 
