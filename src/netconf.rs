@@ -19,7 +19,7 @@
 use std::fmt::{Debug, Display};
 use std::net::UdpSocket;
 
-use nix::sys::socket::sockopt::Ipv6TClass;
+use nix::sys::socket::sockopt::{Ipv4Ttl, Ipv6TClass, Ipv6Ttl};
 use nix::sys::socket::{sockopt::Ipv4Tos, GetSockOpt, SetSockOpt};
 use slog::Logger;
 use slog::{error, info};
@@ -280,8 +280,48 @@ impl NetConfiguration {
                 }
             }
             // TTL
-            NetConfigurationItem::Ttl(_value) => {
-                todo!()
+            NetConfigurationItem::Ttl(value) => {
+                let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+
+                let original_ttl = match if is_ipv4 {
+                    Ipv4Ttl.get(&socket)
+                } else {
+                    Ipv6Ttl.get(&socket)
+                } {
+                    Ok(orig) => orig,
+                    Err(e) => {
+                        error!(
+                            logger,
+                            "There was an error setting the TTL value of the reflected packet via net configuration: {}", e
+                        );
+                        return Err(NetConfigurationError::CouldNotSet(
+                            *configuration,
+                            std::io::Error::other(e.desc()),
+                        ));
+                    }
+                };
+
+                let settable_ttl = *value as i32;
+                if let Err(set_ttl_value_err) = if is_ipv4 {
+                    Ipv4Ttl.set(&socket, &settable_ttl)
+                } else {
+                    Ipv6TClass.set(&socket, &settable_ttl)
+                } {
+                    error!(
+                            logger,
+                            "There was an error setting the TTL value of the reflected packet via net configuration: {}",
+                            set_ttl_value_err
+                        );
+                    Err(NetConfigurationError::CouldNotSet(
+                        *configuration,
+                        std::io::Error::other(set_ttl_value_err.desc()),
+                    ))
+                } else {
+                    Ok((
+                        NetConfigurationItemKind::Ttl,
+                        NetConfigurationItem::Ttl(original_ttl as u8),
+                    ))
+                }
             }
             NetConfigurationItem::Invalid => Ok((
                 NetConfigurationItemKind::Invalid,

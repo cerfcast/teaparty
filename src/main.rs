@@ -26,7 +26,7 @@ use etherparse::Ethernet2Header;
 use handlers::Handlers;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
-use nix::sys::socket::sockopt::{Ipv4Tos, Ipv6TClass};
+use nix::sys::socket::sockopt::{Ipv4Tos, Ipv4Ttl, Ipv6TClass, Ipv6Ttl};
 use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
@@ -105,6 +105,10 @@ struct SenderArgs {
     #[arg(long)]
     dscp: Option<DscpValue>,
 
+    /// Enable a non-default TTL for testing
+    #[arg(long)]
+    ttl: Option<u8>,
+
     #[arg(long, default_value_t = 0)]
     src_port: u16,
 
@@ -177,25 +181,34 @@ fn client(
     logger: slog::Logger,
 ) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (maybe_ssid, malformed, set_socket_ecn, set_socket_dscp, src_port, authenticated) =
-        match command {
-            Commands::Sender(SenderArgs {
-                ssid,
-                malformed,
-                ecn,
-                dscp,
-                src_port,
-                authenticated,
-            }) => (
-                ssid.map(Ssid::Ssid),
-                malformed,
-                ecn,
-                dscp,
-                src_port,
-                authenticated,
-            ),
-            _ => panic!("The source port is somehow missing a value."),
-        };
+    let (
+        maybe_ssid,
+        malformed,
+        set_socket_ecn,
+        set_socket_dscp,
+        set_socket_ttl,
+        src_port,
+        authenticated,
+    ) = match command {
+        Commands::Sender(SenderArgs {
+            ssid,
+            malformed,
+            ecn,
+            dscp,
+            ttl,
+            src_port,
+            authenticated,
+        }) => (
+            ssid.map(Ssid::Ssid),
+            malformed,
+            ecn,
+            dscp,
+            ttl,
+            src_port,
+            authenticated,
+        ),
+        _ => panic!("The source port is somehow missing a value."),
+    };
 
     info!(logger, "Connecting to the server at {}", server_addr);
 
@@ -309,6 +322,56 @@ fn client(
             info!(
                 logger,
                 "Done configuring the sending value of the IPv6 DSCP (via Traffic Class) on the server socket."
+            );
+        }
+    }
+
+    if let Some(socket_ttl) = set_socket_ttl {
+        if server_addr.is_ipv4() {
+            info!(
+                logger,
+                "About to configure the sending value of the IPv4 DSCP on the server socket."
+            );
+            let set_ttl_value = socket_ttl as i32;
+            if let Err(set_tos_value_err) = Ipv4Ttl.set(&server_socket, &set_ttl_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let ttl_argument = TestArgument::Ttl(socket_ttl);
+            test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IPv4 TTL on the server socket."
+            );
+        } else {
+            info!(
+                logger,
+                "About to configure the sending value of the IPv6 TTL on the server socket."
+            );
+            let set_ttl_value = socket_ttl as i32;
+            if let Err(set_tos_value_err) = Ipv6Ttl.set(&server_socket, &set_ttl_value) {
+                error!(
+                    logger,
+                    "There was an error configuring the client socket: {}", set_tos_value_err
+                );
+                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
+                    std::io::ErrorKind::ConnectionRefused,
+                )));
+            }
+
+            let ttl_argument = TestArgument::Ttl(socket_ttl);
+            test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
+
+            info!(
+                logger,
+                "Done configuring the sending value of the IPv6 TTL on the server socket."
             );
         }
     }
@@ -876,6 +939,7 @@ fn main() -> Result<(), StampError> {
             malformed: _,
             ecn: _,
             dscp: _,
+            ttl: _,
             src_port: _,
             authenticated: _,
         }) => client(args, given_command, matches, tlv_handlers, logger),

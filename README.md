@@ -153,6 +153,7 @@ Options:
       --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
       --ecn <ECN>                      Enable a non-default ECN for testing [possible values: not-ect, ect1, ect0, ce]
       --dscp <DSCP>                    Enable a non-default DSCP for testing [possible values: cs0, cs1, cs2, cs3, cs4, cs5, cs6, cs7, af11, af12, af13, af21, af22, af23, af31, af32, af33, af41, af42, af43, ef, voiceadmit]
+      --ttl <TTL>                      Enable a non-default TTL for testing
       --src-port <SRC_PORT>            [default: 0]
       --authenticated <AUTHENTICATED>  
   -h, --help                           Print help
