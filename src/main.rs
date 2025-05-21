@@ -464,7 +464,7 @@ fn client(
         return Err(e);
     }
 
-    let mut deserialized_response = deserialized_response.unwrap();
+    let deserialized_response = deserialized_response.unwrap();
     info!(logger, "Deserialized response: {:?}", deserialized_response);
 
     let authentication_result = match deserialized_response.authenticate(&client_keymat) {
@@ -491,20 +491,6 @@ fn client(
             "An authenticated packet arrived which could not be validated: {}", e
         );
         return Err(e);
-    }
-
-    for tlv_tpe in deserialized_response.tlvs.type_iter() {
-        if let Some(handler) = handlers.get_handler(tlv_tpe) {
-            let mut handler = handler.lock().unwrap();
-            if let Err(err) = handler.request_fixup(
-                &mut deserialized_response,
-                &fixup_session_data,
-                logger.clone(),
-            ) {
-                error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its request fixup: {}", handler.tlv_name(), err);
-                return Err(err);
-            }
-        }
     }
 
     // Let's compare what we got back to what we sent!
