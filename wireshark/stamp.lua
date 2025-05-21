@@ -5,6 +5,7 @@ local stamp_protocol = Proto("STAMP", "STAMP Protocol")
 
 --- Field Sizes
 
+local uint32_field_size = 4
 local sequence_field_size = 4
 local timestamp_field_size = 8
 local error_estimate_field_size = 2
@@ -444,10 +445,60 @@ local function tlv_followup_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: Bit Error Rate
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup", [0x8] = "HMAC"}
+local bercount_tlv_protofield = ProtoField.bytes("stamp.tlv.bercount", "Bit Error Count TLV")
+local count_bercount_tlv_protofield = ProtoField.uint32("stamp.tlv.bercount.count", "Bit Error Count", base.Dec)
+
+stamp_protocol.fields = { bercount_tlv_protofield,
+	count_bercount_tlv_protofield,
+}
+
+------
+--- Dissect the Bit Error Count TLV.
+-- Dissect the contents of a [Bit Error Count TLV](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Bit Error Count TLV.
+local function tlv_bercount_dissector(buffer, tree)
+	if buffer:len() ~=4 then
+		return false
+	end
+
+	local bercount_tree = tree:add(bercount_tlv_protofield, buffer(0))
+	bercount_tree.text = "Bit Error Count"
+	bercount_tree:add(count_bercount_tlv_protofield, buffer(0, uint32_field_size))
+
+	return true
+end
+
+-- TLV Dissectors: Bit Error Pattern
+
+local berpattern_tlv_protofield = ProtoField.bytes("stamp.tlv.berpattern", "Bit Error pattern TLV")
+local pattern_berpattern_tlv_protofield = ProtoField.bytes("stamp.tlv.berpattern.pattern", "Bit Error Pattern")
+
+stamp_protocol.fields = { berpattern_tlv_protofield,
+	pattern_berpattern_tlv_protofield,
+}
+
+------
+--- Dissect the Bit Error Pattern TLV.
+-- Dissect the contents of a [Bit Error pattern TLV](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Bit Error pattern TLV.
+local function tlv_berpattern_dissector(buffer, tree)
+	local berpattern_tree = tree:add(berpattern_tlv_protofield, buffer(0))
+	berpattern_tree.text = "Bit Error pattern"
+
+	berpattern_tree:add(pattern_berpattern_tlv_protofield, buffer(0))
+
+	return true
+end
+
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern"}
 local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector,
-	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector, [0x08] = tlv_hmac_dissector }
+	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector, [0x08] = tlv_hmac_dissector, [0x09] = tlv_bercount_dissector, [0xa] = tlv_berpattern_dissector }
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
