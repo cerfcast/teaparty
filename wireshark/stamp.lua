@@ -260,10 +260,10 @@ end
 
 -- TLV Dissectors: HMAC
 
-local hmac_tlv_protofield = ProtoField.bytes("stamp.tlv.hmac", "HMAC TLV")
-local hmac_hmac_tlv_protofield  = ProtoField.bytes("stamp.tlv.hmac.hmac", "HMAC")
+local hmac_tlv_protofield      = ProtoField.bytes("stamp.tlv.hmac", "HMAC TLV")
+local hmac_hmac_tlv_protofield = ProtoField.bytes("stamp.tlv.hmac.hmac", "HMAC")
 
-stamp_protocol.fields = { hmac_tlv_protofield,
+stamp_protocol.fields          = { hmac_tlv_protofield,
 	hmac_hmac_tlv_protofield,
 }
 
@@ -287,19 +287,19 @@ end
 
 -- TLV Dissectors: COS
 
-local cos_tlv_protofield = ProtoField.bytes("stamp.tlv.cos", "DSCP ECN TLV")
+local cos_tlv_protofield       = ProtoField.bytes("stamp.tlv.cos", "DSCP ECN TLV")
 local dscp1_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp1", "DSCP1", base.HEX, dscp_type_map, 0xfc00,
 	"DSCP1 Field")
 local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2", base.HEX, dscp_type_map, 0x03f0,
 	"DSCP2 Field")
-local ecn_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
+local ecn_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
-local rp_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.rp", "RP", base.HEX, rp_type_map, 0x0003,
+local rp_cos_tlv_protofield    = ProtoField.uint16("stamp.tlv.cos.rp", "RP", base.HEX, rp_type_map, 0x0003,
 	"Reverse Path")
 local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN2", base.HEX, ecn_type_map, 0xc000,
 	"ECN2 Field")
 
-stamp_protocol.fields = { cos_tlv_protofield,
+stamp_protocol.fields          = { cos_tlv_protofield,
 	dscp1_cos_tlv_protofield,
 	dscp2_cos_tlv_protofield,
 	ecn_cos_tlv_protofield,
@@ -336,12 +336,15 @@ local access_network_map =
 	[2] = "Non-3GPP Network",
 }
 local access_report_tlv_protofield = ProtoField.bytes("stamp.tlv.access_report", "Access Report TLV")
-local id_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.id", "ID", base.HEX, access_network_map, 0xf0,
+local id_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.id", "ID", base.HEX, access_network_map,
+	0xf0,
 	"Access ID")
-local rsv_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.reserved", "Reserved", base.HEX, nil, 0x0f)
+local rsv_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_report.reserved", "Reserved", base.HEX, nil,
+	0x0f)
 local return_code_access_report_tlv_protofield = ProtoField.bool("stamp.tlv.access_report.return_code", "Return Code", 16,
 	{ [1] = "Active", [2] = "Inactive" }, 0x01)
-local rsv2_access_report_tlv_protofield = ProtoField.uint16("stamp.tlv.access_report.reserved2", "Reserved (2)", base.HEX)
+local rsv2_access_report_tlv_protofield = ProtoField.uint16("stamp.tlv.access_report.reserved2", "Reserved (2)", base
+.HEX)
 
 stamp_protocol.fields = { access_report_tlv_protofield,
 	id_access_report_tlv_protofield,
@@ -414,7 +417,8 @@ timestamp_fields["stamp.tlv.followup.timestamp"] = {
 
 local followup_tlv_protofield = ProtoField.bytes("stamp.tlv.followup", "Followup TLV")
 local followup_sequence_no_protofield = ProtoField.bytes("stamp.tlv.followup.sequence_no", "Sequence Number")
-local followup_timestamp_source_protofield = ProtoField.uint8("stamp.tlv.followup.timestamp_source", "Timestamp Source", base.HEX, stamp_timestamping_methods)
+local followup_timestamp_source_protofield = ProtoField.uint8("stamp.tlv.followup.timestamp_source", "Timestamp Source",
+	base.HEX, stamp_timestamping_methods)
 
 stamp_protocol.fields = { followup_tlv_protofield, followup_sequence_no_protofield, ts_followup_tlv_protofield,
 	ts_followup_tlv_seconds_protofield, ts_followup_tlv_fractions_protofield,
@@ -461,7 +465,7 @@ stamp_protocol.fields = { bercount_tlv_protofield,
 -- @tparam TreeItem tree The tree under which to append this dissected TLV
 -- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Bit Error Count TLV.
 local function tlv_bercount_dissector(buffer, tree)
-	if buffer:len() ~=4 then
+	if buffer:len() ~= 4 then
 		return false
 	end
 
@@ -496,9 +500,18 @@ local function tlv_berpattern_dissector(buffer, tree)
 	return true
 end
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =  "Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern"}
-local tlv_dissector_map = { [0xb3] = tlv_dscp_ecn_dissector, [0x1] = tlv_padding_dissector, [0x04] = tlv_cos_dissector,
-	[0x7] = tlv_followup_dissector, [0x6] = tlv_access_report_dissector, [0x08] = tlv_hmac_dissector, [0x09] = tlv_bercount_dissector, [0xa] = tlv_berpattern_dissector }
+local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =
+"Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern" }
+local tlv_dissector_map = {
+	[0xb3] = tlv_dscp_ecn_dissector,
+	[0x1] = tlv_padding_dissector,
+	[0x04] = tlv_cos_dissector,
+	[0x7] = tlv_followup_dissector,
+	[0x6] = tlv_access_report_dissector,
+	[0x08] = tlv_hmac_dissector,
+	[0x09] = tlv_bercount_dissector,
+	[0xa] = tlv_berpattern_dissector
+}
 
 -- TLV General
 local tlv_protofield = ProtoField.bytes("stamp.tlv", "TLV")
