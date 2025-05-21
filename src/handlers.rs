@@ -27,6 +27,7 @@ use slog::Logger;
 use slog::{debug, error, info, warn};
 
 use crate::asymmetry::Asymmetry;
+use crate::custom_handlers::CustomHandlers;
 use crate::netconf::NetConfiguration;
 use crate::netconf::NetConfigurationItem;
 use crate::ntp;
@@ -48,7 +49,7 @@ use crate::tlv;
 use crate::tlv::Tlv;
 use crate::tlv::Tlvs;
 
-pub type TlvRequestResult = Option<(Tlv, Option<String>)>;
+pub type TlvRequestResult = Option<(Vec<Tlv>, Option<String>)>;
 
 #[derive(Debug, Clone)]
 pub enum HandlerError {
@@ -59,24 +60,17 @@ pub enum HandlerError {
 /// with certain TLVs.
 ///
 /// When a test packet is received ...
-/// 1. Every registered TlvHandler's [`TlvHandler::handle`] method
-///    will be called.
-/// 2. After the response packet is generated, every registered TlvHandler's
+/// 1. A new instance of every registered class that implements
+///    the TlvHandler trait (see src/custome_handlers.rs) is generated.
+/// 2. Every object instantiated that implements the TlvHandler trait
+///    will have its [`TlvHandler::request_fixup`] method called.
+/// 3. Every registered TlvHandler's [`TlvHandler::handle`] method
+///    will be called (where the Tlv's type matches the TlvHandler's type
+///    as returned by [`TlvHandler::tlv_type``]).
+/// 4. After the response packet is generated, every registered TlvHandler's
 ///    [`TlvHandler::prepare_response_target`] method will be called so that
 ///    every handler has the chance to change the destination IP/port of the
 ///    reflected packet.
-/// 3. After the destination IP/port of the reflected packet is confirmed,
-///    every registered TlvHandler's [`TlvHandler::prepare_response_socket`]
-///    method is called so that every handler has the chance to change any
-///    socket configuration necessary to generate a (semantically) correct
-///    response.
-/// 4. After the reflected test packet is sent, every registered TlvHandler's
-///    [`TlvHandler::unprepare_response_socket`] method is called so that
-///    socket used to send the response can be returned to its original state.
-/// > **NOTE**: [`TlvHandler::prepare_response_socket`] and
-/// > `TlvHandler::unprepare_response_socket`] must work together to leave
-/// > the socket unchanged with respect to its configuration before it was
-/// > first [`TlvHandler::prepare_response_socket`]'d by this handler.
 pub trait TlvHandler {
     /// The name of the TLV.
     fn tlv_name(&self) -> String;
@@ -84,13 +78,13 @@ pub trait TlvHandler {
     fn tlv_cli_command(&self, command: Command) -> Command;
 
     /// The type of the TLV for which this object will respond.
-    fn tlv_type(&self) -> u8;
+    fn tlv_type(&self) -> Vec<u8>;
 
     /// Modify a STAMP test packet before it is subjected to normal
     /// TLV handling.
     #[allow(unused_variables)]
     fn request_fixup(
-        &self,
+        &mut self,
         request: &mut StampMsg,
         session: &Option<SessionData>,
         logger: Logger,
@@ -101,7 +95,7 @@ pub trait TlvHandler {
     /// The means of generating a TLV that goes into a STAMP reflector
     /// packet for a received STAMP packet with type that matches [`TlvHandler::tlv_type`].
     fn handle(
-        &self,
+        &mut self,
         tlv: &tlv::Tlv,
         parameters: &TestArguments,
         netconfig: &mut NetConfiguration,
@@ -112,7 +106,7 @@ pub trait TlvHandler {
 
     /// Generate a TLV to include a STAMP test packet.
     fn request(
-        &self,
+        &mut self,
         arguments: Option<TestArguments>,
         matches: &mut ArgMatches,
     ) -> TlvRequestResult;
@@ -122,7 +116,7 @@ pub trait TlvHandler {
     /// This method generates a (possibly) modified [`address`]. Return [`address`]
     /// if there is no change necessary.
     fn prepare_response_target(
-        &self,
+        &mut self,
         response: &mut StampMsg,
         address: SocketAddr,
         logger: Logger,
@@ -130,7 +124,7 @@ pub trait TlvHandler {
 
     /// Do final fixup of STAMP message before it is transmitted.
     fn pre_send_fixup(
-        &self,
+        &mut self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _session: &Option<SessionData>,
@@ -144,7 +138,7 @@ pub trait TlvHandler {
     ///
     /// `item` is the netconfig that could not be applied.
     fn handle_netconfig_error(
-        &self,
+        &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
         item: NetConfigurationItem,
@@ -157,7 +151,7 @@ pub trait TlvHandler {
     /// creation of that processing by referring to `runtime`, among others.
     #[allow(unused_variables, clippy::too_many_arguments)]
     fn handle_asymmetry(
-        &self,
+        &mut self,
         response: StampMsg,
         sessions: Option<Sessions>,
         base_destination: SocketAddr,
@@ -172,6 +166,7 @@ pub trait TlvHandler {
 
 #[derive(Clone, Default)]
 pub struct Handlers {
+    // TODO: Remove the mutex here, if possible.
     handlers: Vec<Arc<Mutex<dyn TlvHandler + Send>>>,
 }
 
@@ -193,7 +188,9 @@ impl Handlers {
             .iter()
             .find(|e| {
                 let handler_type = e.lock().unwrap().tlv_type();
-                handler_type != 0 && handler_type == tlv_id
+                handler_type
+                    .iter()
+                    .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
             })
             .cloned()
     }
@@ -222,8 +219,10 @@ impl Handlers {
                 .iter()
                 .find_map(|h| h.lock().unwrap().request(args.clone(), &mut matches));
 
-            if let Some((tlv, _)) = &command {
-                tlvs.add_tlv(tlv.clone()).ok()?;
+            if let Some((requested_tlvs, _)) = &command {
+                for tlv in requested_tlvs {
+                    tlvs.add_tlv(tlv.clone()).ok()?;
+                }
             }
 
             let next_tlv_command = if let Some((_, Some(remainder))) = command {
@@ -246,7 +245,6 @@ pub fn handler(
     msg: &Vec<u8>,
     test_arguments: TestArguments,
     sessions: Option<Sessions>,
-    handlers: Handlers,
     responder: Arc<responder::Responder>,
     server: ServerSocket,
     client_address: SocketAddr,
@@ -303,7 +301,11 @@ pub fn handler(
         src_stamp_msg
     );
 
-    let session = Session::new(
+    // Each request is handled by a new set of handlers. This instance of the handlers
+    // will follow the request as it works its way through the handling process.
+    let handlers = CustomHandlers::build();
+
+    let session_key = Session::new(
         client_address,
         server.socket_addr,
         src_stamp_msg.ssid.clone(),
@@ -312,10 +314,11 @@ pub fn handler(
     let mut netconfig = NetConfiguration::new();
 
     let response_stamp_msg = {
-        // Lock the sessions while we handle!
         let mut session_data = if let Some(sessions) = sessions.as_ref() {
+            // If the server is stateful, then either ...
             let mut sessions = sessions.sessions.lock().unwrap();
-            if let Some(existing_session) = sessions.get_mut(&session.clone()) {
+            if let Some(existing_session) = sessions.get_mut(&session_key.clone()) {
+                // ... update an existing session ...
                 existing_session.sequence += 1;
                 existing_session.last = std::time::SystemTime::now();
 
@@ -323,22 +326,24 @@ pub fn handler(
                 info!(
                 logger,
                 "Updated an existing session: {:?}: {:?} (Note: Values printed in network order).",
-                session,
+                session_key,
                 existing_session
             );
                 Some(existing_session)
             } else {
+                // ... or create a new one ...
                 let mut new_session = SessionData::new(5);
                 new_session.sequence = src_stamp_msg.sequence + 1;
-                sessions.insert(session.clone(), new_session.clone());
+                sessions.insert(session_key.clone(), new_session.clone());
                 info!(
                     logger,
                     "Created a new session: {:?}: {:?} (Note: Values printed in network order).",
-                    session,
+                    session_key,
                     new_session
                 );
                 Some(new_session)
             }
+            // ... but give back (a copy of) the session data (either updated or created) no matter what.
         } else {
             None
         };
@@ -374,8 +379,9 @@ pub fn handler(
             return;
         }
 
+        // Let each of the handlers have a chance to do some pre processing on the incoming session-sender test packet.
         for handler in handlers.handlers.iter() {
-            let handler = handler.lock().unwrap();
+            let mut handler = handler.lock().unwrap();
             if let Err(err) =
                 handler.request_fixup(&mut src_stamp_msg, &session_data, logger.clone())
             {
@@ -396,23 +402,24 @@ pub fn handler(
                 break;
             }
 
-            let handler = handlers.get_handler(tlv.tpe);
-            if let Some(handler) = handler {
-                let locked_handler = handler.lock().unwrap();
+            if let Some(handler) = handlers.get_handler(tlv.tpe) {
+                let mut locked_handler = handler.lock().unwrap();
                 let handler_result = locked_handler.handle(
                     tlv,
                     &test_arguments,
                     &mut netconfig,
-                    session.src,
+                    session_key.src,
                     &mut session_data,
                     logger.clone(),
                 );
 
                 match handler_result {
-                    Ok(o) => {
-                        *tlv = o;
+                    Ok(resulting_tlv) => {
+                        // Update the tlv with the outgoing one generated by the handler.
+                        *tlv = resulting_tlv;
                     }
                     Err(StampError::MalformedTlv(e)) => {
+                        // Leave the contents of the original tlv alone but mark as malformed.
                         info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", locked_handler.tlv_name(), e);
                         tlv.flags.set_malformed(true);
                         break;
@@ -464,6 +471,24 @@ pub fn handler(
             raw_length: None,
         };
 
+        {
+            let server = server.socket.lock().unwrap();
+            for tlv_tpe in response_stamp_msg.tlvs.type_iter() {
+                if let Some(handler) = handlers.get_handler(tlv_tpe) {
+                    let mut handler = handler.lock().unwrap();
+                    if let Err(err) = handler.pre_send_fixup(
+                        &mut response_stamp_msg,
+                        &server,
+                        &session_data,
+                        logger.clone(),
+                    ) {
+                        error!(logger, "Abandoning Tlv processing because the {} handler produced an error in its pre-send fixup: {}", handler.tlv_name(), err);
+                        return;
+                    }
+                }
+            }
+        }
+
         if client_authenticated {
             match response_stamp_msg.authenticate(&session_data.and_then(|sd| sd.key)) {
                 Ok(key) => response_stamp_msg.hmac = key,
@@ -478,17 +503,47 @@ pub fn handler(
         response_stamp_msg
     };
 
-    // src and dest are "backward": They are from the perspective of the session sender!
+    // Give each handler the chance to start some asymmetric processing.
+    for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
+        if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
+            // Notice that the lock use is in a scope!
+            let mut response_tlv_handler = response_tlv_handler.lock().unwrap();
+            let handler_name = { response_tlv_handler.tlv_name() };
+            if let Err(e) = response_tlv_handler.handle_asymmetry(
+                response_stamp_msg.clone(),
+                sessions.clone(),
+                session_key.src.clone(),
+                session_key.dst.clone(),
+                responder.clone(),
+                runtime.clone(),
+                logger.clone(),
+            ) {
+                error!(
+                    logger,
+                    "Error starting asymmetric response handling for TLV {}: {}.", handler_name, e
+                );
+            }
+        }
+    }
+
+    // Send off the generated response for transmission ... being sure to give the test-packet-
+    // specific handlers.
     responder.respond(
         response_stamp_msg.clone(),
+        Some(handlers),
         netconfig,
-        session.dst.clone(),
-        session.src.clone(),
+        // src and dest are "backward": They are from the perspective of the session sender!
+        session_key.dst.clone(),
+        session_key.src.clone(),
     );
 
     // Update the session with the information about the response that we just wrote!
     if let Some(sessions) = sessions.as_ref() {
-        if let Some(existing_session) = sessions.sessions.lock().unwrap().get_mut(&session.clone())
+        if let Some(existing_session) = sessions
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&session_key.clone())
         {
             let entry = SessionHistoryEntry {
                 received_time: received_time.into(),
@@ -500,28 +555,6 @@ pub fn handler(
             existing_session.history.add(entry);
         } else {
             unreachable!("The server is stateful -- we must have a session at this point.")
-        }
-    }
-
-    // Give each handler the chance to start some asymmetric processing.
-    for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
-        if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
-            // Notice that the lock use is in a scope!
-            let handler_name = { response_tlv_handler.lock().unwrap().tlv_name() };
-            if let Err(e) = response_tlv_handler.lock().unwrap().handle_asymmetry(
-                response_stamp_msg.clone(),
-                sessions.clone(),
-                session.src.clone(),
-                session.dst.clone(),
-                responder.clone(),
-                runtime.clone(),
-                logger.clone(),
-            ) {
-                error!(
-                    logger,
-                    "Error starting asymmetric response handling for TLV {}: {}.", handler_name, e
-                );
-            }
         }
     }
 }

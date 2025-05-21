@@ -23,7 +23,6 @@ use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use either::Either;
 use etherparse::Ethernet2Header;
-use handlers::Handlers;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
 use nix::sys::socket::sockopt::{Ipv4Tos, Ipv4Ttl, Ipv6TClass, Ipv6Ttl};
@@ -177,7 +176,6 @@ fn client(
     args: Cli,
     command: Commands,
     mut extra_args: ArgMatches,
-    handlers: Handlers,
     logger: slog::Logger,
 ) -> Result<(), StampError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
@@ -376,6 +374,7 @@ fn client(
         }
     }
 
+    let handlers = CustomHandlers::build();
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
         .unwrap_or_default();
@@ -496,7 +495,7 @@ fn client(
 
     for tlv_tpe in deserialized_response.tlvs.type_iter() {
         if let Some(handler) = handlers.get_handler(tlv_tpe) {
-            let handler = handler.lock().unwrap();
+            let mut handler = handler.lock().unwrap();
             if let Err(err) = handler.request_fixup(
                 &mut deserialized_response,
                 &fixup_session_data,
@@ -558,12 +557,7 @@ fn client(
     Ok(())
 }
 
-fn server(
-    args: Cli,
-    command: Commands,
-    handlers: Handlers,
-    logger: slog::Logger,
-) -> Result<(), StampError> {
+fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), StampError> {
     // Make a runtime and then start it!
     let runtime = Arc::new(Asymmetry::new(Some(logger.clone())));
     {
@@ -746,11 +740,10 @@ fn server(
         let responder_thread = {
             let responder = responder.clone();
             let server = server_socket.clone();
-            let handlers = handlers.clone();
             let logger = logger.clone();
             let responder_canceller = responder_canceller.clone();
             thread::spawn(move || {
-                responder.run(server, handlers, responder_canceller, logger);
+                responder.run(server, responder_canceller, logger);
             })
         };
 
@@ -758,7 +751,6 @@ fn server(
             let logger = logger.clone();
             let responder = responder.clone();
             let sessions = sessions.clone();
-            let handlers = handlers.clone();
             let server_cancellation = server_cancellation.clone();
             let server_socket = server_socket.clone();
             let runtime = runtime.clone();
@@ -801,7 +793,6 @@ fn server(
                                         let stamp_packets = recv_data[0..recv_msg_size].to_vec();
                                         let responder = responder.clone();
                                         let sessions = sessions.clone();
-                                        let handlers = handlers.clone();
                                         let server_socket = server_socket.clone();
                                         let runtime = runtime.clone();
                                         // If the server did not run forever, it may have been necessary
@@ -813,7 +804,6 @@ fn server(
                                                 &stamp_packets,
                                                 arguments,
                                                 sessions,
-                                                handlers,
                                                 responder,
                                                 server_socket,
                                                 client_address,
@@ -855,6 +845,7 @@ fn server(
 }
 
 fn main() -> Result<(), StampError> {
+    // These handlers are used only for generating command-line parameters.
     let tlv_handlers = CustomHandlers::build();
     let tlvs_command = tlv_handlers.get_cli_commands();
 
@@ -933,7 +924,7 @@ fn main() -> Result<(), StampError> {
             stateless: _,
             heartbeat: _,
             link_layer: _,
-        }) => server(args, given_command, tlv_handlers, logger),
+        }) => server(args, given_command, logger),
         Commands::Sender(SenderArgs {
             ssid: _,
             malformed: _,
@@ -942,6 +933,6 @@ fn main() -> Result<(), StampError> {
             ttl: _,
             src_port: _,
             authenticated: _,
-        }) => client(args, given_command, matches, tlv_handlers, logger),
+        }) => client(args, given_command, matches, logger),
     }
 }

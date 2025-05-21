@@ -38,10 +38,29 @@ use crate::{
 
 pub struct Responder {
     #[allow(clippy::type_complexity)]
-    recv:
-        Arc<Mutex<std::sync::mpsc::Receiver<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>>>,
+    recv: Arc<
+        Mutex<
+            std::sync::mpsc::Receiver<(
+                StampMsg,
+                NetConfiguration,
+                SocketAddr,
+                SocketAddr,
+                Option<Handlers>,
+            )>,
+        >,
+    >,
     #[allow(clippy::type_complexity)]
-    send: Arc<Mutex<std::sync::mpsc::Sender<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>>>,
+    send: Arc<
+        Mutex<
+            std::sync::mpsc::Sender<(
+                StampMsg,
+                NetConfiguration,
+                SocketAddr,
+                SocketAddr,
+                Option<Handlers>,
+            )>,
+        >,
+    >,
     sessions: Option<Sessions>,
 }
 
@@ -49,8 +68,20 @@ impl Responder {
     pub fn new(sessions: Option<Sessions>) -> Self {
         #[allow(clippy::type_complexity)]
         let (tx, rx): (
-            Sender<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>,
-            Receiver<(StampMsg, NetConfiguration, SocketAddr, SocketAddr)>,
+            Sender<(
+                StampMsg,
+                NetConfiguration,
+                SocketAddr,
+                SocketAddr,
+                Option<Handlers>,
+            )>,
+            Receiver<(
+                StampMsg,
+                NetConfiguration,
+                SocketAddr,
+                SocketAddr,
+                Option<Handlers>,
+            )>,
         ) = channel();
         Responder {
             recv: Arc::new(Mutex::new(rx)),
@@ -73,19 +104,19 @@ impl Responder {
     pub fn respond(
         &self,
         msg: StampMsg,
+        handlers: Option<Handlers>,
         config: NetConfiguration,
         src: SocketAddr,
         dest: SocketAddr,
     ) {
         let send = self.send.lock().unwrap();
-        send.send((msg, config, src, dest))
+        send.send((msg, config, src, dest, handlers))
             .expect("Should have been able to send message");
     }
 
     pub fn run(
         &self,
         server: ServerSocket,
-        handlers: Handlers,
         cancelled: Arc<std::sync::atomic::AtomicBool>,
         logger: Logger,
     ) {
@@ -111,7 +142,7 @@ impl Responder {
                 continue;
             }
 
-            let (mut stamp_msg, mut netconfig, src, dest) = r.unwrap();
+            let (mut stamp_msg, mut netconfig, src, dest, handlers) = r.unwrap();
 
             // Moved from handler
 
@@ -119,7 +150,10 @@ impl Responder {
 
             // Let each of the handlers have the chance to modify the socket from which the response will be sent.
             for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
-                if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
+                if let Some(response_tlv_handler) = handlers
+                    .as_ref()
+                    .and_then(|handler| handler.get_handler(response_tlv.tpe))
+                {
                     modified_src = response_tlv_handler
                         .lock()
                         .unwrap()
@@ -165,7 +199,10 @@ impl Responder {
                     .and_then(|v| v.sessions.lock().unwrap().get(&query_session).cloned());
 
                 for tlv_tpe in stamp_msg.tlvs.type_iter() {
-                    if let Some(response_tlv_handler) = handlers.get_handler(tlv_tpe) {
+                    if let Some(response_tlv_handler) = handlers
+                        .as_ref()
+                        .and_then(|handler| handler.get_handler(tlv_tpe))
+                    {
                         if let Err(e) = response_tlv_handler.lock().unwrap().pre_send_fixup(
                             &mut stamp_msg,
                             &locked_socket_to_prepare,

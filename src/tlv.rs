@@ -39,6 +39,7 @@ pub enum Error {
     FieldNotZerod(String),
     FieldWrongSized(String, usize, usize),
     FieldValueInvalid(String),
+    FieldMissing(u8),
     DuplicateTlv,
 }
 
@@ -67,6 +68,9 @@ impl Debug for Error {
                     Tlv::type_to_string(*expected),
                     Tlv::type_to_string(*got)
                 )
+            }
+            Error::FieldMissing(missing_field_type) => {
+                write!(f, "Missing {}.", Tlv::type_to_string(*missing_field_type))
             }
         }
     }
@@ -442,6 +446,15 @@ fn hmac_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     let hmac_tlv = HmacTlv::try_from(tlv).unwrap();
     write!(f, " body: {:x?}", hmac_tlv)
 }
+fn ber_pattern_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    write!(f, " BER Pattern: {:x?}", tlv.value)
+}
+fn ber_count_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let count = u32::from_be_bytes(tlv.value[0..4].try_into().unwrap());
+    write!(f, " BER Error Count: 0x{:x}", count)
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -459,6 +472,8 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::FOLLOWUP, default_tlv_display);
         m.insert(Tlv::REFLECTED_CONTROL, reflected_test_control_tlv_display);
         m.insert(Tlv::HMAC_TLV, hmac_tlv_display);
+        m.insert(Tlv::BER_PATTERN, ber_pattern_tlv_display);
+        m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
         m
     });
 
@@ -566,6 +581,8 @@ impl Tlv {
     pub const ACCESSREPORT: u8 = 6;
     pub const FOLLOWUP: u8 = 7;
     pub const HMAC_TLV: u8 = 8;
+    pub const BER_COUNT: u8 = 9;
+    pub const BER_PATTERN: u8 = 10;
 
     pub fn type_to_string(tpe: u8) -> String {
         match tpe {
@@ -581,6 +598,8 @@ impl Tlv {
             Self::ACCESSREPORT => "Access Report".into(),
             Self::FOLLOWUP => "Followup".into(),
             Self::HMAC_TLV => "HMAC".into(),
+            Self::BER_COUNT => "BER Count".into(),
+            Self::BER_PATTERN => "BER Pattern".into(),
             _ => "Unrecognized".into(),
         }
     }
@@ -626,6 +645,10 @@ impl Tlv {
 
     pub fn is_valid_request(&self) -> bool {
         self.flags.get_unrecognized() && !self.flags.get_integrity() && !self.flags.get_malformed()
+    }
+
+    pub fn is_all_zeros(&self) -> bool {
+        self.value.iter().all(|v| *v == 0)
     }
 }
 

@@ -128,7 +128,7 @@ impl NetConfiguration {
         &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
-        handlers: Handlers,
+        handlers: Option<Handlers>,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
         for (configuration, setter) in &mut self.configurations {
@@ -137,21 +137,27 @@ impl NetConfiguration {
             match configuration_result {
                 Ok((orig_type, orig_value)) => self.originals[orig_type as usize] = orig_value,
                 Err(e) => {
-                    let erring_handler = handlers.get_handler(*setter).unwrap();
-                    let erring_handler = erring_handler.lock().unwrap();
+                    if let Some(handlers) = &handlers {
+                        let erring_handler = handlers.get_handler(*setter).unwrap();
+                        let mut erring_handler = erring_handler.lock().unwrap();
 
-                    error!(
-                        logger,
-                        "Asking {} to handle a net configuration error: {}",
-                        erring_handler.tlv_name(),
-                        e
-                    );
-                    erring_handler.handle_netconfig_error(
-                        response,
-                        socket,
-                        *configuration,
-                        logger.clone(),
-                    );
+                        error!(
+                            logger,
+                            "Asking {} to handle a net configuration error: {}",
+                            erring_handler.tlv_name(),
+                            e
+                        );
+                        erring_handler.handle_netconfig_error(
+                            response,
+                            socket,
+                            *configuration,
+                            logger.clone(),
+                        );
+                    } else {
+                        error!(
+                            logger,
+                            "There was a net config error ({}) but no handlers are available to respond.", e);
+                    }
                 }
             }
         }

@@ -26,6 +26,7 @@ use crate::handlers;
 pub mod ch {
     use std::{
         net::{IpAddr, SocketAddr, UdpSocket},
+        str::FromStr,
         sync::Arc,
         time::{Duration, Instant},
     };
@@ -43,7 +44,7 @@ pub mod ch {
         responder::Responder,
         server::{Session, SessionData, Sessions},
         stamp::{StampError, StampMsg},
-        tlv::{self, Flags, Tlv, Tlvs},
+        tlv::{self, Error, Flags, Tlv, Tlvs},
     };
 
     pub struct DscpEcnTlv {}
@@ -71,12 +72,12 @@ pub mod ch {
             DscpEcnTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::DSCPECN
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::DSCPECN].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -98,9 +99,9 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::DSCPECN,
                     length: 4,
                     value: vec![
                         Into::<u8>::into(user_dscp) | Into::<u8>::into(user_ecn),
@@ -108,13 +109,14 @@ pub mod ch {
                         0,
                         0,
                     ],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             parameters: &TestArguments,
             netconfig: &mut NetConfiguration,
@@ -141,7 +143,7 @@ pub mod ch {
 
             let response = Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::DSCPECN,
                 length: 4,
                 value: vec![tlv.value[0], dscp_ecn_response, 0, 0],
             };
@@ -152,19 +154,15 @@ pub mod ch {
             netconfig.add_configuration(
                 NetConfigurationItemKind::Dscp,
                 dscp_netconfig,
-                self.tlv_type(),
+                Tlv::DSCPECN,
             );
-            netconfig.add_configuration(
-                NetConfigurationItemKind::Ecn,
-                ecn_netconfig,
-                self.tlv_type(),
-            );
+            netconfig.add_configuration(NetConfigurationItemKind::Ecn, ecn_netconfig, Tlv::DSCPECN);
 
             Ok(response)
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -173,7 +171,7 @@ pub mod ch {
             address
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             response: &mut StampMsg,
             _socket: &UdpSocket,
             item: NetConfigurationItem,
@@ -183,7 +181,7 @@ pub mod ch {
             match item {
                 NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
                     for tlv in &mut response.tlvs.tlvs {
-                        if tlv.tpe == self.tlv_type() {
+                        if self.tlv_type().contains(&tlv.tpe) {
                             // Adjust our response to indicate that there was an error
                             // setting the requested parameters on the packet!
                             tlv.value[2] |= 0x1 << 6;
@@ -214,11 +212,15 @@ pub mod ch {
             TimeTlvCommand::augment_subcommands(existing)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::TIMESTAMP
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::TIMESTAMP].to_vec()
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = TimeTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -232,18 +234,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
                     tpe: 0x3,
                     length: 4,
                     value: vec![0u8; 4],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             _tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -267,7 +270,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -279,7 +282,7 @@ pub mod ch {
             address
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -298,10 +301,10 @@ pub mod ch {
         type Error = StampError;
         fn try_from(value: &Tlv) -> Result<Self, Self::Error> {
             if value.length != 4 {
-                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
+                return Err(StampError::MalformedTlv(Error::NotEnoughData));
             }
             let port: u16 = u16::from_be_bytes(value.value[0..2].try_into().map_err(|_| {
-                StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                StampError::MalformedTlv(Error::FieldValueInvalid(
                     "Could not extract port number from TLV value.".to_string(),
                 ))
             })?);
@@ -325,11 +328,15 @@ pub mod ch {
         fn tlv_cli_command(&self, existing: Command) -> Command {
             DestinationPortTlvCommand::augment_subcommands(existing)
         }
-        fn tlv_type(&self) -> u8 {
-            Tlv::DESTINATION_PORT
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::DESTINATION_PORT].to_vec()
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = DestinationPortTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -347,18 +354,19 @@ pub mod ch {
             data[0..2].copy_from_slice(&983u16.to_be_bytes());
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::DESTINATION_PORT,
                     length: 4,
                     value: data.to_vec(),
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -375,7 +383,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             response: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -385,7 +393,7 @@ pub mod ch {
                 "Preparing the response target in the destination port Tlv."
             );
             for tlv in response.tlvs.tlvs.iter() {
-                if tlv.tpe == self.tlv_type() {
+                if self.tlv_type().contains(&tlv.tpe) {
                     let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
                     let mut ipv4 = address;
                     ipv4.set_port(new_port);
@@ -396,7 +404,7 @@ pub mod ch {
         }
 
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -419,11 +427,11 @@ pub mod ch {
         type Error = StampError;
         fn try_from(tlv: &Tlv) -> Result<ClassOfServiceTlv, StampError> {
             if tlv.length != 4 {
-                return Err(StampError::MalformedTlv(tlv::Error::NotEnoughData));
+                return Err(StampError::MalformedTlv(Error::NotEnoughData));
             }
 
             if tlv.value[2] & 0x3f != 0 || tlv.value[3] != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                     "Reserved".to_string(),
                 )));
             }
@@ -484,12 +492,12 @@ pub mod ch {
             ClassOfServiceTlvCommand::augment_subcommands(existing)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::COS
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::COS].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -511,7 +519,7 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::COS,
                     length: 4,
@@ -521,13 +529,14 @@ pub mod ch {
                         Into::<u8>::into(user_ecn) << 6,
                         0,
                     ],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             parameters: &TestArguments,
             netconfig: &mut NetConfiguration,
@@ -540,7 +549,7 @@ pub mod ch {
             let mut cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
 
             if cos_tlv.rp != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                     "RP".to_string(),
                 )));
             }
@@ -563,22 +572,14 @@ pub mod ch {
             info!(logger, "Dscp requested back? {:?}", cos_tlv.dscp1);
 
             let dscp_netconfig = NetConfigurationItem::Dscp(cos_tlv.dscp1);
-            netconfig.add_configuration(
-                NetConfigurationItemKind::Dscp,
-                dscp_netconfig,
-                self.tlv_type(),
-            );
+            netconfig.add_configuration(NetConfigurationItemKind::Dscp, dscp_netconfig, Tlv::COS);
 
             let ecn_netconfig = NetConfigurationItem::Ecn(cos_tlv.ecn2);
-            netconfig.add_configuration(
-                NetConfigurationItemKind::Ecn,
-                ecn_netconfig,
-                self.tlv_type(),
-            );
+            netconfig.add_configuration(NetConfigurationItemKind::Ecn, ecn_netconfig, Tlv::COS);
 
             let response = Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::COS,
                 length: 4,
                 value: cos_tlv.into(),
             };
@@ -587,7 +588,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -596,7 +597,7 @@ pub mod ch {
             address
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             response: &mut StampMsg,
             _socket: &UdpSocket,
             item: NetConfigurationItem,
@@ -606,7 +607,7 @@ pub mod ch {
             match item {
                 NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
                     for tlv in &mut response.tlvs.tlvs {
-                        if tlv.tpe == self.tlv_type() {
+                        if self.tlv_type().contains(&tlv.tpe) {
                             // Adjust our response to indicate that there was an error
                             // setting the reverse path parameters on the packet!
                             tlv.value[1] |= 0x1;
@@ -653,12 +654,12 @@ pub mod ch {
             LocationTlvCommand::augment_subcommands(existing)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::LOCATION
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::LOCATION].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -698,18 +699,19 @@ pub mod ch {
             request_value.extend_from_slice(&sub_tlv_value);
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::LOCATION,
                     length: request_value.len() as u16,
                     value: request_value,
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -724,13 +726,13 @@ pub mod ch {
             let src_port = u16::from_be_bytes(src_port_bytes.try_into().unwrap());
 
             if dst_port != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                     "Destination port".to_string(),
                 )));
             }
 
             if src_port != 0 {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                     "Source port".to_string(),
                 )));
             }
@@ -739,8 +741,8 @@ pub mod ch {
             let mut sub_tlvs: Tlvs = TryFrom::<&[u8]>::try_from(&tlv.value[start_offset..])?;
 
             for sub_tlv in sub_tlvs.tlvs.iter_mut() {
-                if sub_tlv.value.iter().any(|f| *f != 0) {
-                    return Err(StampError::MalformedTlv(tlv::Error::FieldNotZerod(
+                if !sub_tlv.is_all_zeros() {
+                    return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                         format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
                     )));
                 }
@@ -748,7 +750,7 @@ pub mod ch {
                 match sub_tlv.tpe {
                     Self::SOURCE_IP_TYPE => {
                         if sub_tlv.length != Self::SOURCE_IP_LENGTH {
-                            return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                            return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                                 format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
                                 Self::SOURCE_IP_LENGTH as usize,
                                 sub_tlv.length as usize,
@@ -774,7 +776,7 @@ pub mod ch {
                     // in order to complete this TLV, so we do that in the prepare_response_socket.
                     Self::DESTINATION_IP_TYPE => {
                         if sub_tlv.length != Self::DESTINATION_IP_LENGTH {
-                            return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                            return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                                 format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
                                 Self::DESTINATION_IP_LENGTH as usize,
                                 sub_tlv.length as usize,
@@ -798,7 +800,7 @@ pub mod ch {
                     }
                     Self::SOURCE_MAC_TYPE => {
                         if sub_tlv.length != Self::SOURCE_MAC_LENGTH {
-                            return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                            return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                                 format!("Sub TLV with type {}", sub_tlv.tpe).to_string(),
                                 Self::DESTINATION_IP_LENGTH as usize,
                                 sub_tlv.length as usize,
@@ -838,14 +840,14 @@ pub mod ch {
 
             Ok(Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::LOCATION,
                 length: result_value.len() as u16,
                 value: result_value,
             })
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -855,7 +857,7 @@ pub mod ch {
         }
 
         fn pre_send_fixup(
-            &self,
+            &mut self,
             response: &mut StampMsg,
             socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -864,7 +866,7 @@ pub mod ch {
             info!(logger, "Preparing the response socket in the Location Tlv.");
 
             for tlv in response.tlvs.tlvs.iter_mut() {
-                if tlv.tpe == self.tlv_type() {
+                if self.tlv_type().contains(&tlv.tpe) {
                     let start_offset = 4usize;
                     let mut sub_tlvs: Tlvs =
                         TryFrom::<&[u8]>::try_from(&tlv.value[start_offset..])?;
@@ -899,7 +901,7 @@ pub mod ch {
         }
 
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -928,11 +930,15 @@ pub mod ch {
             UnrecognizedTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            0
+        fn tlv_type(&self) -> Vec<u8> {
+            [0].to_vec()
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = UnrecognizedTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -945,11 +951,11 @@ pub mod ch {
                 None
             };
 
-            Some((Tlv::unrecognized(32), next_tlv_command))
+            Some(([Tlv::unrecognized(32)].to_vec(), next_tlv_command))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -962,7 +968,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -974,7 +980,7 @@ pub mod ch {
             address
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -983,7 +989,7 @@ pub mod ch {
             Ok(())
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1015,12 +1021,12 @@ pub mod ch {
             PaddingTlvCommand::augment_subcommands(existing)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::PADDING
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::PADDING].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -1040,18 +1046,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::PADDING,
                     length: 4 + size,
                     value: vec![0u8; 4 + size as usize],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1065,7 +1072,7 @@ pub mod ch {
             Ok(response)
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -1075,7 +1082,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -1085,7 +1092,7 @@ pub mod ch {
         }
 
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1113,7 +1120,7 @@ pub mod ch {
     }
 
     impl TryFrom<u8> for AccessReportAccessId {
-        type Error = tlv::Error;
+        type Error = Error;
         fn try_from(value: u8) -> Result<Self, Self::Error> {
             let value = value >> 4;
             if value == 1 {
@@ -1121,7 +1128,7 @@ pub mod ch {
             } else if value == 2 {
                 Ok(AccessReportAccessId::NonThreeGPP)
             } else {
-                Err(tlv::Error::FieldValueInvalid("Access ID".to_string()))
+                Err(Error::FieldValueInvalid("Access ID".to_string()))
             }
         }
     }
@@ -1150,11 +1157,15 @@ pub mod ch {
             AccessReportTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::ACCESSREPORT
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::ACCESSREPORT].to_vec()
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = AccessReportTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -1172,18 +1183,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::ACCESSREPORT,
                     length: 4,
                     value: vec![access_id.into(), active.into(), 0, 0],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1201,7 +1213,7 @@ pub mod ch {
             } else if tlv.value[1] == 0 {
                 false
             } else {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                return Err(StampError::MalformedTlv(Error::FieldValueInvalid(
                     "Active".to_string(),
                 )));
             };
@@ -1221,7 +1233,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -1233,7 +1245,7 @@ pub mod ch {
             address
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -1242,7 +1254,7 @@ pub mod ch {
             Ok(())
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1278,11 +1290,15 @@ pub mod ch {
             HistoryTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::HISTORY
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::HISTORY].to_vec()
         }
 
-        fn request(&self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
             let maybe_our_command = HistoryTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
@@ -1299,18 +1315,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::HISTORY,
                     length: (length as u16) * Self::OCTETS_PER_ENTRY as u16,
                     value: vec![0u8; length * Self::OCTETS_PER_ENTRY],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1336,14 +1353,14 @@ pub mod ch {
 
             Ok(Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::HISTORY,
                 length: history_bytes.len() as u16,
                 value: history_bytes,
             })
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -1352,7 +1369,7 @@ pub mod ch {
             address
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -1361,7 +1378,7 @@ pub mod ch {
             Ok(())
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1394,12 +1411,12 @@ pub mod ch {
             FollowupTlvCommand::augment_subcommands(existing)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::FOLLOWUP
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::FOLLOWUP].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -1416,18 +1433,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::FOLLOWUP,
                     length: Self::TLV_LENGTH,
                     value: vec![0u8; Self::TLV_LENGTH as usize],
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1438,7 +1456,7 @@ pub mod ch {
             info!(logger, "Handling the response in the Followup Tlv.");
 
             if tlv.length != Self::TLV_LENGTH {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                     "Length".to_string(),
                     Self::TLV_LENGTH as usize,
                     tlv.length as usize,
@@ -1469,7 +1487,7 @@ pub mod ch {
         }
 
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -1479,7 +1497,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -1489,7 +1507,7 @@ pub mod ch {
         }
 
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1525,7 +1543,7 @@ pub mod ch {
         type Error = StampError;
         fn try_from(value: &Tlv) -> Result<ReflectedControlTlv, Self::Error> {
             if value.value.len() != Self::MINIMUM_LENGTH as usize {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                     "Length".to_string(),
                     Self::MINIMUM_LENGTH as usize,
                     value.value.len(),
@@ -1533,17 +1551,17 @@ pub mod ch {
             }
             let reflected_length: u16 =
                 u16::from_be_bytes(value.value[0..2].try_into().map_err(|_| {
-                    StampError::MalformedTlv(tlv::Error::FieldValueInvalid(
+                    StampError::MalformedTlv(Error::FieldValueInvalid(
                         "reflected_length".to_string(),
                     ))
                 })?);
 
             let count: u16 = u16::from_be_bytes(value.value[2..4].try_into().map_err(|_| {
-                StampError::MalformedTlv(tlv::Error::FieldValueInvalid("count".to_string()))
+                StampError::MalformedTlv(Error::FieldValueInvalid("count".to_string()))
             })?);
 
             let interval: u32 = u32::from_be_bytes(value.value[4..8].try_into().map_err(|_| {
-                StampError::MalformedTlv(tlv::Error::FieldValueInvalid("interval".to_string()))
+                StampError::MalformedTlv(Error::FieldValueInvalid("interval".to_string()))
             })?);
             Ok(ReflectedControlTlv {
                 reflected_length,
@@ -1584,12 +1602,12 @@ pub mod ch {
             ReflectedControlTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::REFLECTED_CONTROL
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::REFLECTED_CONTROL].to_vec()
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -1612,9 +1630,9 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::REFLECTED_CONTROL,
                     length: ReflectedControlTlv::MINIMUM_LENGTH,
                     value: ReflectedControlTlv {
                         reflected_length: user_reflected_length,
@@ -1622,13 +1640,14 @@ pub mod ch {
                         interval: user_interval.as_nanos().try_into().unwrap(),
                     }
                     .into(),
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn request_fixup(
-            &self,
+            &mut self,
             request: &mut StampMsg,
             _session: &Option<SessionData>,
             logger: Logger,
@@ -1674,7 +1693,7 @@ pub mod ch {
             if skinny_packet_msg_length < reflected_control_tlv_requested_length as usize {
                 // Calculate the amount of padding that we need to add back.
                 let needed_padding_length =
-                    reflected_control_tlv_requested_length as usize - raw_packet_msg_length;
+                    reflected_control_tlv_requested_length as usize - skinny_packet_msg_length;
 
                 // And add it back.
                 request.tlvs.tlvs.push(Tlv {
@@ -1695,7 +1714,7 @@ pub mod ch {
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1709,14 +1728,14 @@ pub mod ch {
 
             let response = Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::REFLECTED_CONTROL,
                 length: Self::MINIMUM_LENGTH,
                 value: reflected_control_tlv.into(),
             };
             Ok(response)
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _session: &Option<SessionData>,
@@ -1726,7 +1745,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -1738,7 +1757,7 @@ pub mod ch {
             address
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
@@ -1748,7 +1767,7 @@ pub mod ch {
         }
 
         fn handle_asymmetry(
-            &self,
+            &mut self,
             response: StampMsg,
             sessions: Option<Sessions>,
             base_destination: SocketAddr,
@@ -1759,7 +1778,7 @@ pub mod ch {
         ) -> Result<(), StampError> {
             let mut found_tlv: Option<Tlv> = None;
             for tlv in response.tlvs.tlvs.iter().clone() {
-                if tlv.tpe == self.tlv_type() {
+                if self.tlv_type().contains(&tlv.tpe) {
                     found_tlv = Some(tlv.clone());
                 }
             }
@@ -1787,7 +1806,7 @@ pub mod ch {
                 let doer = move || {
                     info!(
                         logger,
-                        "I'm here because of a Reflected Test Packet Control TLV."
+                        "I am here because of a Reflected Test Packet Control TLV."
                     );
 
                     // We need this query in several places ... let's just make it once.
@@ -1831,6 +1850,7 @@ pub mod ch {
 
                     responder.respond(
                         actual_response_msg,
+                        None,
                         NetConfiguration::new(),
                         base_src,
                         base_destination,
@@ -1877,14 +1897,14 @@ pub mod ch {
         type Error = StampError;
         fn try_from(value: &Tlv) -> Result<HmacTlv, Self::Error> {
             if value.tpe != Tlv::HMAC_TLV {
-                return Err(StampError::MalformedTlv(tlv::Error::WrongType(
+                return Err(StampError::MalformedTlv(Error::WrongType(
                     Tlv::HMAC_TLV,
                     value.tpe,
                 )));
             }
 
             if value.value.len() != Self::LENGTH as usize {
-                return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                return Err(StampError::MalformedTlv(Error::FieldWrongSized(
                     "Length".to_string(),
                     Self::LENGTH as usize,
                     value.value.len(),
@@ -1911,12 +1931,12 @@ pub mod ch {
             HmacTlvCommand::augment_subcommands(command)
         }
 
-        fn tlv_type(&self) -> u8 {
-            Tlv::HMAC_TLV
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::HMAC_TLV].to_vec()
         }
 
         fn request_fixup(
-            &self,
+            &mut self,
             request: &mut StampMsg,
             _session: &Option<SessionData>,
             logger: Logger,
@@ -1945,7 +1965,7 @@ pub mod ch {
         }
 
         fn request(
-            &self,
+            &mut self,
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
@@ -1963,18 +1983,19 @@ pub mod ch {
             };
 
             Some((
-                Tlv {
+                [Tlv {
                     flags: Flags::new_request(),
-                    tpe: self.tlv_type(),
+                    tpe: Tlv::HMAC_TLV,
                     length: HmacTlv::LENGTH,
                     value: HmacTlv { hmac: [0; 16] }.into(),
-                },
+                }]
+                .to_vec(),
                 next_tlv_command,
             ))
         }
 
         fn handle(
-            &self,
+            &mut self,
             tlv: &tlv::Tlv,
             _parameters: &TestArguments,
             _netconfig: &mut NetConfiguration,
@@ -1988,14 +2009,14 @@ pub mod ch {
 
             let response = Tlv {
                 flags: Flags::new_response(),
-                tpe: self.tlv_type(),
+                tpe: Tlv::HMAC_TLV,
                 length: Self::LENGTH,
                 value: hmac_tlv.into(),
             };
             Ok(response)
         }
         fn pre_send_fixup(
-            &self,
+            &mut self,
             response: &mut StampMsg,
             _socket: &UdpSocket,
             session: &Option<SessionData>,
@@ -2015,7 +2036,7 @@ pub mod ch {
         }
 
         fn prepare_response_target(
-            &self,
+            &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
@@ -2024,13 +2045,250 @@ pub mod ch {
             address
         }
         fn handle_netconfig_error(
-            &self,
+            &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
             _item: NetConfigurationItem,
             _logger: Logger,
         ) {
             panic!("There was a net configuration error in a handler (HMAC TLV) that does not set net configuration items.");
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct BitPattern {
+        pattern: Vec<u8>,
+    }
+
+    impl FromStr for BitPattern {
+        type Err = clap::Error;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let mut result = vec![0u8; 0];
+            for i in 0..s.len() / 2 {
+                let start = 2 * i;
+                let end = start + 2;
+
+                let value: u8 = u8::from_str_radix(&s[start..end], 16)
+                    .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+                result.push(value);
+            }
+            Ok(BitPattern { pattern: result })
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct BitErrorRateTlv {
+        padding: Vec<u8>,
+        error_count: u32,
+        pattern: Vec<u8>,
+    }
+    #[derive(Subcommand, Clone, Debug)]
+    enum BitErrorRateTlvCommand {
+        BitErrorRate {
+            #[arg(long, default_value = "64")]
+            size: u16,
+
+            #[arg(long, default_value = "ffee")]
+            pattern: BitPattern,
+
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl BitErrorRateTlv {
+        fn bytes_from_pattern(pattern: &[u8], len: usize) -> Vec<u8> {
+            let multiple = len / pattern.len();
+            pattern.repeat(multiple)
+        }
+    }
+
+    impl TlvHandler for BitErrorRateTlv {
+        fn tlv_name(&self) -> String {
+            "Bit Error Rate".into()
+        }
+
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            BitErrorRateTlvCommand::augment_subcommands(existing)
+        }
+
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::BER_PATTERN, Tlv::BER_COUNT].to_vec()
+        }
+
+        fn request_fixup(
+            &mut self,
+            request: &mut StampMsg,
+            _session: &Option<SessionData>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(
+                logger,
+                "BER TLV is fixing up a request (in particular, its length)"
+            );
+
+            // There is nothing for us to fixup!
+            if !request.tlvs.contains(Tlv::BER_COUNT) {
+                return Ok(());
+            }
+
+            // We must have padding!
+            if !request.tlvs.contains(Tlv::PADDING) {
+                warn!(
+                logger,
+                "An incoming packet that contains a BER count does not have the required padding."
+            );
+                return Err(StampError::MalformedTlv(Error::FieldMissing(Tlv::PADDING)));
+            }
+
+            let padding = request
+                .tlvs
+                .find(Tlv::PADDING)
+                .ok_or(StampError::MalformedTlv(Error::FieldMissing(Tlv::PADDING)))?;
+
+            // Record the padding value so that we can verify it later.
+            self.padding.extend_from_slice(&padding.value);
+
+            Ok(())
+        }
+
+        fn pre_send_fixup(
+            &mut self,
+            response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _session: &Option<SessionData>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(
+                logger,
+                "BER TLV is fixing up a response (in particular, its BER count)"
+            );
+
+            if let Some(ber_tlv) = response
+                .tlvs
+                .iter_mut()
+                .find(|tlv| tlv.tpe == Tlv::BER_COUNT)
+            {
+                ber_tlv
+                    .value
+                    .copy_from_slice(&u32::to_be_bytes(self.error_count));
+            }
+            Ok(())
+        }
+
+        fn request(
+            &mut self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = BitErrorRateTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let BitErrorRateTlvCommand::BitErrorRate {
+                size: user_size,
+                pattern: user_pattern,
+                next_tlv_command,
+            } = our_command;
+
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            let actual_pattern =
+                Self::bytes_from_pattern(&user_pattern.pattern, user_size as usize);
+            Some((
+                [
+                    Tlv {
+                        flags: Flags::new_request(),
+                        tpe: Tlv::PADDING,
+                        length: actual_pattern.len() as u16,
+                        value: actual_pattern,
+                    },
+                    Tlv {
+                        flags: Flags::new_request(),
+                        tpe: Tlv::BER_COUNT,
+                        length: 4,
+                        value: vec![0u8; 4],
+                    },
+                    Tlv {
+                        flags: Flags::new_request(),
+                        tpe: Tlv::BER_PATTERN,
+                        length: user_pattern.pattern.len() as u16,
+                        value: user_pattern.pattern,
+                    },
+                ]
+                .to_vec(),
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &mut self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            _session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            let mut response_tlv = tlv.clone();
+
+            // Handle the BER Count specially.
+            if tlv.tpe == Tlv::BER_COUNT {
+                if !tlv.is_all_zeros() {
+                    return Err(StampError::MalformedTlv(Error::FieldNotZerod(
+                        "BER Count".to_string(),
+                    )));
+                }
+                response_tlv.flags = Flags::new_response();
+                return Ok(response_tlv);
+            }
+
+            let expected_data = Self::bytes_from_pattern(&tlv.value, self.padding.len());
+
+            if expected_data == self.padding {
+                info!(logger, "Yes, the expected bits are all present.");
+                response_tlv.flags = Flags::new_response();
+                return Ok(response_tlv);
+            }
+
+            self.error_count = expected_data
+                .iter()
+                .zip(&self.padding)
+                .fold(0, |acc, (l, r)| acc + if *l != *r { 1 } else { 0 });
+
+            info!(
+                logger,
+                "There were {} differences between received and expected bits.", self.error_count
+            );
+            response_tlv.flags = Flags::new_response();
+            Ok(response_tlv)
+        }
+
+        fn prepare_response_target(
+            &mut self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(
+                logger,
+                "Preparing the response target in the Bit Error Rate Tlv."
+            );
+            address
+        }
+        fn handle_netconfig_error(
+            &mut self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (Bit Error Rate) that does not set net configuration items.");
         }
     }
 
@@ -2146,7 +2404,7 @@ pub mod ch {
                 value: vec![crate::ip::DscpValue::AF13.into(), 0, 0, 0],
             };
 
-            let cos_handler: ClassOfServiceTlv = Default::default();
+            let mut cos_handler: ClassOfServiceTlv = Default::default();
 
             let test_logger = create_test_logger();
             let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
@@ -2202,7 +2460,7 @@ pub mod ch {
 
             outter_raw_data[4..].copy_from_slice(&inner_raw_data);
 
-            let handler = LocationTlv {};
+            let mut handler = LocationTlv {};
             let arguments: TestArguments = Default::default();
             let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5001);
             let tlv = TryInto::<Tlv>::try_into(outter_raw_data.as_slice())
@@ -2233,7 +2491,7 @@ pub mod ch {
     }
 }
 
-use ch::{ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv};
+use ch::{BitErrorRateTlv, ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv};
 pub struct CustomHandlers {}
 
 impl CustomHandlers {
@@ -2267,6 +2525,9 @@ impl CustomHandlers {
         let hmac_tlv: HmacTlv = Default::default();
         let hmac_tlv_handler = Arc::new(Mutex::new(hmac_tlv));
         handlers.add(hmac_tlv_handler);
+        let ber_tlv: BitErrorRateTlv = Default::default();
+        let ber_tlv_handler = Arc::new(Mutex::new(ber_tlv));
+        handlers.add(ber_tlv_handler);
         handlers
     }
 }
