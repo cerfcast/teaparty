@@ -184,6 +184,7 @@ Commands:
   reflected-control  
   hmac
   bit-error-rate
+  v6-extension-header-reflection  
   help               Print this message or the help of the given subcommand(s)
 
 Options:
@@ -203,6 +204,7 @@ Options:
 | reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 | bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `--size`, respectively). |
+| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | There is no client functionality for this TLV (yet) |
 
 _Example_:
 
@@ -272,8 +274,10 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | History (sender) | &#9989; |
 | Reflected Test Packet Control ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/))| &#9989; (more testing required, but support starting in [48c274b](https://github.com/cerfcast/teaparty/commit/48c274ba935a00f4652aead5accd6156def3d6cb))|
 | Bit Error Detection and Bit Error Rate ([RFC](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/)) | &#9989; (more work required for complete implementation, but support starting in [592558a](https://github.com/cerfcast/teaparty/commit/592558a38dbcf9b273acb2a2fe8ab0d8f16d0709))[^bertlv] |
+| Simple Two-Way Active Measurement Protocol (STAMP) Extensions for Reflecting STAMP Packet IP Headers ([RFC](https://www.ietf.org/archive/id/draft-ietf-ippm-stamp-ext-hdr-04.html)) | &#9989; (more work required for complete implementation, but support starting in [aa7cdb7](https://github.com/cerfcast/teaparty/commit/aa7cdb755da7d38213f2153f1a0859de5b8aa48a))[^headerreflect] |
 
 [^bertlv]: Note: The BER TLV has been temporarily assigned `0x9` and `0xa` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
+[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `0xb` for TLV Type. The implementation will be updated as the Draft changes.
 ### Testing
 
 In addition to unit tests, there are tools for end-to-end tests in the `testing_data` directory. See [`testing_data/README.md`](./testing_data/README.md)
