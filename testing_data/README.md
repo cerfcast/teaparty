@@ -30,3 +30,5 @@ on `127.0.0.1`.
 an authenticated STAMP test packet to the configured Reflector.
 
 > Note: `source` the `session_request.curl` and `session_sender.tea` file from the root directory of this repository.
+
+`ipv6_extension_header_test_packet` and `ipv6_extension_header_test_packet2` contain the raw bytes of a STAMP test packet with Tlv for Reflected IPv6 Extension Header Data. These files are suitable for use with the [ipv6toolkit](https://github.com/fgont/ipv6toolkit).
