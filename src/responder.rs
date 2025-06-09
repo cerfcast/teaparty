@@ -192,29 +192,6 @@ impl Responder {
 
                 let locked_socket_to_prepare = response_src_socket.lock().unwrap();
 
-                let query_session = Session::new(dest, src, stamp_msg.ssid.clone());
-                let maybe_session_data = self
-                    .sessions
-                    .as_ref()
-                    .and_then(|v| v.sessions.lock().unwrap().get(&query_session).cloned());
-
-                for tlv_tpe in stamp_msg.tlvs.type_iter() {
-                    if let Some(response_tlv_handler) = handlers
-                        .as_ref()
-                        .and_then(|handler| handler.get_handler(tlv_tpe))
-                    {
-                        if let Err(e) = response_tlv_handler.lock().unwrap().pre_send_fixup(
-                            &mut stamp_msg,
-                            &locked_socket_to_prepare,
-                            &maybe_session_data,
-                            logger.clone(),
-                        ) {
-                            error!(logger, "There was an error letting handlers do their final response fixups: {}. Abandoning response.", e);
-                            return;
-                        }
-                    }
-                }
-
                 if let Err(e) = netconfig.configure(
                     &mut stamp_msg,
                     &locked_socket_to_prepare,
