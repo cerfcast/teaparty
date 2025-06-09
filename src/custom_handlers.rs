@@ -18,7 +18,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::{custom_handlers::ch::HeaderOptionsTlv, handlers};
+use crate::{custom_handlers::ch::V6ExtensionHeadersReflectionTlv, handlers};
 
 // Allow dead code in here because it is an API and, yes, there
 // are fields that are not read ... yet.
@@ -2322,29 +2322,29 @@ pub mod ch {
     }
 
     #[derive(Default, Debug)]
-    pub struct HeaderOptionsTlv {
+    pub struct V6ExtensionHeadersReflectionTlv {
         headers: Vec<Ipv6ExtHeader>
     }
 
     #[derive(Subcommand, Clone, Debug)]
-    enum HeaderOptionsTlvCommand {
-        HeaderOptions {
+    enum V6ExtensionHeadersTlvCommand {
+        V6ExtensionHeaderReflection {
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
     }
 
-    impl TlvHandler for HeaderOptionsTlv {
+    impl TlvHandler for V6ExtensionHeadersReflectionTlv {
         fn tlv_name(&self) -> String {
-            "IPv6 Header Options".into()
+            "IPv6 Extension Header Reflection".into()
         }
 
         fn tlv_cli_command(&self, existing: Command) -> Command {
-            HeaderOptionsTlvCommand::augment_subcommands(existing)
+            V6ExtensionHeadersTlvCommand::augment_subcommands(existing)
         }
 
         fn tlv_type(&self) -> Vec<u8> {
-            [Tlv::HEADER_OPTIONS].to_vec()
+            [Tlv::V6_EXTENSION_HEADERS_REFLECTION].to_vec()
         }
 
         fn request(
@@ -2352,12 +2352,12 @@ pub mod ch {
             _args: Option<TestArguments>,
             matches: &mut ArgMatches,
         ) -> TlvRequestResult {
-            let maybe_our_command = HeaderOptionsTlvCommand::from_arg_matches(matches);
+            let maybe_our_command = V6ExtensionHeadersTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let HeaderOptionsTlvCommand::HeaderOptions { next_tlv_command } = our_command;
+            let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection { next_tlv_command } = our_command;
 
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
@@ -2411,7 +2411,7 @@ pub mod ch {
             let header_options = response
                 .tlvs
                 .iter_mut()
-                .filter(|tlv| tlv.tpe == Tlv::HEADER_OPTIONS);
+                .filter(|tlv| tlv.tpe == Tlv::V6_EXTENSION_HEADERS_REFLECTION);
 
             for (ipv6_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
                 // Punt if the IPv6 header is not at least 4 bytes!
@@ -2448,7 +2448,7 @@ pub mod ch {
                 _config.add_configuration(
                     NetConfigurationItemKind::ExtensionHeader,
                     NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
-                    Tlv::HEADER_OPTIONS,
+                    Tlv::V6_EXTENSION_HEADERS_REFLECTION,
                 );
             }
 
@@ -2715,7 +2715,7 @@ impl CustomHandlers {
         let ber_tlv: BitErrorRateTlv = Default::default();
         let ber_tlv_handler = Arc::new(Mutex::new(ber_tlv));
         handlers.add(ber_tlv_handler);
-        let header_options_tlv: HeaderOptionsTlv = Default::default();
+        let header_options_tlv: V6ExtensionHeadersReflectionTlv = Default::default();
         let header_options_tlv_handler = Arc::new(Mutex::new(header_options_tlv));
         handlers.add(header_options_tlv_handler);
         handlers
