@@ -1,0 +1,2 @@
+source testing_data/session_request.curl
+source testing_data/session_sender.tea
