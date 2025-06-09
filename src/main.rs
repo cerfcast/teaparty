@@ -220,24 +220,34 @@ fn client(
 
     let mut configurator = NetConfiguration::new();
     if let Some(socket_ecn) = set_socket_ecn {
-            let ecn_argment = TestArgument::Ecn(socket_ecn);
-            configurator.add_configuration(netconf::NetConfigurationItemKind::Ecn, netconf::NetConfigurationArgument::Ecn(socket_ecn), NetConfiguration::CLIENT_SETTER);
-            test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
+        let ecn_argment = TestArgument::Ecn(socket_ecn);
+        configurator.add_configuration(
+            netconf::NetConfigurationItemKind::Ecn,
+            netconf::NetConfigurationArgument::Ecn(socket_ecn),
+            NetConfiguration::CLIENT_SETTER,
+        );
+        test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
     }
     if let Some(socket_dscp) = set_socket_dscp {
-            let dscp_argment = TestArgument::Dscp(socket_dscp);
-            configurator.add_configuration(netconf::NetConfigurationItemKind::Dscp, netconf::NetConfigurationArgument::Dscp(socket_dscp), NetConfiguration::CLIENT_SETTER);
-            test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
+        let dscp_argment = TestArgument::Dscp(socket_dscp);
+        configurator.add_configuration(
+            netconf::NetConfigurationItemKind::Dscp,
+            netconf::NetConfigurationArgument::Dscp(socket_dscp),
+            NetConfiguration::CLIENT_SETTER,
+        );
+        test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
     }
     if let Some(socket_ttl) = set_socket_ttl {
-            let ttl_argument = TestArgument::Ttl(socket_ttl);
-            configurator.add_configuration(netconf::NetConfigurationItemKind::Ttl, netconf::NetConfigurationArgument::Ttl(socket_ttl), NetConfiguration::CLIENT_SETTER);
-            test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
+        let ttl_argument = TestArgument::Ttl(socket_ttl);
+        configurator.add_configuration(
+            netconf::NetConfigurationItemKind::Ttl,
+            netconf::NetConfigurationArgument::Ttl(socket_ttl),
+            NetConfiguration::CLIENT_SETTER,
+        );
+        test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
     }
 
     let handlers = CustomHandlers::build();
-
-
 
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
@@ -294,7 +304,14 @@ fn client(
         }
     }
 
-    configurator.configure(&mut client_msg, &server_socket, Some(handlers), logger.clone()).map_err(|v| StampError::Other(v.to_string()))?;
+    configurator
+        .configure(
+            &mut client_msg,
+            &server_socket,
+            Some(handlers),
+            logger.clone(),
+        )
+        .map_err(|v| StampError::Other(v.to_string()))?;
 
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;

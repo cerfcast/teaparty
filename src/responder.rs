@@ -25,15 +25,12 @@ use std::{
 };
 
 use nix::sys::socket::{sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
-use slog::{warn, Logger};
 use slog::{error, info};
+use slog::{warn, Logger};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::{
-    handlers::Handlers,
-    netconf::NetConfiguration,
-    server::ServerSocket,
-    stamp::StampMsg,
+    handlers::Handlers, netconf::NetConfiguration, server::ServerSocket, stamp::StampMsg,
     util::to_sockaddr_storage,
 };
 
@@ -95,9 +92,8 @@ impl Responder {
         socket: &UdpSocket,
         config: &NetConfiguration,
         addr: SocketAddr,
-        logger: Logger
+        logger: Logger,
     ) -> Result<usize, std::io::Error> {
-
         let is_ipv6 = socket.local_addr().unwrap().is_ipv6();
 
         let saddr = to_sockaddr_storage(addr);
@@ -112,11 +108,13 @@ impl Responder {
                         cmsg.push(ControlMessage::Ipv6ExtHeader(header))
                     } else {
                         info!(logger, "Skipping IPv6 Extension Header in netconfiguration because the response is sent over IPv4")
-
                     }
                 }
                 u => {
-                    warn!(logger, "Unrecognized control message in netconfiguration: {:?}", u)
+                    warn!(
+                        logger,
+                        "Unrecognized control message in netconfiguration: {:?}", u
+                    )
                 }
             }
         }
@@ -240,7 +238,7 @@ impl Responder {
                         &locked_socket_to_prepare,
                         &netconfig,
                         dest,
-                        logger.clone()
+                        logger.clone(),
                     )
                 };
 

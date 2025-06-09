@@ -478,7 +478,10 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::HMAC_TLV, hmac_tlv_display);
         m.insert(Tlv::BER_PATTERN, ber_pattern_tlv_display);
         m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
-        m.insert(Tlv::V6_EXTENSION_HEADERS_REFLECTION, ipv6_extension_header_tlv_display);
+        m.insert(
+            Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+            ipv6_extension_header_tlv_display,
+        );
         m
     });
 

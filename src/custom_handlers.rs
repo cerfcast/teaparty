@@ -2323,7 +2323,7 @@ pub mod ch {
 
     #[derive(Default, Debug)]
     pub struct V6ExtensionHeadersReflectionTlv {
-        headers: Vec<Ipv6ExtHeader>
+        headers: Vec<Ipv6ExtHeader>,
     }
 
     #[derive(Subcommand, Clone, Debug)]
@@ -2357,7 +2357,8 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection { next_tlv_command } = our_command;
+            let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection { next_tlv_command } =
+                our_command;
 
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
@@ -2440,8 +2441,18 @@ pub mod ch {
                     }
                 }
                 // All good! Copy the data!
-                let mut header_raw = vec![ if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop { 0u8 } else { 60u8 }, (ipv6_header.header_data.len() + 2) as u8 ];
-                ipv6_header.header_data.iter().for_each(|f| header_raw.push(*f));
+                let mut header_raw = vec![
+                    if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop {
+                        0u8
+                    } else {
+                        60u8
+                    },
+                    (ipv6_header.header_data.len() + 2) as u8,
+                ];
+                ipv6_header
+                    .header_data
+                    .iter()
+                    .for_each(|f| header_raw.push(*f));
                 tlv.value.copy_from_slice(&header_raw);
                 tlv.flags.set_unrecognized(false);
 

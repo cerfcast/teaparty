@@ -32,9 +32,7 @@ use etherparse::{
 use mio::{Events, Interest};
 use nix::{
     errno::Errno,
-    sys::socket::{
-        recvmsg, ControlMessageOwned, Ipv6ExtHeader, MsgFlags, SockaddrStorage,
-    },
+    sys::socket::{recvmsg, ControlMessageOwned, Ipv6ExtHeader, MsgFlags, SockaddrStorage},
 };
 use pnet::datalink::DataLinkReceiver;
 use slog::{error, info, trace, warn};
@@ -275,7 +273,9 @@ impl ConnectionGenerator {
                                         ControlMessageOwned::Ipv6HopLimit(val) => {
                                             ttl_recv = Some(val)
                                         }
-                                        ControlMessageOwned::Ipv6ExtHeader(header) => ext_headers.push(header),
+                                        ControlMessageOwned::Ipv6ExtHeader(header) => {
+                                            ext_headers.push(header)
+                                        }
                                         _ => {
                                             unreachable!()
                                         }
