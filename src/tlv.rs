@@ -455,6 +455,10 @@ fn ber_count_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     let count = u32::from_be_bytes(tlv.value[0..4].try_into().unwrap());
     write!(f, " BER Error Count: 0x{:x}", count)
 }
+fn ipv6_extension_header_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    write!(f, " IPv6 Extension Header: {:2x?}", tlv.value)
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -474,6 +478,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::HMAC_TLV, hmac_tlv_display);
         m.insert(Tlv::BER_PATTERN, ber_pattern_tlv_display);
         m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
+        m.insert(Tlv::HEADER_OPTIONS, ipv6_extension_header_tlv_display);
         m
     });
 
@@ -583,6 +588,7 @@ impl Tlv {
     pub const HMAC_TLV: u8 = 8;
     pub const BER_COUNT: u8 = 9;
     pub const BER_PATTERN: u8 = 10;
+    pub const HEADER_OPTIONS: u8 = 11;
 
     pub fn type_to_string(tpe: u8) -> String {
         match tpe {
@@ -600,6 +606,7 @@ impl Tlv {
             Self::HMAC_TLV => "HMAC".into(),
             Self::BER_COUNT => "BER Count".into(),
             Self::BER_PATTERN => "BER Pattern".into(),
+            Self::HEADER_OPTIONS => "Reflected IPv6 Extension Header Data".into(),
             _ => "Unrecognized".into(),
         }
     }

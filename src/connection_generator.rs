@@ -32,7 +32,9 @@ use etherparse::{
 use mio::{Events, Interest};
 use nix::{
     errno::Errno,
-    sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrStorage},
+    sys::socket::{
+        recvmsg, ControlMessageOwned, Ipv6ExtHeader, MsgFlags, SockaddrStorage,
+    },
 };
 use pnet::datalink::DataLinkReceiver;
 use slog::{error, info, trace, warn};
@@ -100,8 +102,9 @@ impl From<ServerSocket> for ConnectionGenerator {
     }
 }
 
+pub type ExtendedIpv6Header = (Ipv6Header, Vec<Ipv6ExtHeader>);
 pub type Connection = (Option<Ethernet2Header>, IpHeaders, Vec<u8>, SocketAddr);
-pub type IpHeaders = either::Either<Ipv4Header, Ipv6Header>;
+pub type IpHeaders = either::Either<Ipv4Header, ExtendedIpv6Header>;
 
 impl ConnectionGenerator {
     fn extract_packets(pkt: &[u8]) -> Option<(Ethernet2Header, IpHeaders, UdpHeader, Vec<u8>)> {
@@ -115,7 +118,9 @@ impl ConnectionGenerator {
 
                 let net_header = match pieces.net {
                     Some(NetSlice::Ipv4(ipv4)) => either::Left(ipv4.header().to_header().clone()),
-                    Some(NetSlice::Ipv6(ipv6)) => either::Right(ipv6.header().to_header().clone()),
+                    Some(NetSlice::Ipv6(ipv6)) => {
+                        either::Right((ipv6.header().to_header().clone(), vec![]))
+                    }
                     _ => {
                         return None;
                     }
@@ -234,7 +239,7 @@ impl ConnectionGenerator {
                 // It also makes it possible for this code to work whether or not the user has configured
                 // polling support.
 
-                let mut buffer = [0u8; 1500];
+                let mut buffer = [0u8; 2500];
 
                 let mut cmsg_buffer = server.get_cmsg_buffer();
 
@@ -256,14 +261,32 @@ impl ConnectionGenerator {
                         let mut dscp_recv: Option<u8> = None;
                         let mut ttl_recv: Option<i32> = None;
                         let mut traffic_class: Option<i32> = None;
+                        let mut ext_headers: Vec<Ipv6ExtHeader> = vec![];
 
-                        for c in result.cmsgs().unwrap() {
-                            match c {
-                                ControlMessageOwned::Ipv4Tos(val) => dscp_recv = Some(val),
-                                ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val),
-                                ControlMessageOwned::Ipv6TClass(val) => traffic_class = Some(val),
-                                ControlMessageOwned::Ipv6HopLimit(val) => ttl_recv = Some(val),
-                                _ => unreachable!(),
+                        match result.cmsgs() {
+                            Ok(cmsgs) => {
+                                for c in cmsgs {
+                                    match c {
+                                        ControlMessageOwned::Ipv4Tos(val) => dscp_recv = Some(val),
+                                        ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val),
+                                        ControlMessageOwned::Ipv6TClass(val) => {
+                                            traffic_class = Some(val)
+                                        }
+                                        ControlMessageOwned::Ipv6HopLimit(val) => {
+                                            ttl_recv = Some(val)
+                                        }
+                                        ControlMessageOwned::Ipv6ExtHeader(header) => ext_headers.push(header),
+                                        _ => {
+                                            unreachable!()
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Could not get cmsg information for connection: {}", e
+                                );
                             }
                         }
 
@@ -326,7 +349,7 @@ impl ConnectionGenerator {
                             }
                             Right(ip6_hdr) => Ok((
                                 None,
-                                either::Right(ip6_hdr),
+                                either::Right((ip6_hdr, ext_headers)),
                                 result.iovs().nth(0).unwrap().to_vec(),
                                 client_ip,
                             )),

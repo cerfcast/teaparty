@@ -25,8 +25,6 @@ use either::Either;
 use etherparse::Ethernet2Header;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
-use nix::sys::socket::sockopt::{Ipv4Tos, Ipv4Ttl, Ipv6TClass, Ipv6Ttl};
-use nix::sys::socket::SetSockOpt;
 use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;

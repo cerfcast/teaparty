@@ -18,7 +18,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::handlers;
+use crate::{custom_handlers::ch::HeaderOptionsTlv, handlers};
 
 // Allow dead code in here because it is an API and, yes, there
 // are fields that are not read ... yet.
@@ -32,13 +32,17 @@ pub mod ch {
     };
 
     use clap::{ArgMatches, Command, FromArgMatches, Subcommand, ValueEnum};
+    use nix::sys::socket::{Ipv6ExtHeader, Ipv6ExtHeaderType};
     use slog::{error, info, warn, Logger};
 
     use crate::{
         asymmetry::{Asymmetry, TaskResult},
         handlers::{HandlerError, TlvHandler, TlvRequestResult},
         ip::{DscpValue, EcnValue},
-        netconf::{NetConfiguration, NetConfigurationItem, NetConfigurationItemKind},
+        netconf::{
+            NetConfiguration, NetConfigurationArgument, NetConfigurationItem,
+            NetConfigurationItemKind,
+        },
         ntp::TimeSource,
         parameters::{TestArgumentKind, TestArguments},
         responder::Responder,
@@ -126,8 +130,18 @@ pub mod ch {
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am in the Ecn TLV handler!");
 
-            let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
-            let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
+            let ecn_argument: u8 = match parameters.get_parameter_value::<u8>(TestArgumentKind::Ecn)
+            {
+                Ok(ecn_arguments) => ecn_arguments[0],
+                Err(e) => return Err(e),
+            };
+
+            // Remember: DSCP bits are in the msb!
+            let dscp_argument: u8 =
+                match parameters.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
+                    Ok(dscp_arguments) => dscp_arguments[0],
+                    Err(e) => return Err(e),
+                };
 
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
@@ -148,16 +162,17 @@ pub mod ch {
                 value: vec![tlv.value[0], dscp_ecn_response, 0, 0],
             };
 
-            let ecn_netconfig = NetConfigurationItem::Ecn(ecn_requested_response);
-            let dscp_netconfig = NetConfigurationItem::Dscp(dscp_requested_response);
-
             netconfig.add_configuration(
                 NetConfigurationItemKind::Dscp,
-                dscp_netconfig,
+                NetConfigurationArgument::Dscp(dscp_requested_response),
                 Tlv::DSCPECN,
             );
-            netconfig.add_configuration(NetConfigurationItemKind::Ecn, ecn_netconfig, Tlv::DSCPECN);
 
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Ecn,
+                NetConfigurationArgument::Ecn(ecn_requested_response),
+                Tlv::DSCPECN,
+            );
             Ok(response)
         }
 
@@ -554,9 +569,18 @@ pub mod ch {
                 )));
             }
 
-            let ecn_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Ecn)?;
+            let ecn_argument: u8 = match parameters.get_parameter_value::<u8>(TestArgumentKind::Ecn)
+            {
+                Ok(ecn_arguments) => ecn_arguments[0],
+                Err(e) => return Err(e),
+            };
+
             // Remember: DSCP bits are in the msb!
-            let dscp_argument: u8 = parameters.get_parameter_value(TestArgumentKind::Dscp)?;
+            let dscp_argument: u8 =
+                match parameters.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
+                    Ok(dscp_arguments) => dscp_arguments[0],
+                    Err(e) => return Err(e),
+                };
 
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
@@ -571,11 +595,17 @@ pub mod ch {
 
             info!(logger, "Dscp requested back? {:?}", cos_tlv.dscp1);
 
-            let dscp_netconfig = NetConfigurationItem::Dscp(cos_tlv.dscp1);
-            netconfig.add_configuration(NetConfigurationItemKind::Dscp, dscp_netconfig, Tlv::COS);
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Dscp,
+                NetConfigurationArgument::Dscp(cos_tlv.dscp1),
+                Tlv::COS,
+            );
 
-            let ecn_netconfig = NetConfigurationItem::Ecn(cos_tlv.ecn2);
-            netconfig.add_configuration(NetConfigurationItemKind::Ecn, ecn_netconfig, Tlv::COS);
+            netconfig.add_configuration(
+                NetConfigurationItemKind::Ecn,
+                NetConfigurationArgument::Ecn(cos_tlv.ecn2),
+                Tlv::COS,
+            );
 
             let response = Tlv {
                 flags: Flags::new_response(),
@@ -812,12 +842,12 @@ pub mod ch {
 
                         sub_tlv.tpe = Self::SOURCE_EUI48_TYPE;
 
-                        let peer_mac_address = _parameters
+                        let peer_mac_address = &_parameters
                             .get_parameter_value::<Vec<u8>>(TestArgumentKind::PeerMacAddress)
-                            .unwrap();
+                            .unwrap()[0];
                         info!(logger, "The location TLV is requesting a source mac address; responding with {:?}", peer_mac_address);
 
-                        sub_tlv.value = peer_mac_address;
+                        sub_tlv.value = peer_mac_address.clone();
                         sub_tlv.value.extend_from_slice(&[0u8; 2]);
                     }
 
@@ -860,6 +890,7 @@ pub mod ch {
             &mut self,
             response: &mut StampMsg,
             socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             logger: Logger,
         ) -> Result<(), StampError> {
@@ -983,6 +1014,7 @@ pub mod ch {
             &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -1075,6 +1107,7 @@ pub mod ch {
             &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -1248,6 +1281,7 @@ pub mod ch {
             &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -1372,6 +1406,7 @@ pub mod ch {
             &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -1490,6 +1525,7 @@ pub mod ch {
             &mut self,
             _response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -1733,15 +1769,6 @@ pub mod ch {
                 value: reflected_control_tlv.into(),
             };
             Ok(response)
-        }
-        fn pre_send_fixup(
-            &mut self,
-            _response: &mut StampMsg,
-            _socket: &UdpSocket,
-            _session: &Option<SessionData>,
-            _logger: Logger,
-        ) -> Result<(), StampError> {
-            Ok(())
         }
 
         fn prepare_response_target(
@@ -2019,6 +2046,7 @@ pub mod ch {
             &mut self,
             response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             session: &Option<SessionData>,
             _logger: Logger,
         ) -> Result<(), StampError> {
@@ -2156,6 +2184,7 @@ pub mod ch {
             &mut self,
             response: &mut StampMsg,
             _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
             _session: &Option<SessionData>,
             logger: Logger,
         ) -> Result<(), StampError> {
@@ -2289,6 +2318,164 @@ pub mod ch {
             _logger: Logger,
         ) {
             panic!("There was a net configuration error in a handler (Bit Error Rate) that does not set net configuration items.");
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct HeaderOptionsTlv {
+        headers: Vec<Ipv6ExtHeader>
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum HeaderOptionsTlvCommand {
+        HeaderOptions {
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for HeaderOptionsTlv {
+        fn tlv_name(&self) -> String {
+            "IPv6 Header Options".into()
+        }
+
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            HeaderOptionsTlvCommand::augment_subcommands(existing)
+        }
+
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::HEADER_OPTIONS].to_vec()
+        }
+
+        fn request(
+            &mut self,
+            _args: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = HeaderOptionsTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let HeaderOptionsTlvCommand::HeaderOptions { next_tlv_command } = our_command;
+
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            Some((vec![], next_tlv_command))
+        }
+
+        fn handle(
+            &mut self,
+            tlv: &tlv::Tlv,
+            parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            _session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            let mut response_tlv = tlv.clone();
+            response_tlv.flags = Flags::new_response();
+
+            // By default, assume that this TLV is unrecognized. When
+            // data is actually put in it (pre_send_fixup), the value
+            // will be changed!
+            response_tlv.flags.set_unrecognized(true);
+
+            self.headers = parameters.get_parameter_value(TestArgumentKind::HeaderOption)?;
+            if !self.headers.is_empty() {
+                info!(
+                    logger,
+                    "There are {} IPv6 headers for this request: {:x?}",
+                    self.headers.len(),
+                    self.headers
+                );
+            }
+
+            Ok(response_tlv)
+        }
+
+        fn pre_send_fixup(
+            &mut self,
+            response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _config: &mut NetConfiguration,
+            _session: &Option<SessionData>,
+            logger: Logger,
+        ) -> Result<(), StampError> {
+            info!(logger, "IPv6 Header Option TLV is fixing up a response");
+
+            let header_options = response
+                .tlvs
+                .iter_mut()
+                .filter(|tlv| tlv.tpe == Tlv::HEADER_OPTIONS);
+
+            for (ipv6_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
+                // Punt if the IPv6 header is not at least 4 bytes!
+                if ipv6_header.header_data.len() < 4 {
+                    info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
+                    continue;
+                }
+                if ipv6_header.header_data.len() + 2 != (tlv.length as usize) {
+                    info!(
+                        logger,
+                        "IPv6 extension header size does not match TLV length."
+                    );
+                    continue;
+                }
+                if !tlv.is_all_zeros() {
+                    if tlv.length < 4 {
+                        info!(
+                            logger,
+                            "Header Option TLV match contains a guard but is shorter than 4 bytes."
+                        );
+                        continue;
+                    }
+                    if ipv6_header.header_data[0..4] != tlv.value[0..4] {
+                        info!(logger, "Header Option TLV match guard is false.");
+                        continue;
+                    }
+                }
+                // All good! Copy the data!
+                let mut header_raw = vec![ if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop { 0u8 } else { 60u8 }, (ipv6_header.header_data.len() + 2) as u8 ];
+                ipv6_header.header_data.iter().for_each(|f| header_raw.push(*f));
+                tlv.value.copy_from_slice(&header_raw);
+                tlv.flags.set_unrecognized(false);
+
+                _config.add_configuration(
+                    NetConfigurationItemKind::ExtensionHeader,
+                    NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
+                    Tlv::HEADER_OPTIONS,
+                );
+            }
+
+            Ok(())
+        }
+
+        fn prepare_response_target(
+            &mut self,
+            _: &mut StampMsg,
+            address: SocketAddr,
+            logger: Logger,
+        ) -> SocketAddr {
+            info!(
+                logger,
+                "Preparing the response target in the IPv6 Header Options Tlv."
+            );
+            address
+        }
+
+        fn handle_netconfig_error(
+            &mut self,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (IPv6 Header Options) that does not set net configuration items.");
         }
     }
 
@@ -2528,6 +2715,9 @@ impl CustomHandlers {
         let ber_tlv: BitErrorRateTlv = Default::default();
         let ber_tlv_handler = Arc::new(Mutex::new(ber_tlv));
         handlers.add(ber_tlv_handler);
+        let header_options_tlv: HeaderOptionsTlv = Default::default();
+        let header_options_tlv_handler = Arc::new(Mutex::new(header_options_tlv));
+        handlers.add(header_options_tlv_handler);
         handlers
     }
 }

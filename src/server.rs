@@ -24,12 +24,9 @@ use std::{
 };
 
 use crate::{ntp, stamp::Ssid};
-use nix::{
-    libc::{self, cmsghdr},
-    sys::socket::{
-        sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv6RecvHopLimit, Ipv6RecvTClass},
-        SetSockOpt,
-    },
+use nix::sys::socket::{
+    sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv6DstOpts, Ipv6HopOpts, Ipv6RecvHopLimit, Ipv6RecvTClass},
+    SetSockOpt,
 };
 use owning_ref::MutexGuardRefMut;
 use serde::{ser::SerializeStruct, Serialize};
@@ -444,30 +441,20 @@ impl ServerSocket {
             Ipv6RecvTClass.set(&*socket, &set_tclass_value)?;
             let set_hoplimit_value = true;
             Ipv6RecvHopLimit.set(&*socket, &set_hoplimit_value)?;
+            let set_dstopts_value = true;
+            Ipv6DstOpts.set(&*socket, &set_dstopts_value)?;
+            let set_hopopts_value = true;
+            Ipv6HopOpts.set(&*socket, &set_hopopts_value)?;
             Ok(())
         }
     }
 
-    fn align_to<T>(size: usize) -> usize {
-        (size +
-            (std::mem::size_of::<T>() - 1)) // Round up.
-            & !(std::mem::size_of::<T>() - 1) // Truncate if we overshot!
-    }
-
     pub fn get_cmsg_buffer(&self) -> Vec<u8> {
-        if self.socket_addr.is_ipv4() {
-            let tos_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
-                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-            let ttl_size = ServerSocket::align_to::<usize>(std::mem::size_of::<u8>())
-                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-            vec![0u8; tos_size + ttl_size]
-        } else {
-            let tclass_size = ServerSocket::align_to::<usize>(std::mem::size_of::<i32>())
-                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-            let hoplimit_size = ServerSocket::align_to::<usize>(std::mem::size_of::<libc::c_int>())
-                + ServerSocket::align_to::<usize>(std::mem::size_of::<cmsghdr>());
-            vec![0u8; tclass_size + hoplimit_size]
-        }
+        // By default (in the kernel), the maximum size for ancillary cmsg data is
+        // sizeof(unsigned long)*(2*UIO_MAXIOV+512)
+        // where UIO_MAXIOV is 1024.
+        // So, let's just make it that!
+        vec![0u8; 8 * (2 * 1024 + 512)]
     }
 }
 
