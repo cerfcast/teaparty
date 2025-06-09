@@ -41,6 +41,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use crate::netconf::NetConfiguration;
+
 #[macro_use]
 extern crate rocket;
 
@@ -218,163 +220,27 @@ fn client(
 
     let mut test_arguments: TestArguments = Default::default();
 
-    let mut tos_byte: u8 = 0;
-
+    let mut configurator = NetConfiguration::new();
     if let Some(socket_ecn) = set_socket_ecn {
-        if server_addr.is_ipv4() {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv4 ECN on the server socket."
-            );
-            tos_byte |= Into::<u8>::into(socket_ecn);
-            let set_tos_value = tos_byte as i32;
-            if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
             let ecn_argment = TestArgument::Ecn(socket_ecn);
+            configurator.add_configuration(netconf::NetConfigurationItemKind::Ecn, netconf::NetConfigurationArgument::Ecn(socket_ecn), NetConfiguration::CLIENT_SETTER);
             test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv4 ECN on the server socket."
-            );
-        } else {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv6 ECN (via Traffic Class) on the server socket."
-            );
-            tos_byte |= Into::<u8>::into(socket_ecn);
-            let set_tos_value = tos_byte as i32;
-            if let Err(set_tos_value_err) = Ipv6TClass.set(&server_socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
-            let ecn_argment = TestArgument::Ecn(socket_ecn);
-            test_arguments.add_argument(parameters::TestArgumentKind::Ecn, ecn_argment);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv6 ECN (via Traffic Class) on the server socket."
-            );
-        }
     }
-
     if let Some(socket_dscp) = set_socket_dscp {
-        if server_addr.is_ipv4() {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv4 DSCP on the server socket."
-            );
-            tos_byte |= Into::<u8>::into(socket_dscp);
-            let set_tos_value = tos_byte as i32;
-            if let Err(set_tos_value_err) = Ipv4Tos.set(&server_socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
             let dscp_argment = TestArgument::Dscp(socket_dscp);
+            configurator.add_configuration(netconf::NetConfigurationItemKind::Dscp, netconf::NetConfigurationArgument::Dscp(socket_dscp), NetConfiguration::CLIENT_SETTER);
             test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv4 DSCP on the server socket."
-            );
-        } else {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv6 DSCP (via Traffic Class) on the server socket."
-            );
-            tos_byte |= Into::<u8>::into(socket_dscp);
-            let set_tos_value = tos_byte as i32;
-            if let Err(set_tos_value_err) = Ipv6TClass.set(&server_socket, &set_tos_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
-            let dscp_argment = TestArgument::Dscp(socket_dscp);
-            test_arguments.add_argument(parameters::TestArgumentKind::Dscp, dscp_argment);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv6 DSCP (via Traffic Class) on the server socket."
-            );
-        }
     }
-
     if let Some(socket_ttl) = set_socket_ttl {
-        if server_addr.is_ipv4() {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv4 DSCP on the server socket."
-            );
-            let set_ttl_value = socket_ttl as i32;
-            if let Err(set_tos_value_err) = Ipv4Ttl.set(&server_socket, &set_ttl_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
             let ttl_argument = TestArgument::Ttl(socket_ttl);
+            configurator.add_configuration(netconf::NetConfigurationItemKind::Ttl, netconf::NetConfigurationArgument::Ttl(socket_ttl), NetConfiguration::CLIENT_SETTER);
             test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv4 TTL on the server socket."
-            );
-        } else {
-            info!(
-                logger,
-                "About to configure the sending value of the IPv6 TTL on the server socket."
-            );
-            let set_ttl_value = socket_ttl as i32;
-            if let Err(set_tos_value_err) = Ipv6Ttl.set(&server_socket, &set_ttl_value) {
-                error!(
-                    logger,
-                    "There was an error configuring the client socket: {}", set_tos_value_err
-                );
-                return Err(Into::<StampError>::into(Into::<std::io::Error>::into(
-                    std::io::ErrorKind::ConnectionRefused,
-                )));
-            }
-
-            let ttl_argument = TestArgument::Ttl(socket_ttl);
-            test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
-
-            info!(
-                logger,
-                "Done configuring the sending value of the IPv6 TTL on the server socket."
-            );
-        }
     }
 
     let handlers = CustomHandlers::build();
+
+
+
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
         .unwrap_or_default();
@@ -423,11 +289,14 @@ fn client(
             let _ = handler.lock().unwrap().pre_send_fixup(
                 &mut client_msg,
                 &server_socket,
+                &mut configurator,
                 &fixup_session_data,
                 logger.clone(),
             );
         }
     }
+
+    configurator.configure(&mut client_msg, &server_socket, Some(handlers), logger.clone()).map_err(|v| StampError::Other(v.to_string()))?;
 
     let send_length =
         server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
@@ -718,7 +587,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
         // No matter what is the type of the listener, now that there is a generator it can be
         // used to get packets sent by clients. We create a new thread to service each generator.
 
-        let responder = Arc::new(responder::Responder::new(sessions.clone()));
+        let responder = Arc::new(responder::Responder::new());
         let responder_canceller = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // TODO

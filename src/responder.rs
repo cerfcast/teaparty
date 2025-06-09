@@ -17,21 +17,22 @@
  */
 
 use std::{
+    io::IoSlice,
     net::{SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     sync::{mpsc::channel, Arc, Mutex},
     time::Duration,
 };
 
-use nix::sys::socket::{sendto, MsgFlags};
-use slog::Logger;
+use nix::sys::socket::{sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
+use slog::{warn, Logger};
 use slog::{error, info};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::{
     handlers::Handlers,
     netconf::NetConfiguration,
-    server::{ServerSocket, Session, Sessions},
+    server::ServerSocket,
     stamp::StampMsg,
     util::to_sockaddr_storage,
 };
@@ -61,11 +62,10 @@ pub struct Responder {
             )>,
         >,
     >,
-    sessions: Option<Sessions>,
 }
 
 impl Responder {
-    pub fn new(sessions: Option<Sessions>) -> Self {
+    pub fn new() -> Self {
         #[allow(clippy::type_complexity)]
         let (tx, rx): (
             Sender<(
@@ -86,7 +86,6 @@ impl Responder {
         Responder {
             recv: Arc::new(Mutex::new(rx)),
             send: Arc::new(Mutex::new(tx)),
-            sessions,
         }
     }
 
@@ -94,11 +93,42 @@ impl Responder {
         &self,
         data: &[u8],
         socket: &UdpSocket,
+        config: &NetConfiguration,
         addr: SocketAddr,
+        logger: Logger
     ) -> Result<usize, std::io::Error> {
+
+        let is_ipv6 = socket.local_addr().unwrap().is_ipv6();
+
         let saddr = to_sockaddr_storage(addr);
-        sendto(socket.as_raw_fd(), data, &saddr, MsgFlags::empty())
-            .map_err(|e| std::io::Error::other(e.to_string()))
+        let iov = [IoSlice::new(data)];
+
+        let mut cmsg: Vec<ControlMessage> = vec![];
+        let cmsgs = config.get_cmsgs();
+        for msg in &cmsgs {
+            match msg {
+                ControlMessageOwned::Ipv6ExtHeader(header) => {
+                    if is_ipv6 {
+                        cmsg.push(ControlMessage::Ipv6ExtHeader(header))
+                    } else {
+                        info!(logger, "Skipping IPv6 Extension Header in netconfiguration because the response is sent over IPv4")
+
+                    }
+                }
+                u => {
+                    warn!(logger, "Unrecognized control message in netconfiguration: {:?}", u)
+                }
+            }
+        }
+
+        sendmsg(
+            socket.as_raw_fd(),
+            &iov,
+            &cmsg,
+            MsgFlags::empty(),
+            Some(&saddr),
+        )
+        .map_err(|e| std::io::Error::other(e.to_string()))
     }
 
     pub fn respond(
@@ -208,7 +238,9 @@ impl Responder {
                     self.write(
                         &Into::<Vec<u8>>::into(stamp_msg.clone()),
                         &locked_socket_to_prepare,
+                        &netconfig,
                         dest,
+                        logger.clone()
                     )
                 };
 
