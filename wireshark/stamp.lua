@@ -500,8 +500,51 @@ local function tlv_berpattern_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: Reflected IPv6 Extension Header TLV
+
+local ipv6_extension_header_type =
+{
+	[0] = "Hop by Hop",
+	[0x3c] = "Destination",
+}
+
+local reflected_ipv6_ext_header_tlv_protofield = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header", "Reflected IPv6 Extension Header TLV")
+local reflected_ipv6_ext_header_tlv_header_protofield   = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.type", "Extension Header Type", base.HEX, ipv6_extension_header_type)
+local reflected_ipv6_ext_header_tlv_header_len_protofield   = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.len", "Extension Header Length", base.HEX)
+local reflected_ipv6_ext_header_tlv_data_protofield = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header.data", "Reflected IPv6 Header Data")
+
+stamp_protocol.fields = { reflected_ipv6_ext_header_tlv_protofield,
+	reflected_ipv6_ext_header_tlv_header_protofield,
+	reflected_ipv6_ext_header_tlv_data_protofield,
+}
+
+------
+--- Dissect the Reflected IPv6 Extension Header TLV
+-- Dissect the contents of a [Reflected IPv6 Extension Header TLV](https://datatracker.ietf.org/doc/draft-ietf-ippm-stamp-ext-hdr/)
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Reflected IPv6 Extension Header TLV.
+local function tlv_reflected_ipv6_ext_header_dissector(buffer, tree)
+	-- Note: Make sure that there are 8 bytes (length of 0 => 8 byte length => shortest IPv6 extension header length)
+	if buffer:len() < 8 then
+		return false
+	end
+
+	local reflected_ipv6_ext_header_tree = tree:add(reflected_ipv6_ext_header_tlv_protofield, buffer(0))
+	reflected_ipv6_ext_header_tree.text = "Reflected IPv6 Header Data"
+
+	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_protofield, buffer(0, 1))
+
+	local length = ((buffer(1, 1): uint() + 1) * 8)
+	local length_tree = reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_len_protofield, buffer(1, 1))
+	length_tree.text = "Length: " .. length
+	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_protofield, buffer(1))
+
+	return true
+end
+
 local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =
-"Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern" }
+"Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern", [0xb] = "Reflected IPv6 Extension Header" }
 local tlv_dissector_map = {
 	[0xb3] = tlv_dscp_ecn_dissector,
 	[0x1] = tlv_padding_dissector,
@@ -510,7 +553,8 @@ local tlv_dissector_map = {
 	[0x6] = tlv_access_report_dissector,
 	[0x08] = tlv_hmac_dissector,
 	[0x09] = tlv_bercount_dissector,
-	[0xa] = tlv_berpattern_dissector
+	[0xa] = tlv_berpattern_dissector,
+	[0xb] = tlv_reflected_ipv6_ext_header_dissector
 }
 
 -- TLV General

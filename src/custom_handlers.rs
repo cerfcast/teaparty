@@ -2447,7 +2447,7 @@ pub mod ch {
                     } else {
                         60u8
                     },
-                    (ipv6_header.header_data.len() + 2) as u8,
+                    (((ipv6_header.header_data.len() + 2) / 8) - 1) as u8,
                 ];
                 ipv6_header
                     .header_data
