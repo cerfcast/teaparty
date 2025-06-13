@@ -356,7 +356,7 @@ local rsv_access_report_tlv_protofield = ProtoField.uint8("stamp.tlv.access_repo
 local return_code_access_report_tlv_protofield = ProtoField.bool("stamp.tlv.access_report.return_code", "Return Code", 16,
 	{ [1] = "Active", [2] = "Inactive" }, 0x01)
 local rsv2_access_report_tlv_protofield = ProtoField.uint16("stamp.tlv.access_report.reserved2", "Reserved (2)", base
-.HEX)
+	.HEX)
 
 stamp_protocol.fields = { access_report_tlv_protofield,
 	id_access_report_tlv_protofield,
@@ -514,20 +514,28 @@ end
 
 -- TLV Dissectors: Reflected IPv6 Extension Header TLV
 
-local ipv6_extension_header_type =
+local ipv6_extension_header_type                          =
 {
 	[0] = "Hop by Hop",
 	[0x3c] = "Destination",
 }
 
-local reflected_ipv6_ext_header_tlv_protofield = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header", "Reflected IPv6 Extension Header TLV")
-local reflected_ipv6_ext_header_tlv_header_protofield   = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.type", "Extension Header Type", base.HEX, ipv6_extension_header_type)
-local reflected_ipv6_ext_header_tlv_header_len_protofield   = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.len", "Extension Header Length", base.HEX)
-local reflected_ipv6_ext_header_tlv_data_protofield = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header.data", "Reflected IPv6 Header Data")
+local reflected_ipv6_ext_header_tlv_protofield            = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header",
+	"Reflected IPv6 Extension Header TLV")
+local reflected_ipv6_ext_header_tlv_header_protofield     = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.type",
+	"Extension Header Type", base.HEX, ipv6_extension_header_type)
+local reflected_ipv6_ext_header_tlv_header_len_protofield = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.len",
+	"Extension Header Length", base.HEX)
+local reflected_ipv6_ext_header_tlv_data_protofield       = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header.data",
+	"Reflected IPv6 Header Data")
+local reflected_ipv6_ext_header_tlv_allzeros_protofield   = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header.all",
+	"Reflected IPv6 Header Data (Unparsed, All Zeros)")
 
-stamp_protocol.fields = { reflected_ipv6_ext_header_tlv_protofield,
+stamp_protocol.fields                                     = { reflected_ipv6_ext_header_tlv_protofield,
 	reflected_ipv6_ext_header_tlv_header_protofield,
+	reflected_ipv6_ext_header_tlv_header_len_protofield,
 	reflected_ipv6_ext_header_tlv_data_protofield,
+	reflected_ipv6_ext_header_tlv_allzeros_protofield,
 }
 
 ------
@@ -552,16 +560,27 @@ local function tlv_reflected_ipv6_ext_header_dissector(buffer, tree)
 
 	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_protofield, buffer(0, 1))
 
-	local length = ((buffer(1, 1): uint() + 1) * 8)
-	local length_tree = reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_len_protofield, buffer(1, 1))
+	local length = ((buffer(1, 1):uint() + 1) * 8)
+	local length_tree = reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_len_protofield,
+		buffer(1, 1))
 	length_tree.text = "Length: " .. length
 	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_protofield, buffer(1))
 
 	return true
 end
 
-local tlv_type_map = { [0xb3] = "DSCP ECN", [0x1] = "Padding", [0x4] = "Class of Service", [0x7] = "Followup", [0x6] =
-"Followup", [0x8] = "HMAC", [0x9] = "Bit Error Count", [0xa] = "Bit Error Pattern", [0xb] = "Reflected IPv6 Extension Header" }
+local tlv_type_map = {
+	[0xb3] = "DSCP ECN",
+	[0x1] = "Padding",
+	[0x4] = "Class of Service",
+	[0x7] = "Followup",
+	[0x6] =
+	"Followup",
+	[0x8] = "HMAC",
+	[0x9] = "Bit Error Count",
+	[0xa] = "Bit Error Pattern",
+	[0xb] = "Reflected IPv6 Extension Header"
+}
 local tlv_dissector_map = {
 	[0xb3] = tlv_dscp_ecn_dissector,
 	[0x1] = tlv_padding_dissector,
