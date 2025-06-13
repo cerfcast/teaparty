@@ -20,6 +20,18 @@ local reflected_authenticated_mbz6_size = 15
 local session_sender_base_length = 28
 local session_sender_authenticated_base_length = 68
 
+------
+--- Determine whether all the bytes in a `Tvb` are 0.
+-- @tparam Tvb buffer Bytes to scan.
+-- @treturn bool true or false depending upon whether all the bytes in `buffer` are `0`.
+local function all_zeros(buffer)
+	for i = 0, buffer:len() - 1 do
+		if buffer:get_index(i) ~= 0 then
+			return false
+		end
+	end
+	return true
+end
 
 --- A means for fetching the protofields for different timestamps in the STAMP packets.
 local timestamp_fields = {}
@@ -533,6 +545,11 @@ local function tlv_reflected_ipv6_ext_header_dissector(buffer, tree)
 	local reflected_ipv6_ext_header_tree = tree:add(reflected_ipv6_ext_header_tlv_protofield, buffer(0))
 	reflected_ipv6_ext_header_tree.text = "Reflected IPv6 Header Data"
 
+	if all_zeros(buffer:bytes(0, buffer:len())) then
+		reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_allzeros_protofield, buffer(0))
+		return true
+	end
+
 	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_protofield, buffer(0, 1))
 
 	local length = ((buffer(1, 1): uint() + 1) * 8)
@@ -580,19 +597,6 @@ stamp_protocol.fields = {
 	length_tlv_protofield,
 }
 stamp_protocol.fields = {}
-
-------
---- Determine whether all the bytes in a `Tvb` are 0.
--- @tparam Tvb buffer Bytes to scan.
--- @treturn bool true or false depending upon whether all the bytes in `buffer` are `0`.
-local function all_zeros(buffer)
-	for i = 0, buffer:len() - 1 do
-		if buffer:get_index(i) ~= 0 then
-			return false
-		end
-	end
-	return true
-end
 
 ------
 --- Determine whether the bytes in `buffer` constitute an authenticated STAMP packet.
