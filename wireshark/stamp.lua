@@ -661,12 +661,19 @@ end
 local function dissect_tlv(buffer, tree)
 	if buffer:len() < 4 then
 		tree:add(buffer, "Error")
+		return buffer:len()
 	end
 
-	local tlv_length = buffer(2, 2):uint()
 	local tlv_type = buffer(1, 1):uint()
-	local tlv_tree = tree:add(tlv_protofield, buffer(0, tlv_length + 4))
+	local tlv_length = buffer(2, 2):uint()
+
+	local tlv_tree = tree:add(tlv_protofield, buffer(0, math.min(tlv_length + 4, buffer:len())))
 	tlv_tree.text = "TLV: " .. tlv_type_to_name(tlv_type)
+	if tlv_length + 4 > buffer:len() then
+		tlv_tree:add(buffer, "TLV Length exceeds packet size.")
+		return buffer:len()
+	end
+
 	tlv_tree:add(u_flags_tlv_protofield, buffer(0, 1))
 	tlv_tree:add(m_flags_tlv_protofield, buffer(0, 1))
 	tlv_tree:add(i_flags_tlv_protofield, buffer(0, 1))
