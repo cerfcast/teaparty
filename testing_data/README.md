@@ -31,4 +31,11 @@ an authenticated STAMP test packet to the configured Reflector.
 
 > Note: `source` the `session_request.curl` and `session_sender.tea` file from the root directory of this repository.
 
-`ipv6_extension_header_test_packet` and `ipv6_extension_header_test_packet2` contain the raw bytes of a STAMP test packet with Tlv for Reflected IPv6 Extension Header Data. These files are suitable for use with the [ipv6toolkit](https://github.com/fgont/ipv6toolkit).
+`ipv6_extension_header_test_packet[0-9]` contain the raw bytes of STAMP test packets with Tlvs for testing Reflected IPv6 Extension Header Data (all with 0 values -- i.e., they will not elicit _match_ behavior). These files are suitable for use with the [ipv6toolkit](https://github.com/fgont/ipv6toolkit) (albeit slightly modified).
+
+| Name | Description |
+| -- | -- |
+| `ipv6_extension_header_test_packet1` | Extension Header Tlv requests reflection of an 8 byte IPv6 extension headers. |
+| `ipv6_extension_header_test_packet2` | Extension Header Tlv requests reflection of two 8 byte IPv6 extension headers. |
+| `ipv6_extension_header_test_packet3` | Extension Header Tlv requests reflection of two IPv6 extension headers (8 bytes and 16 bytes). |
+| `ipv6_extension_header_test_packet4` | Extension Header Tlv requests reflection of three IPv6 extension headers (8 bytes, 2 bytes and 16 bytes). |
