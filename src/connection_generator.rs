@@ -319,7 +319,7 @@ impl ConnectionGenerator {
                             (IpAddr::V6(cv6), IpAddr::V6(sv6)) => either::Right(Ipv6Header {
                                 payload_length: 500,
                                 hop_limit: ttl_recv,
-                                traffic_class: traffic_class.unwrap_or(0x0) as u8,
+                                traffic_class: traffic_class.unwrap_or(dscp_recv as i32) as u8, // It's possible that we have ecn and dscp even though we are v6. Handle that case.
                                 flow_label: Default::default(),
                                 next_header: UDP,
                                 source: cv6.octets(),

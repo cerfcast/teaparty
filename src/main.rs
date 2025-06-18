@@ -498,13 +498,20 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
     } else {
         // Configure the required parameters for the server socket so that we are able to read
         // information from the IP header about a received packet.
-        server_socket.configure_cmsg().map_err(|e| {
+        let configuration_warnings = server_socket.configure_cmsg().map_err(|e| {
             error!(
                 logger,
                 "There was an error configuring metadata parameters on the server socket: {}.", e
             );
             e
         })?;
+        if !configuration_warnings.is_empty() {
+            warn!(
+                logger,
+                "There were warnings generated when configuring the server socket: {}",
+                configuration_warnings.join(";")
+            );
+        }
         server_socket.set_nonblocking(true).map_err(|e| {
             error!(
                 logger,

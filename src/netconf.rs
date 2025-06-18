@@ -58,15 +58,19 @@ pub trait NetConfigurationItemT: Display {
     fn get(&mut self) -> NetConfigurationItem;
     fn configure(
         &mut self,
-        response: &mut StampMsg,
-        socket: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), NetConfigurationError>;
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _logger: Logger,
+    ) -> Result<(), NetConfigurationError> {
+        Ok(())
+    }
     fn unconfigure(
         &mut self,
-        socket: &UdpSocket,
-        logger: Logger,
-    ) -> Result<(), NetConfigurationError>;
+        _socket: &UdpSocket,
+        _logger: Logger,
+    ) -> Result<(), NetConfigurationError> {
+        Ok(())
+    }
     fn get_cmsg(&self) -> Vec<ControlMessageOwned> {
         vec![]
     }
@@ -78,7 +82,7 @@ pub enum NetConfigurationItem {
     Ttl(u8),
     Ecn(EcnValue),
     Dscp(DscpValue),
-    ExtensionHeader(Ipv6ExtHeader),
+    ExtensionHeader(Vec<Ipv6ExtHeader>),
     Invalid,
 }
 
@@ -100,7 +104,7 @@ impl Display for ExtensionHeaderNetConfigurationItem {
 
 impl NetConfigurationItemT for ExtensionHeaderNetConfigurationItem {
     fn get(&mut self) -> NetConfigurationItem {
-        todo!()
+        NetConfigurationItem::ExtensionHeader(self.values.clone())
     }
 
     fn get_cmsg(&self) -> Vec<ControlMessageOwned> {
@@ -123,26 +127,103 @@ impl NetConfigurationItemT for ExtensionHeaderNetConfigurationItem {
         }
     }
 
-    fn configure(
-        &mut self,
-        _response: &mut StampMsg,
-        _socket: &UdpSocket,
-        _logger: Logger,
-    ) -> Result<(), NetConfigurationError> {
-        Ok(())
-    }
+    // Note: Extension headers are (un)configured differently than other net configuration items -- see Responder::write.
+}
 
-    fn unconfigure(
-        &mut self,
-        _socket: &UdpSocket,
-        _logger: Logger,
-    ) -> Result<(), NetConfigurationError> {
+fn get_tos_values_or_defaults(socket: &UdpSocket, logger: Logger) -> (u8, u8, u8, u8) {
+    let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+    // No matter whether it is an IPv4 or IPv6 socket, try to get the TOS values.
+    let (existing_dscp_value, existing_ecn_value) = match Ipv4Tos.get(&socket) {
+        Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+        Err(e) => {
+            // Only log an error if this is an IPv4 socket -- otherwise, we were just trying to optimistically get the value so
+            // an error really isn't an error.
+            if is_ipv4 {
+                error!(
+                                logger,
+                                "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
+                                e
+                            );
+            }
+            (0, 0)
+        }
+    };
+    // If this socket is IPv6, try to get those TOS values.
+    let (existing_dscp_value_v6, existing_ecn_value_v6) = if !is_ipv4 {
+        match Ipv6TClass.get(&socket) {
+            Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
+            Err(e) => {
+                error!(
+                                logger,
+                                "There was an error getting the existing TOS values (IPv6) when attempting to do a net configuration: {}; assuming it was empty!",
+                                e
+                            );
+                (0, 0)
+            }
+        }
+    } else {
+        (0, 0)
+    };
+
+    (
+        existing_dscp_value,
+        existing_dscp_value_v6,
+        existing_ecn_value,
+        existing_ecn_value_v6,
+    )
+}
+
+fn set_tos_values(
+    socket: &UdpSocket,
+    logger: Logger,
+    tos_type: &str,
+    v4_value: u8,
+    v6_value: u8,
+) -> Result<(), NetConfigurationError> {
+    let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+    match Ipv4Tos.set(&socket, &(v4_value as i32)) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if is_ipv4 {
+                // If the socket is IPv4, then an error here is _really_ an error.
+                error!(
+                            logger,
+                            "There was an error setting the TOS value of the reflected packet via net configuration: {}",
+                            e
+                        );
+                Err(NetConfigurationError::CouldNotSet(
+                    tos_type.to_string(),
+                    std::io::Error::other(e.desc()),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }?;
+
+    // Although we always try to set the IPv4 value, we selectively set V6.
+    if let Err(set_tos_value_err) = if !is_ipv4 {
+        Ipv6TClass.set(&socket, &(v6_value as i32))
+    } else {
         Ok(())
-    }
+    } {
+        error!(
+                            logger,
+                            "There was an error setting the TOS value of the reflected packet via net configuration: {}",
+                            set_tos_value_err
+                        );
+        Err(NetConfigurationError::CouldNotSet(
+            tos_type.to_string(),
+            std::io::Error::other(set_tos_value_err.desc()),
+        ))
+    } else {
+        Ok(())
+    }?;
+    Ok(())
 }
 
 pub struct TtlNetConfigurationItem {
-    orig: u8,
+    orig: (u8, u8),
     value: u8,
 }
 
@@ -154,49 +235,92 @@ impl Display for TtlNetConfigurationItem {
 
 impl TtlNetConfigurationItem {
     fn swap_value_on_socket(
-        value: u8,
+        value: (u8, u8),
         socket: &UdpSocket,
         logger: Logger,
-    ) -> Result<u8, NetConfigurationError> {
+    ) -> Result<(u8, u8), NetConfigurationError> {
         info!(logger, "Configuring a TTL value via net configuration.");
         let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
 
-        let original_ttl = match if is_ipv4 {
-            Ipv4Ttl.get(&socket)
-        } else {
-            Ipv6Ttl.get(&socket)
-        } {
-            Ok(orig) => orig,
+        let original_ttl = match Ipv4Ttl.get(&socket) {
+            Ok(orig) => Ok(orig),
             Err(e) => {
-                error!(
+                if is_ipv4 {
+                    error!(
+                            logger,
+                            "There was an error getting the original TTL value of server socket via net configuration: {}", e
+                        );
+                    return Err(NetConfigurationError::CouldNotSet(
+                        "TTL".to_string(),
+                        std::io::Error::other(e.desc()),
+                    ));
+                } else {
+                    Ok(0)
+                }
+            }
+        }?;
+
+        let original_ttl_v6 = if !is_ipv4 {
+            match Ipv6Ttl.get(&socket) {
+                Ok(orig) => orig,
+                Err(e) => {
+                    error!(
                             logger,
                             "There was an error getting the TTL value of the reflected packet via net configuration: {}", e
                         );
-                return Err(NetConfigurationError::CouldNotSet(
-                    "TTL".to_string(),
-                    std::io::Error::other(e.desc()),
-                ));
+                    return Err(NetConfigurationError::CouldNotSet(
+                        "TTL".to_string(),
+                        std::io::Error::other(e.desc()),
+                    ));
+                }
             }
+        } else {
+            0
         };
 
-        let settable_ttl = value as i32;
-        if let Err(set_ttl_value_err) = if is_ipv4 {
-            Ipv4Ttl.set(&socket, &settable_ttl)
+        let settable_ttl = value.0 as i32;
+        let settable_ttl_v6 = value.1 as i32;
+
+        match Ipv4Ttl.set(&socket, &settable_ttl) {
+            Err(e) => {
+                if is_ipv4 {
+                    error!(
+                logger,
+                            "There was an error setting the TTL value of the reflected packet via net configuration: {}",
+                            e
+                        );
+                    Err(NetConfigurationError::CouldNotSet(
+                        "TTL".to_string(),
+                        std::io::Error::other(e.desc()),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            Ok(()) => Ok(()),
+        }?;
+
+        if let Err(e) = if !is_ipv4 {
+            match Ipv6Ttl.set(&socket, &settable_ttl_v6) {
+                Err(e) => Err(e),
+                Ok(()) => Ok(()),
+            }
         } else {
-            Ipv6Ttl.set(&socket, &settable_ttl)
+            Ok(())
         } {
             error!(
                             logger,
                             "There was an error setting the TTL value of the reflected packet via net configuration: {}",
-                            set_ttl_value_err
+                            e
                         );
             Err(NetConfigurationError::CouldNotSet(
                 "TTL".to_string(),
-                std::io::Error::other(set_ttl_value_err.desc()),
+                std::io::Error::other(e.desc()),
             ))
         } else {
-            Ok(original_ttl as u8)
-        }
+            Ok(())
+        }?;
+        Ok((original_ttl as u8, original_ttl_v6 as u8))
     }
 }
 
@@ -224,7 +348,11 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match TtlNetConfigurationItem::swap_value_on_socket(self.value, socket, logger) {
+        match TtlNetConfigurationItem::swap_value_on_socket(
+            (self.value, self.value),
+            socket,
+            logger,
+        ) {
             Ok(orig) => {
                 self.orig = orig;
                 Ok(())
@@ -240,7 +368,7 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
     ) -> Result<(), NetConfigurationError> {
         match TtlNetConfigurationItem::swap_value_on_socket(self.orig, socket, logger) {
             Ok(_) => {
-                self.orig = 0;
+                self.orig = (0, 0);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -249,7 +377,7 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
 }
 
 pub struct DscpNetConfigurationItem {
-    orig: u8,
+    orig: (u8, u8),
     value: u8,
 }
 
@@ -261,58 +389,31 @@ impl Display for DscpNetConfigurationItem {
 
 impl DscpNetConfigurationItem {
     fn swap_value_on_socket(
-        value: u8,
+        value: (u8, u8),
         socket: &UdpSocket,
         logger: Logger,
-    ) -> Result<u8, NetConfigurationError> {
+    ) -> Result<(u8, u8), NetConfigurationError> {
         info!(logger, "Configuring a DSCP value via net configuration.");
 
-        let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+        // No matter whether it is an IPv4 or IPv6 socket, try to get the TOS values.
+        let (
+            existing_dscp_value,
+            existing_dscp_value_v6,
+            existing_ecn_value,
+            existing_ecn_value_v6,
+        ) = get_tos_values_or_defaults(socket, logger.clone());
 
-        let (orig, existing_ecn_value) = if is_ipv4 {
-            match Ipv4Tos.get(&socket) {
-                Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8),
-                Err(e) => {
-                    error!(
-                                logger,
-                                "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
-                                e
-                            );
-                    (0, 0)
-                }
-            }
-        } else {
-            match Ipv6TClass.get(&socket) {
-                Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
-                Err(e) => {
-                    error!(
-                                logger,
-                                "There was an error getting the existing TOS values (IPv6) when attempting to do a net configuration: {}; assuming it was empty!",
-                                e
-                            );
-                    (0, 0)
-                }
-            }
-        };
+        let raw_tos_value_v4 = value.0 | existing_ecn_value;
+        let raw_tos_value_v6 = value.1 | existing_ecn_value_v6;
 
-        let raw_dscp_value = Into::<u8>::into(value) | existing_ecn_value;
-        if let Err(set_tos_value_err) = if is_ipv4 {
-            Ipv4Tos.set(&socket, &(raw_dscp_value as i32))
-        } else {
-            Ipv6TClass.set(&socket, &(raw_dscp_value as i32))
-        } {
-            error!(
-                            logger,
-                            "There was an error setting the DSCP value of the reflected packet via net configuration: {}",
-                            set_tos_value_err
-                        );
-            Err(NetConfigurationError::CouldNotSet(
-                "DSCP".to_string(),
-                std::io::Error::other(set_tos_value_err.desc()),
-            ))
-        } else {
-            Ok(orig)
-        }
+        set_tos_values(
+            socket,
+            logger.clone(),
+            "DSCP",
+            raw_tos_value_v4,
+            raw_tos_value_v6,
+        )?;
+        Ok((existing_dscp_value, existing_dscp_value_v6))
     }
 }
 
@@ -339,7 +440,11 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match DscpNetConfigurationItem::swap_value_on_socket(self.value, socket, logger) {
+        match DscpNetConfigurationItem::swap_value_on_socket(
+            (self.value, self.value),
+            socket,
+            logger,
+        ) {
             Ok(orig) => {
                 self.orig = orig;
                 Ok(())
@@ -363,7 +468,7 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
 }
 
 pub struct EcnNetConfigurationItem {
-    orig: u8,
+    orig: (u8, u8),
     value: u8,
 }
 
@@ -372,60 +477,34 @@ impl Display for EcnNetConfigurationItem {
         write!(f, "ECN")
     }
 }
+
 impl EcnNetConfigurationItem {
     fn swap_value_on_socket(
-        value: u8,
+        value: (u8, u8),
         socket: &UdpSocket,
         logger: Logger,
-    ) -> Result<u8, NetConfigurationError> {
+    ) -> Result<(u8 /* v4 */, u8 /* v6 */), NetConfigurationError> {
         info!(logger, "Configuring an ECN value via net configuration.");
 
-        let is_ipv4 = socket.local_addr().unwrap().is_ipv4();
+        let (
+            existing_dscp_value,
+            existing_dscp_value_v6,
+            existing_ecn_value,
+            existing_ecn_value_v6,
+        ) = get_tos_values_or_defaults(socket, logger.clone());
 
-        let (existing_dscp_value, orig) = if is_ipv4 {
-            match Ipv4Tos.get(&socket) {
-                Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
-                Err(e) => {
-                    error!(
-                                logger,
-                                "There was an error getting the existing TOS values when attempting to do a net configuration: {}; assuming it was empty!",
-                                e
-                            );
-                    (0, 0)
-                }
-            }
-        } else {
-            match Ipv6TClass.get(&socket) {
-                Ok(v) => ((v & 0xfc) as u8, (v & 0x03) as u8), // Make sure that we only keep the ECN from the existing TOS value.
-                Err(e) => {
-                    error!(
-                                logger,
-                                "There was an error getting the existing TOS values (IPv6) when attempting to do a net configuration: {}; assuming it was empty!",
-                                e
-                            );
-                    (0, 0)
-                }
-            }
-        };
+        let raw_tos_value_v4 = existing_dscp_value | value.0;
+        let raw_tos_value_v6 = existing_dscp_value_v6 | value.1;
 
-        let raw_tos_value = value | existing_dscp_value;
-        if let Err(set_tos_value_err) = if is_ipv4 {
-            Ipv4Tos.set(&socket, &(raw_tos_value as i32))
-        } else {
-            Ipv6TClass.set(&socket, &(raw_tos_value as i32))
-        } {
-            error!(
-                            logger,
-                            "There was an error setting the ECN value of the reflected packet via net configuration: {}",
-                            set_tos_value_err
-                        );
-            Err(NetConfigurationError::CouldNotSet(
-                "ECN".to_string(),
-                std::io::Error::other(set_tos_value_err.desc()),
-            ))
-        } else {
-            Ok(orig)
-        }
+        set_tos_values(
+            socket,
+            logger.clone(),
+            "ECN",
+            raw_tos_value_v4,
+            raw_tos_value_v6,
+        )?;
+
+        Ok((existing_ecn_value, existing_ecn_value_v6))
     }
 }
 
@@ -453,7 +532,11 @@ impl NetConfigurationItemT for EcnNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match EcnNetConfigurationItem::swap_value_on_socket(self.value, socket, logger) {
+        match EcnNetConfigurationItem::swap_value_on_socket(
+            (self.value, self.value),
+            socket,
+            logger,
+        ) {
             Ok(orig) => {
                 self.orig = orig;
                 Ok(())
@@ -517,9 +600,18 @@ impl NetConfiguration {
     pub fn new() -> Self {
         NetConfiguration {
             configurations: vec![
-                Arc::<Mutex<_>>::new(Mutex::new(TtlNetConfigurationItem { orig: 0, value: 0 })),
-                Arc::<Mutex<_>>::new(Mutex::new(EcnNetConfigurationItem { orig: 0, value: 0 })),
-                Arc::<Mutex<_>>::new(Mutex::new(DscpNetConfigurationItem { orig: 0, value: 0 })),
+                Arc::<Mutex<_>>::new(Mutex::new(TtlNetConfigurationItem {
+                    orig: (0, 0),
+                    value: 0,
+                })),
+                Arc::<Mutex<_>>::new(Mutex::new(EcnNetConfigurationItem {
+                    orig: (0, 0),
+                    value: 0,
+                })),
+                Arc::<Mutex<_>>::new(Mutex::new(DscpNetConfigurationItem {
+                    orig: (0, 0),
+                    value: 0,
+                })),
                 Arc::<Mutex<_>>::new(Mutex::new(ExtensionHeaderNetConfigurationItem {
                     values: vec![],
                 })),

@@ -427,26 +427,46 @@ impl ServerSocket {
         socket.set_nonblocking(nonblocking)
     }
 
-    pub fn configure_cmsg(&mut self) -> Result<(), std::io::Error> {
+    pub fn configure_cmsg(&mut self) -> Result<Vec<String>, std::io::Error> {
+        let mut warnings: Vec<String> = vec![];
         let socket = self.socket.lock().unwrap();
 
-        if self.socket_addr.is_ipv4() {
-            let set_ttl_value = true;
-            Ipv4RecvTtl.set(&*socket, &set_ttl_value)?;
-            let set_tos_value = true;
-            IpRecvTos.set(&*socket, &set_tos_value)?;
-            Ok(())
-        } else {
-            let set_tclass_value = true;
-            Ipv6RecvTClass.set(&*socket, &set_tclass_value)?;
-            let set_hoplimit_value = true;
-            Ipv6RecvHopLimit.set(&*socket, &set_hoplimit_value)?;
-            let set_dstopts_value = true;
-            Ipv6DstOpts.set(&*socket, &set_dstopts_value)?;
-            let set_hopopts_value = true;
-            Ipv6HopOpts.set(&*socket, &set_hopopts_value)?;
-            Ok(())
-        }
+        // Because we want to handle IPv4 and IPv6 when listening on IPv6 (which Linux lets us do),
+        // we will _always_ try to configure the IPv4 options but only consider the failure to set
+        // those values an error when we are in IPv4 mode.
+        let set_ttl_value = true;
+        Ipv4RecvTtl.set(&*socket, &set_ttl_value).or_else(|f| {
+            if self.socket_addr.is_ipv4() {
+                Err(f)
+            } else {
+                warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv4 Recv TTL",
+                    f
+                ));
+                Ok(())
+            }
+        })?;
+        let set_tos_value = true;
+        IpRecvTos.set(&*socket, &set_tos_value).or_else(|f| {
+            if self.socket_addr.is_ipv4() {
+                Err(f)
+            } else {
+                warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv4 Recv TOS",
+                    f
+                ));
+                Ok(())
+            }
+        })?;
+        let set_tclass_value = true;
+        Ipv6RecvTClass.set(&*socket, &set_tclass_value)?;
+        let set_hoplimit_value = true;
+        Ipv6RecvHopLimit.set(&*socket, &set_hoplimit_value)?;
+        let set_dstopts_value = true;
+        Ipv6DstOpts.set(&*socket, &set_dstopts_value)?;
+        let set_hopopts_value = true;
+        Ipv6HopOpts.set(&*socket, &set_hopopts_value)?;
+        Ok(warnings)
     }
 
     pub fn get_cmsg_buffer(&self) -> Vec<u8> {
