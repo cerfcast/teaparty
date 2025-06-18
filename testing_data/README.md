@@ -35,6 +35,21 @@ an authenticated STAMP test packet to the configured Reflector.
 
 Testing requires a custom version of the awesome [ipv6toolkit](https://github.com/fgont/ipv6toolkit). Below, _should be reflected_ means that the contents of the IPv6 Extension Header should be copied into the TLV in the reflected STAMP packet _and_ it should be present in the IPv6 packet. All Reflected IPv6 Extension Header Data TLVs that are _not_ reflected should be marked as unrecognized.
 
+### Getting The Tool
+
+The _awesome_ [ipv6toolkit](https://github.com/fgont/ipv6toolkit) with the required customizations is available in `third_party/ipv6toolkit`. If you are on a UNIX-like system, then the normal `make` should get you a build:
+
+```console
+$ cd third_party/ipv6toolkit
+$ make
+```
+
+If you have trouble building, refer to [`README.TXT`](../third_party/ipv6toolkit/README.TXT).
+
+### Running The Tests
+
+See [Files, below](#files-1) for a description on each of the test files. Included here are the commands for using those files and the expected outcome.
+
 | Command | Included Extension Headers | Expected Result |
 | -- | -- | -- |
 | `./udp6 -s ::1 -d ::1 -a 862 -c 8 3 9 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet1` | 1. Hop-by-hop (length of 8, type 3 and `0x09` body)  | Extension headers (1) should be reflected |
