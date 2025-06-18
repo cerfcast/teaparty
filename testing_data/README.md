@@ -31,8 +31,23 @@ an authenticated STAMP test packet to the configured Reflector.
 
 > Note: `source` the `session_request.curl` and `session_sender.tea` file from the root directory of this repository.
 
-`ipv6_extension_header_test_packet[0-9]` contain the raw bytes of STAMP test packets with Tlvs for testing Reflected IPv6 Extension Header Data (all with 0 values -- i.e., they will not elicit _match_ behavior). These files are suitable for use with the [ipv6toolkit](https://github.com/fgont/ipv6toolkit) (albeit slightly modified).
+## Testing Reflected IPv6 Extension Header Data
 
+Testing requires a custom version of the awesome [ipv6toolkit](https://github.com/fgont/ipv6toolkit). Below, _should be reflected_ means that the contents of the IPv6 Extension Header should be copied into the TLV in the reflected STAMP packet _and_ it should be present in the IPv6 packet. All Reflected IPv6 Extension Header Data TLVs that are _not_ reflected should be marked as unrecognized.
+
+| Command | Included Extension Headers | Expected Result |
+| -- | -- | -- |
+| `./udp6 -s ::1 -d ::1 -a 862 -c 8 3 9 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet1` | 1. Hop-by-hop (length of 8, type 3 and `0x09` body)  | Extension headers (1) should be reflected |
+| `./udp6 -s ::1 -d ::1 -a 862 -C 16 3 9 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet1` | 1. Destination (length of 16, type 3 and `0x09` body)  | Extension headers (1) should not be reflected (mismatched length) |
+| `./udp6 -s ::1 -d ::1 -a 862 -c 8 3 9  -C 8 3 10 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet2` | 1. Hop-by-hop (length of 8, type 3 and `0x09` body)  | Extension headers (1) and (2) should be reflected |
+| | 2. Destination (length of 8, type 3 and `0x0a` body)  | |
+| `./udp6 -s ::1 -d ::1 -a 862 -c 8 3 9  -C 16 3 10 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet3` | 1. Hop-by-hop (length of 8, type 3 and `0x09` body)  | Extension headers (1) and (2) should be reflected |
+| | 2. Destination (length of 16, type 3 and `0x0a` body)  | |
+| `./udp6 -s ::1  -d ::1 -a 862 -c 8 3 9 -C 8 3 8 -C 8 3 11 --data-file <path to ...>/testing_data/ipv6_extension_header_test_packet4` | 1. Hop-by-hop (length of 8, type 3 and `0x09` body)  | Extension headers (1) and (3) should be reflected; (2) should be unrecognized (mismatched length) |
+| | 2. Destination (length of 8, type 3 and `0x08` body)  | |
+| | 3. Destination (length of 8, type 3 and `0x0b` body)  | |
+
+### Files
 | Name | Description |
 | -- | -- |
 | `ipv6_extension_header_test_packet1` | Extension Header Tlv requests reflection of an 8 byte IPv6 extension headers. |
