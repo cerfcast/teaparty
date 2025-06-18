@@ -459,13 +459,55 @@ impl ServerSocket {
             }
         })?;
         let set_tclass_value = true;
-        Ipv6RecvTClass.set(&*socket, &set_tclass_value)?;
+        Ipv6RecvTClass.set(&*socket, &set_tclass_value).or_else(|f| {
+            if !self.socket_addr.is_ipv4() {
+                Err(f)
+            } else {
+                warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Traffic Class",
+                    f
+                ));
+                Ok(())
+            }
+        })?;
         let set_hoplimit_value = true;
-        Ipv6RecvHopLimit.set(&*socket, &set_hoplimit_value)?;
+        Ipv6RecvHopLimit
+            .set(&*socket, &set_hoplimit_value)
+            .or_else(|f| {
+                if !self.socket_addr.is_ipv4() {
+                    Err(f)
+                } else {
+                    warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Hop Limit",
+                    f
+                ));
+                    Ok(())
+                }
+            })?;
         let set_dstopts_value = true;
-        Ipv6DstOpts.set(&*socket, &set_dstopts_value)?;
+        Ipv6DstOpts.set(&*socket, &set_dstopts_value).or_else(|f| {
+            if !self.socket_addr.is_ipv4() {
+                Err(f)
+            } else {
+                warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Destination Extension Headers",
+                    f
+                ));
+                Ok(())
+            }
+        })?;
         let set_hopopts_value = true;
-        Ipv6HopOpts.set(&*socket, &set_hopopts_value)?;
+        Ipv6HopOpts.set(&*socket, &set_hopopts_value).or_else(|f| {
+            if !self.socket_addr.is_ipv4() {
+                Err(f)
+            } else {
+                warnings.push(format!(
+                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Hop-by-hope Extension Headers",
+                    f
+                ));
+                Ok(())
+            }
+        })?;
         Ok(warnings)
     }
 
