@@ -1,6 +1,6 @@
 [submodule "nix"]
 	path = nix
-	url = git@github.com:hawkinsw/nix.git
+	url = https://github.com/hawkinsw/nix.git
 [submodule "third_party/ipv6toolkit"]
 	path = third_party/ipv6toolkit
 	url = https://github.com/cerfcast/ipv6toolkit.git
