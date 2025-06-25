@@ -2329,6 +2329,9 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum V6ExtensionHeadersTlvCommand {
         V6ExtensionHeaderReflection {
+            #[arg(long)]
+            size: u16,
+
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
@@ -2357,8 +2360,10 @@ pub mod ch {
                 return None;
             }
             let our_command = maybe_our_command.unwrap();
-            let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection { next_tlv_command } =
-                our_command;
+            let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection {
+                size,
+                next_tlv_command,
+            } = our_command;
 
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
@@ -2366,7 +2371,15 @@ pub mod ch {
                 None
             };
 
-            Some((vec![], next_tlv_command))
+            Some((
+                vec![Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                    length: size,
+                    value: vec![0u8; size as usize],
+                }],
+                next_tlv_command,
+            ))
         }
 
         fn handle(

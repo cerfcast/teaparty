@@ -87,7 +87,6 @@ impl Responder {
     }
 
     pub fn write(
-        &self,
         data: &[u8],
         socket: &UdpSocket,
         config: &NetConfiguration,
@@ -233,7 +232,7 @@ impl Responder {
                 info!(logger, "Responding with stamp msg: {:x?}", stamp_msg);
 
                 let write_result = {
-                    self.write(
+                    Self::write(
                         &Into::<Vec<u8>>::into(stamp_msg.clone()),
                         &locked_socket_to_prepare,
                         &netconfig,

@@ -25,6 +25,7 @@ use either::Either;
 use etherparse::Ethernet2Header;
 use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
+use nix::sys::socket::Ipv6ExtHeader;
 use ntp::NtpTime;
 use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
@@ -40,6 +41,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::netconf::NetConfiguration;
+use crate::responder::Responder;
 
 #[macro_use]
 extern crate rocket;
@@ -87,6 +89,46 @@ enum MalformedWhy {
     BadLength,
 }
 
+#[derive(Clone, Debug)]
+struct Ipv6ExtensionHeaderArg {
+    tipe: u8,
+    body: Vec<u8>,
+}
+
+impl FromStr for Ipv6ExtensionHeaderArg {
+    type Err = clap::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let components = s.split(",").collect::<Vec<&str>>();
+
+        if components.len() < 2 || components.len() > 3 {
+            return Err(clap::error::Error::new(
+                clap::error::ErrorKind::InvalidValue,
+            ));
+        }
+
+        let maybe_tipe = components[0];
+        let maybe_len = components[1];
+
+        let tipe = maybe_tipe
+            .parse::<u8>()
+            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+        let len = maybe_len
+            .parse::<u16>()
+            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+        let body = if components.len() > 2 {
+            let maybe_body = components[2];
+            let body_format = maybe_body
+                .parse::<u8>()
+                .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+            vec![body_format; len as usize]
+        } else {
+            vec![0u8; len as usize]
+        };
+
+        Ok(Self { tipe, body })
+    }
+}
+
 #[derive(Args, Debug)]
 struct SenderArgs {
     #[arg(long)]
@@ -113,6 +155,12 @@ struct SenderArgs {
 
     #[arg(long)]
     authenticated: Option<String>,
+
+    #[arg(long)]
+    destination_ext: Vec<Ipv6ExtensionHeaderArg>,
+
+    #[arg(long)]
+    hbh_ext: Vec<Ipv6ExtensionHeaderArg>,
 }
 
 #[derive(Args, Debug)]
@@ -187,6 +235,8 @@ fn client(
         set_socket_ttl,
         src_port,
         authenticated,
+        destination_exts,
+        hbh_exts,
     ) = match command {
         Commands::Sender(SenderArgs {
             ssid,
@@ -196,6 +246,8 @@ fn client(
             ttl,
             src_port,
             authenticated,
+            destination_ext,
+            hbh_ext,
         }) => (
             ssid.map(Ssid::Ssid),
             malformed,
@@ -204,6 +256,8 @@ fn client(
             ttl,
             src_port,
             authenticated,
+            destination_ext,
+            hbh_ext,
         ),
         _ => panic!("The source port is somehow missing a value."),
     };
@@ -245,6 +299,55 @@ fn client(
             NetConfiguration::CLIENT_SETTER,
         );
         test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
+    }
+
+    let destination_ext_body = destination_exts.iter().fold(vec![], |acc, new| {
+        [
+            acc.as_slice(),
+            &[new.tipe, new.body.len() as u8],
+            new.body.as_slice(),
+        ]
+        .concat()
+    });
+
+    if !destination_ext_body.is_empty() {
+        let destination_ext_hdr = Ipv6ExtHeader {
+            header_type: nix::sys::socket::Ipv6ExtHeaderType::Dst,
+            header_body: destination_ext_body,
+        };
+        let destination_ext_argument = TestArgument::HeaderOption(destination_ext_hdr.clone());
+        configurator.add_configuration(
+            netconf::NetConfigurationItemKind::ExtensionHeader,
+            netconf::NetConfigurationArgument::ExtensionHeader(destination_ext_hdr),
+            NetConfiguration::CLIENT_SETTER,
+        );
+        test_arguments.add_argument(
+            parameters::TestArgumentKind::HeaderOption,
+            destination_ext_argument,
+        );
+    }
+
+    let hbh_ext_body = hbh_exts.iter().fold(vec![], |acc, new| {
+        [
+            acc.as_slice(),
+            &[new.tipe, new.body.len() as u8],
+            new.body.as_slice(),
+        ]
+        .concat()
+    });
+
+    if !hbh_ext_body.is_empty() {
+        let hbh_ext_hdr = Ipv6ExtHeader {
+            header_type: nix::sys::socket::Ipv6ExtHeaderType::HopByHop,
+            header_body: hbh_ext_body,
+        };
+        let hbh_ext_argument = TestArgument::HeaderOption(hbh_ext_hdr.clone());
+        configurator.add_configuration(
+            netconf::NetConfigurationItemKind::ExtensionHeader,
+            netconf::NetConfigurationArgument::ExtensionHeader(hbh_ext_hdr),
+            NetConfiguration::CLIENT_SETTER,
+        );
+        test_arguments.add_argument(parameters::TestArgumentKind::HeaderOption, hbh_ext_argument);
     }
 
     let handlers = CustomHandlers::build();
@@ -313,8 +416,14 @@ fn client(
         )
         .map_err(|v| StampError::Other(v.to_string()))?;
 
-    let send_length =
-        server_socket.send_to(&Into::<Vec<u8>>::into(client_msg.clone()), server_addr)?;
+    let send_length = Responder::write(
+        &Into::<Vec<u8>>::into(client_msg.clone()),
+        &server_socket,
+        &configurator,
+        server_addr,
+        logger.clone(),
+    )?;
+
     info!(
         logger,
         "Sent a stamp message that is {} bytes long.", send_length
@@ -810,6 +919,8 @@ fn main() -> Result<(), StampError> {
             ttl: _,
             src_port: _,
             authenticated: _,
+            destination_ext: _,
+            hbh_ext: _,
         }) => client(args, given_command, matches, logger),
     }
 }
