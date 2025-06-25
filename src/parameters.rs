@@ -63,7 +63,7 @@ impl From<TestArgument> for Vec<u8> {
                 panic!("Should not ask to convert a TTL, ECN or DSCP Test Argument into a vector of bytes.")
             }
             TestArgument::PeerMacAddress(v) => v.mac.to_vec(),
-            TestArgument::HeaderOption(header) => header.header_data,
+            TestArgument::HeaderOption(header) => header.header_body,
             TestArgument::Invalid => vec![],
         }
     }

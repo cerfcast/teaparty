@@ -2416,11 +2416,11 @@ pub mod ch {
 
             for (ipv6_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
                 // Punt if the IPv6 header is not at least 4 bytes!
-                if ipv6_header.header_data.len() < 4 {
+                if ipv6_header.header_body.len() < 4 {
                     info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
                     continue;
                 }
-                if ipv6_header.header_data.len() + 2 != (tlv.length as usize) {
+                if ipv6_header.header_body.len() + 2 != (tlv.length as usize) {
                     info!(
                         logger,
                         "IPv6 extension header size does not match TLV length."
@@ -2435,7 +2435,7 @@ pub mod ch {
                         );
                         continue;
                     }
-                    if ipv6_header.header_data[0..4] != tlv.value[0..4] {
+                    if ipv6_header.header_body[0..4] != tlv.value[0..4] {
                         info!(logger, "Header Option TLV match guard is false.");
                         continue;
                     }
@@ -2443,14 +2443,14 @@ pub mod ch {
                 // All good! Copy the data!
                 let mut header_raw = vec![
                     if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop {
-                        0u8
+                        0xff
                     } else {
-                        60u8
+                        0xfe
                     },
-                    (((ipv6_header.header_data.len() + 2) / 8) - 1) as u8,
+                    (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8,
                 ];
                 ipv6_header
-                    .header_data
+                    .header_body
                     .iter()
                     .for_each(|f| header_raw.push(*f));
                 tlv.value.copy_from_slice(&header_raw);
