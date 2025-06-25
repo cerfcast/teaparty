@@ -156,6 +156,10 @@ Options:
       --ttl <TTL>                      Enable a non-default TTL for testing
       --src-port <SRC_PORT>            [default: 0]
       --authenticated <AUTHENTICATED>  
+      --destination-ext <DESTINATION_EXT>
+          Add an IPv6 Extension Header option to the Destination Extension Header (specified as T,L[,V])
+      --hbh-ext <HBH_EXT>
+          Add an IPv6 Extension Header option to the Hop-by-hop Extension Header (specified as T,L[,V])
   -h, --help                           Print help
 ```
 
@@ -164,6 +168,18 @@ for testing the Reflector's error handling. The `--ecn` and `--dscp` will set th
 -- useful for testing the Reflector's implementation of the TLVs related to quality of service. Omitting either of those options means that the test packet
 will have neither DSCP nor ECN values set in the IP header. Setting the `--authenticated` flag will cause the sender to operate in
 [Authenticated Mode](https://datatracker.ietf.org/doc/html/rfc8762#section-4-3) and use `<AUTHENTICATED>` as the key for generating the test packet's HMAC.
+
+
+The `--destination-ext` and `--hbh-ext` options are useful for testing STAMP extensions that reflect [IPv6 Extension Headers](https://www.rfc-editor.org/rfc/rfc8200.html#section-4). The option is only valid when the STAMP test packet is being sent using IPv6. The options will add an IPv6 extension header option to the Destination/Hob-by-hop extension header of the STAMP test packet. These options can be given more than once. The contents of the option are specified as `T,L[,V]` (no spaces) where `T` is the option type, `L` is the option length and (optionally) `V` is a pattern for the bytes in the body. For example,
+
+```console
+$ ./teaparty ::1 sender --destination-ext 3,4,7 --hbh-ext 3,4,9
+```
+
+will generate a STAMP test packet with 
+
+- a Hop-by-hop IPv6 extension header with a single TLV option of type `3` whose body is `0x090x090x090x09`;
+- a Destination IPv6 extension header with a single TLV option of type `3` whose body is `0x070x070x070x07`.
 
 The `tlvs` subcommand will put TLVs into the test packet.
 
@@ -204,7 +220,7 @@ Options:
 | reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 | bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `--size`, respectively). |
-| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | There is no client functionality for this TLV (yet) |
+| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `--size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
 
 _Example_:
 

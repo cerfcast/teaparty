@@ -156,9 +156,11 @@ struct SenderArgs {
     #[arg(long)]
     authenticated: Option<String>,
 
+    /// Add an IPv6 Extension Header option to the Destination Extension Header (specified as T,L[,V])
     #[arg(long)]
     destination_ext: Vec<Ipv6ExtensionHeaderArg>,
 
+    /// Add an IPv6 Extension Header option to the Hop-by-hop Extension Header (specified as T,L[,V])
     #[arg(long)]
     hbh_ext: Vec<Ipv6ExtensionHeaderArg>,
 }
