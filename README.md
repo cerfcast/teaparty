@@ -258,7 +258,7 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 
 | TLV | Supported |
 | -- | -- |
-| Extra Padding (reflector) | &#10060; |
+| Extra Padding (reflector) | &#9989; |
 | Extra Padding (sender) | &#9989; |
 | Location (reflector) |  &#9989;|
 | Location (sender) | &#9989; |
