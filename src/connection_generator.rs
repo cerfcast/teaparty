@@ -269,7 +269,9 @@ impl ConnectionGenerator {
                                         #[cfg(target_os = "linux")]
                                         ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val),
                                         #[cfg(target_os = "freebsd")]
-                                        ControlMessageOwned::Ipv4Ttl(val) => ttl_recv = Some(val.into()),
+                                        ControlMessageOwned::Ipv4Ttl(val) => {
+                                            ttl_recv = Some(val.into())
+                                        }
                                         ControlMessageOwned::Ipv6TClass(val) => {
                                             traffic_class = Some(val)
                                         }
