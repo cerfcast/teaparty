@@ -582,6 +582,10 @@ impl Tlv {
     pub const HISTORY: u8 = 178;
     pub const DSCPECN: u8 = 179;
     pub const REFLECTED_CONTROL: u8 = 180;
+    pub const BER_COUNT: u8 = 181;
+    pub const BER_PATTERN: u8 = 182;
+    pub const V6_EXTENSION_HEADERS_REFLECTION: u8 = 183;
+
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
     pub const TIMESTAMP: u8 = 3;

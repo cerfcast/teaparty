@@ -577,9 +577,10 @@ local tlv_type_map = {
 	[0x6] =
 	"Followup",
 	[0x8] = "HMAC",
-	[0x9] = "Bit Error Count",
-	[0xa] = "Bit Error Pattern",
-	[0xb] = "Reflected IPv6 Extension Header"
+	[0x9] = "Destination Address",
+	[181] = "Bit Error Count",
+	[182] = "Bit Error Pattern",
+	[183] = "Reflected IPv6 Extension Header"
 }
 local tlv_dissector_map = {
 	[0xb3] = tlv_dscp_ecn_dissector,
@@ -588,9 +589,10 @@ local tlv_dissector_map = {
 	[0x7] = tlv_followup_dissector,
 	[0x6] = tlv_access_report_dissector,
 	[0x08] = tlv_hmac_dissector,
-	[0x09] = tlv_bercount_dissector,
-	[0xa] = tlv_berpattern_dissector,
-	[0xb] = tlv_reflected_ipv6_ext_header_dissector
+	[0x09] = tlv_destination_address_dissector,
+	[181] = tlv_bercount_dissector,
+	[182] = tlv_berpattern_dissector,
+	[183] = tlv_reflected_ipv6_ext_header_dissector
 }
 
 -- TLV General

@@ -292,8 +292,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Bit Error Detection and Bit Error Rate ([RFC](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/)) | &#9989; (more work required for complete implementation, but support starting in [592558a](https://github.com/cerfcast/teaparty/commit/592558a38dbcf9b273acb2a2fe8ab0d8f16d0709))[^bertlv] |
 | Simple Two-Way Active Measurement Protocol (STAMP) Extensions for Reflecting STAMP Packet IP Headers ([RFC](https://www.ietf.org/archive/id/draft-ietf-ippm-stamp-ext-hdr-04.html)) | &#9989; (more work required for complete implementation, but support starting in [aa7cdb7](https://github.com/cerfcast/teaparty/commit/aa7cdb755da7d38213f2153f1a0859de5b8aa48a))[^headerreflect] |
 
-[^bertlv]: Note: The BER TLV has been temporarily assigned `0x9` and `0xa` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
-[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `0xb` for TLV Type. The implementation will be updated as the Draft changes.
+[^bertlv]: Note: The BER TLV has been temporarily assigned `181` and `182` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
+[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `183` for TLV Type. The implementation will be updated as the Draft changes.
 ### Testing
 
 In addition to unit tests, there are tools for end-to-end tests in the `testing_data` directory. See [`testing_data/README.md`](./testing_data/README.md)
