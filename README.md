@@ -190,6 +190,7 @@ Commands:
   dscp-ecn           
   time               
   destination-port   
+  destination-address
   class-of-service   
   location           
   unrecognized       
@@ -213,6 +214,7 @@ Options:
 | dscp-ecn | DSCP ECN | The values requested to be set in the reflected IP packet for the DSCP and ECN values can be specified with the `--dscp` and `--ecn` flags, respectively. By default, the requested values are `CS1` and `ECT0`, respectively. |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destination-port | Destination Port| 983 |
+| destination-address | Destination Address | The IP Address used as the value of the TLV can be specified using the `--address` parameter. |
 | location | Location | A Source IP Address sub-TLV |
 | unrecognized | _Special_| Will include a TLV whose type is unrecognized |
 | padding | Padding | Will pad out a STAMP packet with 64 bytes (by default); customize with the `-s` option |
