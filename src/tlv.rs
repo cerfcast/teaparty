@@ -25,7 +25,9 @@ use std::{
 };
 
 use crate::{
-    custom_handlers::ch::{ClassOfServiceTlv, DestinationAddressTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv},
+    custom_handlers::ch::{
+        ClassOfServiceTlv, DestinationAddressTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv,
+    },
     os::MacAddr,
     stamp::StampError,
     tlv, util,
