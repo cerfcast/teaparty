@@ -25,7 +25,7 @@ use std::{
 };
 
 use crate::{
-    custom_handlers::ch::{ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv},
+    custom_handlers::ch::{ClassOfServiceTlv, DestinationAddressTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv},
     os::MacAddr,
     stamp::StampError,
     tlv, util,
@@ -436,6 +436,13 @@ fn destination_port_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Resul
     let dst_port_tlv = DestinationPortTlv::try_from(tlv).unwrap();
     write!(f, " body: {:?}", dst_port_tlv)
 }
+
+fn destination_address_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let dst_address_tlv = DestinationAddressTlv::try_from(tlv).unwrap();
+    write!(f, " body: {:?}", dst_address_tlv)
+}
+
 fn reflected_test_control_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let reflected_control_tlv = ReflectedControlTlv::try_from(tlv).unwrap();
@@ -466,6 +473,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         let mut m: HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result> = HashMap::new();
         m.insert(Tlv::HEARTBEAT, default_tlv_display);
         m.insert(Tlv::DESTINATION_PORT, destination_port_tlv_display);
+        m.insert(Tlv::DESTINATION_ADDRESS, destination_address_tlv_display);
         m.insert(Tlv::HISTORY, default_tlv_display);
         m.insert(Tlv::DSCPECN, default_tlv_display);
         m.insert(Tlv::PADDING, default_tlv_display);
@@ -593,9 +601,7 @@ impl Tlv {
     pub const ACCESSREPORT: u8 = 6;
     pub const FOLLOWUP: u8 = 7;
     pub const HMAC_TLV: u8 = 8;
-    pub const BER_COUNT: u8 = 9;
-    pub const BER_PATTERN: u8 = 10;
-    pub const V6_EXTENSION_HEADERS_REFLECTION: u8 = 11;
+    pub const DESTINATION_ADDRESS: u8 = 9;
 
     pub fn type_to_string(tpe: u8) -> String {
         match tpe {
@@ -614,6 +620,7 @@ impl Tlv {
             Self::BER_COUNT => "BER Count".into(),
             Self::BER_PATTERN => "BER Pattern".into(),
             Self::V6_EXTENSION_HEADERS_REFLECTION => "Reflected IPv6 Extension Header Data".into(),
+            Self::DESTINATION_ADDRESS => "Destination Address".into(),
             _ => "Unrecognized".into(),
         }
     }

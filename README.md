@@ -275,6 +275,14 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | HMAC (reflector) | &#9989; |
 | HMAC (sender) | &#9989; |
 
+#### RFC 9503
+
+| TLV | Supported |
+| -- | -- |
+| Destination Node Address TLV (sender) | &#9989; |
+| Destination Node Address TLV (reflector) | &#9989; |
+| Return Path TLV (sender) | &#10060; |
+| Return Path TLV (reflector) | &#10060; |
 
 #### Yet-to-be-standardized TLVs
 

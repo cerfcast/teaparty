@@ -569,6 +569,45 @@ local function tlv_reflected_ipv6_ext_header_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: Destination Address TLV
+
+local destination_address_tlv_protofield            = ProtoField.bytes("stamp.tlv.destination_address",
+	"Destination Address TLV")
+local destination_address_tlv_address_v6_protofield     = ProtoField.ipv6("stamp.tlv.destination_address.address", "Destination Address")
+local destination_address_tlv_address_v4_protofield     = ProtoField.ipv4("stamp.tlv.destination_address.address", "Destination Address")
+
+stamp_protocol.fields                                     = { destination_address_tlv_protofield,
+	destination_address_tlv_address_v4_protofield,
+	destination_address_tlv_address_v6_protofield,
+}
+
+------
+--- Dissect the Destination Address TLV
+-- Dissect the contents of a [Destination Address TLV](https://datatracker.ietf.org/doc/rfc9503/)
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Destination Address TLV
+local function tlv_destination_address_dissector(buffer, tree)
+	-- Note: Make sure that there are at least 4 bytes
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local destination_address_tree = tree:add(destination_address_tlv_protofield, buffer)
+	destination_address_tree.text = "Destination Address"
+
+	if buffer:len() == 4 then
+		destination_address_tree:add(destination_address_tlv_address_v4_protofield, buffer)
+		return true
+	elseif buffer:len() == 16 then
+		destination_address_tree:add(destination_address_tlv_address_v6_protofield, buffer)
+		return true
+	end
+
+	return false
+end
+
+
 local tlv_type_map = {
 	[0xb3] = "DSCP ECN",
 	[0x1] = "Padding",

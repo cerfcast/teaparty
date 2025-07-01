@@ -18,7 +18,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::{custom_handlers::ch::V6ExtensionHeadersReflectionTlv, handlers};
+use crate::{
+    custom_handlers::ch::{DestinationAddressTlv, V6ExtensionHeadersReflectionTlv},
+    handlers,
+};
 
 // Allow dead code in here because it is an API and, yes, there
 // are fields that are not read ... yet.
@@ -47,7 +50,7 @@ pub mod ch {
         parameters::{TestArgumentKind, TestArguments},
         responder::Responder,
         server::{Session, SessionData, Sessions},
-        stamp::{StampError, StampMsg},
+        stamp::{Mbz, Ssid, StampError, StampMsg},
         tlv::{self, Error, Flags, Tlv, Tlvs},
     };
 
@@ -1967,6 +1970,7 @@ pub mod ch {
                 reference_count: _,
                 last: _,
                 key: Some(key),
+                ssid: _,
                 history: _,
             }) = session
             {
@@ -2370,16 +2374,175 @@ pub mod ch {
             Ok(())
         }
 
-        fn prepare_response_target(
+        fn handle_netconfig_error(
             &mut self,
-            _: &mut StampMsg,
+            _response: &mut StampMsg,
+            _socket: &UdpSocket,
+            _item: NetConfigurationItem,
+            _logger: Logger,
+        ) {
+            panic!("There was a net configuration error in a handler (IPv6 Header Options) that does not set net configuration items.");
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct DestinationAddressTlv {
+        pub address: Option<IpAddr>,
+    }
+
+    impl TryFrom<&Tlv> for DestinationAddressTlv {
+        type Error = StampError;
+        fn try_from(value: &Tlv) -> Result<Self, Self::Error> {
+            if !(value.length == 4 || value.length == 16) {
+                return Err(StampError::MalformedTlv(Error::FieldValueInvalid(
+                    "Length must be either 4 or 16".to_string(),
+                )));
+            }
+            let address = if value.length == 4 {
+                let mut bytes = [0u8; 4];
+                bytes.copy_from_slice(&value.value.as_slice()[0..4]);
+                Into::<IpAddr>::into(bytes)
+            } else {
+                let mut bytes = [0u8; 16];
+                bytes.copy_from_slice(&value.value.as_slice()[0..16]);
+                Into::<IpAddr>::into(bytes)
+            };
+            Ok(Self {
+                address: Some(address),
+            })
+        }
+    }
+
+    #[derive(Subcommand, Clone, Debug)]
+    enum DestinationAddressTlvCommand {
+        DestinationAddress {
+            #[arg(long)]
+            address: IpAddr,
+
+            #[arg(last = true)]
+            next_tlv_command: Vec<String>,
+        },
+    }
+
+    impl TlvHandler for DestinationAddressTlv {
+        fn tlv_name(&self) -> String {
+            "Destination Address".into()
+        }
+
+        fn tlv_cli_command(&self, existing: Command) -> Command {
+            DestinationAddressTlvCommand::augment_subcommands(existing)
+        }
+        fn tlv_type(&self) -> Vec<u8> {
+            [Tlv::DESTINATION_ADDRESS].to_vec()
+        }
+
+        fn request(
+            &mut self,
+            _: Option<TestArguments>,
+            matches: &mut ArgMatches,
+        ) -> TlvRequestResult {
+            let maybe_our_command = DestinationAddressTlvCommand::from_arg_matches(matches);
+            if maybe_our_command.is_err() {
+                return None;
+            }
+            let our_command = maybe_our_command.unwrap();
+            let DestinationAddressTlvCommand::DestinationAddress {
+                address,
+                next_tlv_command,
+            } = our_command;
+            let next_tlv_command = if !next_tlv_command.is_empty() {
+                Some(next_tlv_command.join(" "))
+            } else {
+                None
+            };
+
+            let value = match address {
+                IpAddr::V4(v4) => v4.octets().to_vec(),
+                IpAddr::V6(v6) => v6.octets().to_vec(),
+            };
+
+            Some((
+                [Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::DESTINATION_ADDRESS,
+                    length: value.len() as u16,
+                    value,
+                }]
+                .to_vec(),
+                next_tlv_command,
+            ))
+        }
+
+        fn handle(
+            &mut self,
+            tlv: &tlv::Tlv,
+            _parameters: &TestArguments,
+            _netconfig: &mut NetConfiguration,
+            _client: SocketAddr,
+            session: &mut Option<SessionData>,
+            logger: slog::Logger,
+        ) -> Result<Tlv, StampError> {
+            info!(logger, "I am handling a destination address Tlv.");
+
+            let has_ssid = session
+                .as_ref()
+                .map(|session| match session.ssid.clone() {
+                    Ssid::Mbz(_) => false,
+                    Ssid::Ssid(v) => v != 0,
+                })
+                .unwrap_or(false);
+
+            // When there is a destination address TLV there must be an SSID.
+            if !has_ssid {
+                return Err(StampError::MalformedTlv(Error::FieldValueInvalid(
+                    "Ssid".to_string(),
+                )));
+            }
+
+            let destination_tlv = TryInto::<DestinationAddressTlv>::try_into(tlv)?;
+
+            // Make sure that the destination address is of the same address family.
+            self.address = destination_tlv.address.filter(|addr| {
+                if _client.is_ipv4() && addr.is_ipv4() {
+                    true
+                } else if _client.is_ipv6() && addr.is_ipv6() {
+                    // Yes, redundant; write for clarity.
+                    true
+                } else {
+                    false
+                }
+            });
+
+            let mut result_tlv = tlv.clone();
+
+            // If there is no destination address, then the response should be unrecognized.
+            result_tlv.flags.set_unrecognized(self.address.is_none());
+
+            Ok(result_tlv)
+        }
+
+        fn prepare_response_source(
+            &mut self,
+            response: &mut StampMsg,
             address: SocketAddr,
             logger: Logger,
         ) -> SocketAddr {
             info!(
                 logger,
-                "Preparing the response target in the IPv6 Header Options Tlv."
+                "Preparing the response source in the destination address Tlv by changing the source address."
             );
+
+            if self.address.is_none() {
+                return address;
+            }
+            let destination_address = self.address.unwrap();
+
+            for tlv in response.tlvs.tlvs.iter() {
+                if self.tlv_type().contains(&tlv.tpe) {
+                    let port = address.port();
+                    return SocketAddr::new(destination_address, port);
+                }
+            }
             address
         }
 
@@ -2390,7 +2553,7 @@ pub mod ch {
             _item: NetConfigurationItem,
             _logger: Logger,
         ) {
-            panic!("There was a net configuration error in a handler (IPv6 Header Options) that does not set net configuration items.");
+            panic!("There was a net configuration error in a handler (Destination Address) that does not set net configuration items.");
         }
     }
 
@@ -2606,6 +2769,9 @@ impl CustomHandlers {
         let dst_port_tlv: DestinationPortTlv = Default::default();
         let destination_port_handler = Arc::new(Mutex::new(dst_port_tlv));
         handlers.add(destination_port_handler);
+        let dst_address_tlv: DestinationAddressTlv = Default::default();
+        let destination_address_handler = Arc::new(Mutex::new(dst_address_tlv));
+        handlers.add(destination_address_handler);
         let cos_tlv: ClassOfServiceTlv = Default::default();
         let cos_handler = Arc::new(Mutex::new(cos_tlv));
         handlers.add(cos_handler);
