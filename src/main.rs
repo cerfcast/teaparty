@@ -393,7 +393,7 @@ fn client(
     // Let the handlers fixup according to this session data.
     // Note: The session data here is only populated with the key -- future features
     // may need other parts of the session data.
-    let mut fixup_session_data = SessionData::new(0);
+    let mut fixup_session_data = SessionData::new(None);
     fixup_session_data.key = client_keymat.clone();
     let fixup_session_data = Some(fixup_session_data);
 

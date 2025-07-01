@@ -340,7 +340,7 @@ pub fn handler(
                 Some(existing_session)
             } else {
                 // ... or create a new one ...
-                let mut new_session = SessionData::new(5);
+                let mut new_session = SessionData::new(None);
                 new_session.sequence = src_stamp_msg.sequence + 1;
                 new_session.ssid = src_stamp_msg.ssid.clone();
                 sessions.insert(session_key.clone(), new_session.clone());

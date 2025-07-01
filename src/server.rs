@@ -59,7 +59,9 @@ pub struct SessionHistory {
 }
 
 impl SessionHistory {
-    pub fn new(size: usize) -> Self {
+    const DEFAULT_SESSION_HISTORY_LEN: usize = 32;
+    pub fn new(size: Option<usize>) -> Self {
+        let size = size.unwrap_or(Self::DEFAULT_SESSION_HISTORY_LEN);
         let history: Vec<Option<SessionHistoryEntry>> = vec![None; size];
         SessionHistory {
             history,
@@ -117,7 +119,7 @@ mod session_history_tests {
 
     #[test]
     fn simple_history_test_leftover_space() {
-        let mut session_history = SessionHistory::new(2);
+        let mut session_history = SessionHistory::new(Some(2));
         let entry = SessionHistoryEntry {
             sequence: 0,
             sender_sequence: 10,
@@ -134,7 +136,7 @@ mod session_history_tests {
 
     #[test]
     fn simple_history_test_no_leftover_space() {
-        let mut session_history = SessionHistory::new(2);
+        let mut session_history = SessionHistory::new(Some(2));
 
         let entry = SessionHistoryEntry {
             sequence: 0,
@@ -161,7 +163,7 @@ mod session_history_tests {
 
     #[test]
     fn simple_history_test_wraparound() {
-        let mut session_history = SessionHistory::new(2);
+        let mut session_history = SessionHistory::new(Some(2));
 
         let entry = SessionHistoryEntry {
             sequence: 0,
@@ -196,7 +198,7 @@ mod session_history_tests {
 
     #[test]
     fn simple_history_test_serialize() {
-        let mut session_history = SessionHistory::new(2);
+        let mut session_history = SessionHistory::new(Some(2));
 
         let entry = SessionHistoryEntry {
             sequence: 0xab,
@@ -224,7 +226,7 @@ mod session_history_tests {
 
     #[test]
     fn simple_history_test_wraparound_serialize() {
-        let mut session_history = SessionHistory::new(2);
+        let mut session_history = SessionHistory::new(Some(2));
 
         let entry = SessionHistoryEntry {
             sequence: 0xab,
@@ -270,7 +272,7 @@ pub struct SessionData {
 }
 
 impl SessionData {
-    pub fn new(history_length: usize) -> SessionData {
+    pub fn new(history_length: Option<usize>) -> SessionData {
         Self {
             sequence: 0u32,
             reference_count: 0,

@@ -87,33 +87,51 @@ Sample output:
 [
   {
     "id": {
-      "src": "0.0.0.0:862",
-      "dst": "127.0.0.1:4567",
+      "src": "127.0.0.1:5001",
+      "dst": "0.0.0.0:862",
       "ssid": {
-        "Ssid": 61183
+        "Ssid": 5
       }
     },
     "data": {
       "sequence": 1,
+      "reference_count": 0,
       "last": {
-        "secs_since_epoch": 1733193824,
-        "nanos_since_epoch": 695132749
-      }
-    }
-  },
-  {
-    "id": {
-      "src": "0.0.0.0:862",
-      "dst": "127.0.0.1:5001",
+        "secs_since_epoch": 1751335070,
+        "nanos_since_epoch": 614552045
+      },
+      "key": [
+        116,
+        101,
+        115,
+        116,
+        105,
+        110,
+        103
+      ],
       "ssid": {
-        "Ssid": 61183
-      }
-    },
-    "data": {
-      "sequence": 0,
-      "last": {
-        "secs_since_epoch": 1733193827,
-        "nanos_since_epoch": 926120800
+        "Mbz": {}
+      },
+      "history": {
+        "history": [
+          {
+            "sequence": 1,
+            "sender_sequence": 34,
+            "received_time": {
+              "seconds": 3960323870,
+              "fractions": 2637543230
+            },
+            "sender_time": {
+              "seconds": 3960323870,
+              "fractions": 2636593127
+            },
+            "sent_time": {
+              "seconds": 3960323870,
+              "fractions": 2640255978
+            }
+          }
+        ],
+        "latest": 0
       }
     }
   }
