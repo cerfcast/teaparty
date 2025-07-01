@@ -184,7 +184,7 @@ impl Responder {
                     modified_src = response_tlv_handler
                         .lock()
                         .unwrap()
-                        .prepare_response_target(&mut stamp_msg, modified_src, logger.clone());
+                        .prepare_response_source(&mut stamp_msg, modified_src, logger.clone());
                 }
             }
 

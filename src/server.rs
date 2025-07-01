@@ -265,6 +265,7 @@ pub struct SessionData {
     pub reference_count: usize,
     pub last: std::time::SystemTime,
     pub key: Option<Vec<u8>>,
+    pub ssid: Ssid,
     pub history: SessionHistory,
 }
 
@@ -275,6 +276,7 @@ impl SessionData {
             reference_count: 0,
             last: std::time::SystemTime::now(),
             key: None,
+            ssid: Default::default(),
             history: SessionHistory::new(history_length),
         }
     }
