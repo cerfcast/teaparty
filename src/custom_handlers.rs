@@ -176,7 +176,7 @@ pub mod ch {
             Ok(response)
         }
 
-        fn prepare_response_target(
+        fn prepare_response_source(
             &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
@@ -284,7 +284,7 @@ pub mod ch {
             Ok(response)
         }
 
-        fn prepare_response_target(
+        fn prepare_response_source(
             &mut self,
             _: &mut StampMsg,
             address: SocketAddr,
@@ -397,7 +397,7 @@ pub mod ch {
             Ok(result_tlv)
         }
 
-        fn prepare_response_target(
+        fn prepare_response_source(
             &mut self,
             response: &mut StampMsg,
             address: SocketAddr,
@@ -615,16 +615,6 @@ pub mod ch {
             };
 
             Ok(response)
-        }
-
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the CoS Tlv.");
-            address
         }
         fn handle_netconfig_error(
             &mut self,
@@ -875,17 +865,6 @@ pub mod ch {
                 value: result_value,
             })
         }
-
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the Location Tlv.");
-            address
-        }
-
         fn pre_send_fixup(
             &mut self,
             response: &mut StampMsg,
@@ -998,18 +977,6 @@ pub mod ch {
             Ok(tlv.clone())
         }
 
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(
-                logger,
-                "Preparing the response target in the Unrecognized Ecn Tlv."
-            );
-            address
-        }
         fn pre_send_fixup(
             &mut self,
             _response: &mut StampMsg,
@@ -1112,16 +1079,6 @@ pub mod ch {
             _logger: Logger,
         ) -> Result<(), StampError> {
             Ok(())
-        }
-
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the Padding Tlv.");
-            address
         }
 
         fn handle_netconfig_error(
@@ -1265,18 +1222,6 @@ pub mod ch {
             Ok(result_tlv)
         }
 
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(
-                logger,
-                "Preparing the response target in the AccessReport Tlv."
-            );
-            address
-        }
         fn pre_send_fixup(
             &mut self,
             _response: &mut StampMsg,
@@ -1391,16 +1336,6 @@ pub mod ch {
                 length: history_bytes.len() as u16,
                 value: history_bytes,
             })
-        }
-
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the History Tlv.");
-            address
         }
         fn pre_send_fixup(
             &mut self,
@@ -1531,17 +1466,6 @@ pub mod ch {
         ) -> Result<(), StampError> {
             Ok(())
         }
-
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the Followup Tlv.");
-            address
-        }
-
         fn handle_netconfig_error(
             &mut self,
             _response: &mut StampMsg,
@@ -1771,18 +1695,6 @@ pub mod ch {
             Ok(response)
         }
 
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(
-                logger,
-                "Preparing the response target in the Reflected Test Packet Control TLV."
-            );
-            address
-        }
         fn handle_netconfig_error(
             &mut self,
             _response: &mut StampMsg,
@@ -2063,15 +1975,6 @@ pub mod ch {
             Ok(())
         }
 
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the HMAC TLV.");
-            address
-        }
         fn handle_netconfig_error(
             &mut self,
             _response: &mut StampMsg,
@@ -2298,18 +2201,6 @@ pub mod ch {
             Ok(response_tlv)
         }
 
-        fn prepare_response_target(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(
-                logger,
-                "Preparing the response target in the Bit Error Rate Tlv."
-            );
-            address
-        }
         fn handle_netconfig_error(
             &mut self,
             _response: &mut StampMsg,

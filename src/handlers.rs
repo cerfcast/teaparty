@@ -116,12 +116,14 @@ pub trait TlvHandler {
     ///
     /// This method generates a (possibly) modified [`address`]. Return [`address`]
     /// if there is no change necessary.
-    fn prepare_response_target(
+    fn prepare_response_source(
         &mut self,
-        response: &mut StampMsg,
+        _response: &mut StampMsg,
         address: SocketAddr,
-        logger: Logger,
-    ) -> SocketAddr;
+        _logger: Logger,
+    ) -> SocketAddr {
+        address
+    }
 
     /// Do final fixup of STAMP message before it is transmitted.
     fn pre_send_fixup(
@@ -340,6 +342,7 @@ pub fn handler(
                 // ... or create a new one ...
                 let mut new_session = SessionData::new(5);
                 new_session.sequence = src_stamp_msg.sequence + 1;
+                new_session.ssid = src_stamp_msg.ssid.clone();
                 sessions.insert(session_key.clone(), new_session.clone());
                 info!(
                     logger,
