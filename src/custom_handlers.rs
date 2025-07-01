@@ -50,7 +50,7 @@ pub mod ch {
         parameters::{TestArgumentKind, TestArguments},
         responder::Responder,
         server::{Session, SessionData, Sessions},
-        stamp::{Mbz, Ssid, StampError, StampMsg},
+        stamp::{Ssid, StampError, StampMsg},
         tlv::{self, Error, Flags, Tlv, Tlvs},
     };
 
