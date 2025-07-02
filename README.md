@@ -42,6 +42,7 @@ Options:
       --stateless              Run teaparty in stateless mode.
       --heartbeat <HEARTBEAT>  Specify hearbeat message target and interval (in seconds) as [IP]@[Seconds]
       --link-layer             Run teaparty in link-layer mode.
+      --meta-addr <META_ADDR>  Specify the address (either as simply an IP or IP:PORT) on which the meta RESTful interface will listen (by default, meta interface will be on the same address as STAMP on port 8000)
   -h, --help                   Print help
 ```
 
@@ -51,7 +52,7 @@ more TLVs, it may also cause additional overhead.
 
 **Monitoring**
 
-By default, the Reflector will launch a RESTful API on the localhost on port 8080. It supports the following endpoints:
+By default, the Reflector will launch a RESTful API on the localhost on port 8000 on the same IP address as the STAMP server is configured. Customization of that address is available with the `--meta-addr` argument. It supports the following endpoints:
 
 `/heartbeats`
 

@@ -40,6 +40,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use crate::meta::MetaSocketAddr;
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
 
@@ -183,6 +184,12 @@ struct ReflectorArgs {
         help = "Run teaparty in link-layer mode."
     )]
     link_layer: bool,
+
+    #[arg(
+        long,
+        help = "Specify the address (either as simply an IP or IP:PORT) on which the meta RESTful interface will listen (by default, meta interface will be on the same address as STAMP on port 8000)"
+    )]
+    meta_addr: Option<MetaSocketAddr>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -550,12 +557,13 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
 
     // The command is specific to the server. The match should *only* yield a
     // server command.
-    let (stateless, heartbeats, link_layer) = match command {
+    let (stateless, heartbeats, link_layer, meta_addr) = match command {
         Commands::Reflector(ReflectorArgs {
             stateless,
             heartbeat,
             link_layer,
-        }) => (stateless, heartbeat, link_layer),
+            meta_addr,
+        }) => (stateless, heartbeat, link_layer, meta_addr),
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
@@ -681,8 +689,14 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
         };
         let logger = logger.clone();
         let _server_cancellation = server_cancellation.clone();
+
+        let meta_listen_addr = match meta_addr {
+            Some(addr) => addr.addr,
+            None => Into::<SocketAddr>::into((server_socket_addr.ip(), 8000)),
+        };
+
         thread::spawn(move || {
-            meta::launch_meta(monitor, _server_cancellation, logger);
+            meta::launch_meta(monitor, meta_listen_addr, _server_cancellation, logger);
         })
     };
 
@@ -912,6 +926,7 @@ fn main() -> Result<(), StampError> {
             stateless: _,
             heartbeat: _,
             link_layer: _,
+            meta_addr: _,
         }) => server(args, given_command, logger),
         Commands::Sender(SenderArgs {
             ssid: _,

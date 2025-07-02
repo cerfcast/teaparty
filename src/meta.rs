@@ -16,16 +16,56 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::str::FromStr;
 
 use crate::monitor::Monitor;
 use crate::server::{ServerCancellation, Session, SessionData, SessionError};
 use crate::stamp::Ssid;
 use rocket::http::Status;
 use rocket::serde::{json::Json, Deserialize};
-use rocket::State;
+use rocket::{Config, State};
 use serde::Serialize;
 use slog::Logger;
+
+#[derive(Clone, Debug)]
+pub struct MetaSocketAddr {
+    pub addr: SocketAddr,
+}
+
+impl MetaSocketAddr {
+    pub const DEFAULT_PORT: u16 = 8000u16;
+}
+
+impl FromStr for MetaSocketAddr {
+    type Err = clap::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // First, split at last :
+        let splits: Vec<_> = s.split(':').collect();
+
+        // We'll try to consider that a port.
+        if let Some(maybe_port) = splits.last() {
+            // That means that all the values before it are part of an IP address.
+            let ip = splits[0..splits.len() - 1].join(":");
+
+            // If that worked, then we're in business.
+            if let (Ok(ip), Ok(port)) = (ip.parse::<IpAddr>(), maybe_port.parse::<u16>()) {
+                return Ok(MetaSocketAddr {
+                    addr: (ip, port).into(),
+                });
+            }
+        }
+
+        // Otherwise, it _seems_ like everything that was given by the user is an IP!
+        let ip = s
+            .parse::<IpAddr>()
+            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
+        Ok(MetaSocketAddr {
+            addr: (ip, Self::DEFAULT_PORT).into(),
+        })
+    }
+}
 
 #[get("/sessions")]
 fn index(monitor: &State<Monitor>) -> String {
@@ -91,13 +131,23 @@ fn heartbeats(monitor: &State<Monitor>) -> String {
     serde_json::to_string(&heartbeats_info).unwrap().to_string()
 }
 
-pub fn launch_meta(monitor: Monitor, _server_cancellation: ServerCancellation, logger: Logger) {
+pub fn launch_meta(
+    monitor: Monitor,
+    listen_on: SocketAddr,
+    _server_cancellation: ServerCancellation,
+    logger: Logger,
+) {
     {
+        let rocket_config = Config {
+            address: listen_on.ip(),
+            port: listen_on.port(),
+            ..Config::release_default()
+        };
         let logger = logger.clone();
         let joinable = std::thread::spawn(move || {
             slog::info!(logger, "Starting the meta thread!");
             let r = rocket::build()
-                .configure(rocket::Config::release_default())
+                .configure(rocket_config)
                 .manage(monitor)
                 .mount("/", routes![index, heartbeats, stop_heartbeat, session])
                 .launch();
