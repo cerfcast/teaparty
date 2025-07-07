@@ -133,7 +133,7 @@ impl FromStr for Ipv6ExtensionHeaderArg {
 #[derive(Args, Debug)]
 struct SenderArgs {
     #[arg(long)]
-    ssid: Option<u16>,
+    ssid: Option<Ssid>,
 
     /// Include a malformed Tlv in the test packet
     #[arg(long)]
@@ -258,7 +258,7 @@ fn client(
             destination_ext,
             hbh_ext,
         }) => (
-            ssid.map(Ssid::Ssid),
+            ssid,
             malformed,
             ecn,
             dscp,
@@ -386,7 +386,7 @@ fn client(
         sequence: 0x22,
         time: NtpTime::now(),
         error: Default::default(),
-        ssid: maybe_ssid.unwrap_or(stamp::Ssid::Ssid(0xeeff)),
+        ssid: maybe_ssid.unwrap_or(stamp::Ssid::Mbz(Default::default())),
         body,
         hmac: None,
         tlvs,

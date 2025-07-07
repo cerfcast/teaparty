@@ -25,6 +25,7 @@ use crate::tlv::{self, Tlvs};
 use crate::util;
 
 use std::fmt::{Debug, Display};
+use std::str::FromStr;
 
 pub const MBZ_VALUE: u8 = 0x00;
 
@@ -652,6 +653,21 @@ impl Default for Ssid {
     }
 }
 
+impl FromStr for Ssid {
+    type Err = clap::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // First, determine if the user put `0x` in front. If so, drop that!
+        Ok(Self::Ssid(match s.strip_prefix("0x") {
+            Some(ret) => u16::from_str_radix(ret, 16)
+                .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?,
+            _ => s
+                .parse()
+                .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?,
+        }))
+    }
+}
+
 impl From<Ssid> for Vec<u8> {
     fn from(value: Ssid) -> Self {
         let mut result = [0u8, 0u8];
@@ -680,6 +696,60 @@ impl Debug for Ssid {
             Ssid::Mbz(_) => write!(f, "MBZ"),
             Ssid::Ssid(s) => write!(f, "0x{:02x}", s),
         }
+    }
+}
+
+#[cfg(test)]
+mod ssid_test {
+    use crate::stamp::Ssid;
+    #[test]
+    fn test_parse_hex_ssid_with_0x() {
+        let res: Ssid = "0xabcd"
+            .parse()
+            .expect("Could not parse 0xabcd into an Ssid");
+        assert!(matches!(res, Ssid::Ssid(0xabcd)))
+    }
+
+    #[test]
+    fn test_parse_hex_ssid_without_0x() {
+        let res: Result<Ssid, clap::Error> = "abcd".parse();
+        assert!(res.is_err())
+    }
+
+    #[test]
+    fn test_parse_dec_ssid_without_0x() {
+        let res: Ssid = "52719".parse().expect("Could not parse 52719 into an Ssid");
+        assert!(matches!(res, Ssid::Ssid(52719)))
+    }
+
+    #[test]
+    fn test_parse_dec_ssid_with_0x() {
+        let res: Ssid = "0x5279"
+            .parse()
+            .expect("Could not parse 0x5279 into an Ssid");
+        assert!(matches!(res, Ssid::Ssid(0x5279)))
+    }
+
+    #[test]
+    fn test_parse_ssid_with_only_0x() {
+        let res: Result<Ssid, clap::Error> = "0x".parse();
+        assert!(res.is_err())
+    }
+
+    #[test]
+    fn test_parse_ssid_convert_to_bytes() {
+        let res: Ssid = "0xabcd"
+            .parse()
+            .expect("Could not parse 0xabcd into an Ssid");
+        let bytes: Vec<_> = res.into();
+        assert_eq!(bytes, vec![0xab, 0xcd])
+    }
+
+    #[test]
+    fn test_parse_ssid_convert_to_bytes_dec() {
+        let res: Ssid = "5250".parse().expect("Could not parse 5250 into an Ssid");
+        let bytes: Vec<_> = res.into();
+        assert_eq!(bytes, vec![0x14, 0x82])
     }
 }
 
