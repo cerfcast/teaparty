@@ -132,6 +132,7 @@ impl FromStr for Ipv6ExtensionHeaderArg {
 
 #[derive(Args, Debug)]
 struct SenderArgs {
+    /// Specify a non-zero Ssid (in decimal or hexadecimal [by using the 0x prefix])
     #[arg(long)]
     ssid: Option<Ssid>,
 

@@ -168,7 +168,8 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-      --ssid <SSID>                    
+      --ssid <SSID>
+          Specify a non-zero Ssid (in decimal or hexadecimal [by using the 0x prefix])
       --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
       --ecn <ECN>                      Enable a non-default ECN for testing [possible values: not-ect, ect1, ect0, ce]
       --dscp <DSCP>                    Enable a non-default DSCP for testing [possible values: cs0, cs1, cs2, cs3, cs4, cs5, cs6, cs7, af11, af12, af13, af21, af22, af23, af31, af32, af33, af41, af42, af43, ef, voiceadmit]
