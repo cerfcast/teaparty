@@ -152,7 +152,8 @@ struct SenderArgs {
     #[arg(long)]
     ttl: Option<u8>,
 
-    #[arg(long, default_value_t = 0)]
+    /// Enable a non-operating-system chosen source port for the test packet
+    #[arg(long)]
     src_port: u16,
 
     #[arg(long)]
