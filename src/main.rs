@@ -33,7 +33,7 @@ use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use server::{ServerCancellation, ServerSocket, SessionData, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
 use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
-use std::io::ErrorKind::TimedOut;
+use std::io::ErrorKind::{TimedOut, WriteZero};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -826,7 +826,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
                                 trace!(logger, "Failed to extract; assuming it was not for us.");
                         },
                         Err(ConnectionGeneratorError::IoError(ioe)) => {
-                            if ioe.kind() != TimedOut {
+                            if ioe.kind() != TimedOut && ioe.kind() != WriteZero {
                                 error!(logger, "Error occurred while reading data frame: {:?}; processing of connections on this interface will terminate.", ioe.kind());
                                 return;
                             }

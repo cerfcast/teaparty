@@ -255,6 +255,13 @@ impl ConnectionGenerator {
                             "Read {} bytes from the server socket.", result.bytes
                         );
 
+                        if result.iovs().nth(0).is_none() {
+                            warn!(logger, "Received a connection but no bytes in the body!");
+                            return Err(ConnectionGeneratorError::IoError(
+                                std::io::ErrorKind::WriteZero.into(),
+                            ));
+                        }
+
                         let client_ip = to_socketaddr(result.address.unwrap());
                         let mut dscp_recv: Option<u8> = None;
                         let mut ttl_recv: Option<i32> = None;
