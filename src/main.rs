@@ -886,10 +886,9 @@ fn main() -> Result<(), StampError> {
 
         if let Err(log_output_file_open_error) = log_output_open_result {
             let error_description = format!(
-                "Could not open the given log file '{}': {:?}",
-                output_path, log_output_file_open_error
+                "Could not open the given log file '{output_path}': {log_output_file_open_error:?}"
             );
-            println!("{}\n", error_description);
+            println!("{error_description}\n");
             println!("{}", basic_cli_parser.render_help().ansi());
             return Err(StampError::Other(error_description));
         }
@@ -914,7 +913,7 @@ fn main() -> Result<(), StampError> {
 
     if given_command.is_err() {
         let parsing_error = given_command.unwrap_err();
-        println!("{}\n", parsing_error);
+        println!("{parsing_error}\n");
         println!("{}", basic_cli_parser.render_help().ansi());
         return Err(StampError::Other(parsing_error.to_string()));
     }

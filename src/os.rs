@@ -256,7 +256,7 @@ mod test_get_mac_address {
         let mac_address = get_mac_address(socket, target_socket_addr, test_logger)
             .expect("Could not get the localhost's mac address");
 
-        println!("Mac Address: {:?}", mac_address);
+        println!("Mac Address: {mac_address:?}");
     }
 }
 

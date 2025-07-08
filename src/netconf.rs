@@ -562,9 +562,9 @@ impl NetConfigurationItemT for EcnNetConfigurationItem {
 impl Display for NetConfigurationItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NetConfigurationItem::Ttl(ttl) => write!(f, "TTL = {}", ttl),
-            NetConfigurationItem::Ecn(ecn) => write!(f, "ECN = {:?}", ecn),
-            NetConfigurationItem::Dscp(value) => write!(f, "Dscp = {:?}", value),
+            NetConfigurationItem::Ttl(ttl) => write!(f, "TTL = {ttl}"),
+            NetConfigurationItem::Ecn(ecn) => write!(f, "ECN = {ecn:?}"),
+            NetConfigurationItem::Dscp(value) => write!(f, "Dscp = {value:?}"),
             NetConfigurationItem::ExtensionHeader(_value) => write!(f, "Extension Header"),
             NetConfigurationItem::Invalid => write!(f, "Invalid."),
         }

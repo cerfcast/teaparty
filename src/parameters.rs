@@ -86,11 +86,11 @@ impl From<TestArgument> for u8 {
 impl Display for TestArgument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TestArgument::Ttl(ttl) => write!(f, "TTL = {}", ttl),
-            TestArgument::Ecn(ecn) => write!(f, "ECN = {:?}", ecn),
-            TestArgument::Dscp(value) => write!(f, "Dscp = {:?}", value),
-            TestArgument::PeerMacAddress(value) => write!(f, "Peer Mac Address = {:?}", value),
-            TestArgument::HeaderOption(header) => write!(f, "Header option = {:x?}", header),
+            TestArgument::Ttl(ttl) => write!(f, "TTL = {ttl}"),
+            TestArgument::Ecn(ecn) => write!(f, "ECN = {ecn:?}"),
+            TestArgument::Dscp(value) => write!(f, "Dscp = {value:?}"),
+            TestArgument::PeerMacAddress(value) => write!(f, "Peer Mac Address = {value:?}"),
+            TestArgument::HeaderOption(header) => write!(f, "Header option = {header:x?}"),
             TestArgument::Invalid => write!(f, "Invalid."),
         }
     }

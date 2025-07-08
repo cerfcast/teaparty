@@ -261,7 +261,7 @@ mod ntptime_tests {
     fn test_now_ntp_conversion() {
         // This is more of a tool to help us visualize the NTP timestamp.
         let ntp_now = NtpTime::now();
-        println!("ntp_now: {:?}", ntp_now);
+        println!("ntp_now: {ntp_now:?}");
     }
 
     #[test]

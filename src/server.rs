@@ -444,8 +444,7 @@ impl ServerSocket {
                 Err(f)
             } else {
                 warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv4 Recv TTL",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv4 Recv TTL"
                 ));
                 Ok(())
             }
@@ -456,8 +455,7 @@ impl ServerSocket {
                 Err(f)
             } else {
                 warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv4 Recv TOS",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv4 Recv TOS"
                 ));
                 Ok(())
             }
@@ -468,8 +466,7 @@ impl ServerSocket {
                 Err(f)
             } else {
                 warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Traffic Class",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv6 Recv Traffic Class"
                 ));
                 Ok(())
             }
@@ -482,8 +479,7 @@ impl ServerSocket {
                     Err(f)
                 } else {
                     warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Hop Limit",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv6 Recv Hop Limit"
                 ));
                     Ok(())
                 }
@@ -494,8 +490,7 @@ impl ServerSocket {
                 Err(f)
             } else {
                 warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Destination Extension Headers",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv6 Recv Destination Extension Headers"
                 ));
                 Ok(())
             }
@@ -506,8 +501,7 @@ impl ServerSocket {
                 Err(f)
             } else {
                 warnings.push(format!(
-                    "An IPv6 socket saw an error ({}) attempting to set the IPv6 Recv Hop-by-hope Extension Headers",
-                    f
+                    "An IPv6 socket saw an error ({f}) attempting to set the IPv6 Recv Hop-by-hope Extension Headers"
                 ));
                 Ok(())
             }

@@ -48,20 +48,19 @@ pub enum Error {
 impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {}", r),
+            Error::InvalidFlag(r) => write!(f, "Invalid TLV flag: {r}"),
             Error::NotEnoughData => write!(f, "TLV length exceeded available data"),
             Error::DuplicateTlv => write!(
                 f,
                 "More than one TLV with a type that can be present at most once"
             ),
-            Error::FieldNotZerod(field) => write!(f, "TLV field named {} was not zerod.", field),
+            Error::FieldNotZerod(field) => write!(f, "TLV field named {field} was not zerod."),
             Error::FieldWrongSized(field, wanted, got) => write!(
                 f,
-                "TLV field named {} was the wrong size: wanted {} but got {}.",
-                field, wanted, got
+                "TLV field named {field} was the wrong size: wanted {wanted} but got {got}."
             ),
             Error::FieldValueInvalid(field) => {
-                write!(f, "TLV field named {} had invalid value.", field)
+                write!(f, "TLV field named {field} had invalid value.")
             }
             Error::WrongType(expected, got) => {
                 write!(
@@ -430,30 +429,30 @@ fn default_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
 fn cos_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let cos_tlv = ClassOfServiceTlv::try_from(tlv).unwrap();
-    write!(f, " body: {:?}", cos_tlv)
+    write!(f, " body: {cos_tlv:?}")
 }
 
 fn destination_port_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let dst_port_tlv = DestinationPortTlv::try_from(tlv).unwrap();
-    write!(f, " body: {:?}", dst_port_tlv)
+    write!(f, " body: {dst_port_tlv:?}")
 }
 
 fn destination_address_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let dst_address_tlv = DestinationAddressTlv::try_from(tlv).unwrap();
-    write!(f, " body: {:?}", dst_address_tlv)
+    write!(f, " body: {dst_address_tlv:?}")
 }
 
 fn reflected_test_control_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let reflected_control_tlv = ReflectedControlTlv::try_from(tlv).unwrap();
-    write!(f, " body: {:?}", reflected_control_tlv)
+    write!(f, " body: {reflected_control_tlv:?}")
 }
 fn hmac_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let hmac_tlv = HmacTlv::try_from(tlv).unwrap();
-    write!(f, " body: {:x?}", hmac_tlv)
+    write!(f, " body: {hmac_tlv:x?}")
 }
 fn ber_pattern_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
@@ -462,7 +461,7 @@ fn ber_pattern_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
 fn ber_count_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     let count = u32::from_be_bytes(tlv.value[0..4].try_into().unwrap());
-    write!(f, " BER Error Count: 0x{:x}", count)
+    write!(f, " BER Error Count: 0x{count:x}")
 }
 fn ipv6_extension_header_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
@@ -1183,11 +1182,11 @@ mod test_tlvs_methods {
             .calculate_hmac(22, b"testing")
             .expect("Should have been able to calculate the HMAC.");
 
-        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv_bytes);
-        println!("error padding Tlv bytes: {:x?}", error_padding_tlv_bytes);
+        println!("basic padding Tlv bytes: {basic_padding_tlv_bytes:x?}");
+        println!("error padding Tlv bytes: {error_padding_tlv_bytes:x?}");
 
-        println!("hmac basic: {:x?}", hmac_basic);
-        println!("hmac errored: {:x?}", hmac_errored);
+        println!("hmac basic: {hmac_basic:x?}");
+        println!("hmac errored: {hmac_errored:x?}");
 
         assert!(basic_padding_tlv_bytes != error_padding_tlv_bytes);
         assert!(hmac_basic == hmac_errored);
@@ -1244,11 +1243,11 @@ mod test_tlvs_methods {
             .calculate_hmac(22, b"testing")
             .expect("Should have been able to calculate the HMAC.");
 
-        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv2_bytes);
-        println!("error padding Tlv bytes: {:x?}", error_padding_tlv2_bytes);
+        println!("basic padding Tlv bytes: {basic_padding_tlv2_bytes:x?}");
+        println!("error padding Tlv bytes: {error_padding_tlv2_bytes:x?}");
 
-        println!("hmac basic: {:x?}", hmac_basic);
-        println!("hmac errored: {:x?}", hmac_errored);
+        println!("hmac basic: {hmac_basic:x?}");
+        println!("hmac errored: {hmac_errored:x?}");
 
         assert!(basic_padding_tlv2_bytes != error_padding_tlv2_bytes);
         assert!(hmac_basic == hmac_errored);
@@ -1305,11 +1304,11 @@ mod test_tlvs_methods {
             .calculate_hmac(22, b"testing")
             .expect("Should have been able to calculate the HMAC.");
 
-        println!("basic padding Tlv bytes: {:x?}", basic_padding_tlv2_bytes);
-        println!("error padding Tlv bytes: {:x?}", error_padding_tlv2_bytes);
+        println!("basic padding Tlv bytes: {basic_padding_tlv2_bytes:x?}");
+        println!("error padding Tlv bytes: {error_padding_tlv2_bytes:x?}");
 
-        println!("hmac basic: {:x?}", hmac_basic);
-        println!("hmac errored: {:x?}", hmac_errored);
+        println!("hmac basic: {hmac_basic:x?}");
+        println!("hmac errored: {hmac_errored:x?}");
 
         assert!(basic_padding_tlv2_bytes != error_padding_tlv2_bytes);
         assert!(hmac_basic != hmac_errored);

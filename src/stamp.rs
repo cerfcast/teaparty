@@ -91,21 +91,21 @@ impl From<std::io::Error> for StampError {
 impl Display for StampError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StampError::Other(s) => write!(f, "Other Stamp error: {}", s),
-            StampError::Io(e) => write!(f, "IO error: {}", e),
-            StampError::Ntp(e) => write!(f, "NTP error: {}", e),
+            StampError::Other(s) => write!(f, "Other Stamp error: {s}"),
+            StampError::Io(e) => write!(f, "IO error: {e}"),
+            StampError::Ntp(e) => write!(f, "NTP error: {e}"),
             StampError::MissingRequiredArgument(arg) => {
-                write!(f, "An argument for a test was missing: {:?}", arg)
+                write!(f, "An argument for a test was missing: {arg:?}")
             }
-            StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {:?}", e),
+            StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {e:?}"),
             StampError::InvalidSignature => write!(f, "Stamp message had an invalid signature"),
             StampError::Malformed(tpe, message) => {
-                write!(f, "Error parsing {:?}: {}", tpe, message)
+                write!(f, "Error parsing {tpe:?}: {message}")
             }
             StampError::SignalHandlerFailure(message) => {
-                write!(f, "Error occurred setting the signal handler: {}", message)
+                write!(f, "Error occurred setting the signal handler: {message}")
             }
-            StampError::HandlerError(s) => write!(f, "Handler error: {:?}", s),
+            StampError::HandlerError(s) => write!(f, "Handler error: {s:?}"),
         }
     }
 }
@@ -126,7 +126,7 @@ impl<const L: usize, const V: u8> TryFrom<&[u8]> for Mbz<L, V> {
         if !value.iter().take(L).all(|b| *b == V) {
             return Err(StampError::Malformed(
                 StampParseAttemptType::Mbz,
-                format!("MBZ bytes were not all {}", V).to_string(),
+                format!("MBZ bytes were not all {V}").to_string(),
             ));
         }
         if value.len() < L {
@@ -167,13 +167,13 @@ impl TryFrom<&[u8]> for StampSendBodyType {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let error_msg = match TryInto::<Mbz<68, MBZ_VALUE>>::try_into(value) {
             Ok(body) => return Ok(StampSendBodyType::Authenticated(body)),
-            Err(e) => Some(format!("Authenticated send body parsing failed: {:?}", e)),
+            Err(e) => Some(format!("Authenticated send body parsing failed: {e:?}")),
         };
 
         let error_msg = match TryInto::<Mbz<28, MBZ_VALUE>>::try_into(value) {
             Ok(body) => return Ok(StampSendBodyType::UnAuthenticated(body)),
             Err(e) => {
-                let this_err = Some(format!("Unauthenticated send body parsing failed: {:?}", e));
+                let this_err = Some(format!("Unauthenticated send body parsing failed: {e:?}"));
                 [error_msg, this_err]
                     .iter()
                     .flatten()
@@ -189,7 +189,7 @@ impl TryFrom<&[u8]> for StampSendBodyType {
         };
 
         Err(StampError::Malformed(StampParseAttemptType::Sender,
-            format!("Could not parse the bytes of the message's body into a stamp send body -- the following errors occurred while trying to parse the bytes into a send body: {}", error_msg)
+            format!("Could not parse the bytes of the message's body into a stamp send body -- the following errors occurred while trying to parse the bytes into a send body: {error_msg}")
         ))
     }
 }
@@ -329,7 +329,7 @@ impl StampResponseBodyType {
                 .map_err(|e| {
                     StampError::Malformed(
                         StampParseAttemptType::ResponseAuthenticated,
-                        format!("{:?}", e),
+                        format!("{e:?}"),
                     )
                 })?;
         raw_index += ErrorEstimate::RawSize;
@@ -489,8 +489,7 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
         let err_msg = match StampResponseBodyType::try_from_authenticated_raw(value) {
             Ok(body) => return Ok(StampResponseBodyType::Authenticated(body)),
             Err(e) => Some(format!(
-                "Authenticated response body parsing failed: {:?}",
-                e
+                "Authenticated response body parsing failed: {e:?}"
             )),
         };
 
@@ -498,8 +497,7 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
             Ok(body) => return Ok(StampResponseBodyType::UnAuthenticated(body)),
             Err(e) => {
                 let this_err = Some(format!(
-                    "Unauthenticated response body parsing failed: {:?}",
-                    e
+                    "Unauthenticated response body parsing failed: {e:?}"
                 ));
                 [err_msg, this_err]
                     .iter()
@@ -517,7 +515,7 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
 
         Err(StampError::Malformed(
             StampParseAttemptType::Response,
-                format!("Could not parse the bytes of the message's body into a stamp response body -- the following errors occurred while trying to parse the bytes into a send body: {}", error_msg)
+                format!("Could not parse the bytes of the message's body into a stamp response body -- the following errors occurred while trying to parse the bytes into a send body: {error_msg}")
         ))
     }
 }
@@ -598,7 +596,7 @@ impl TryFrom<&[u8]> for StampMsgBody {
             Ok(body) => {
                 return Ok(Self::Send(body));
             }
-            Err(e) => Some(format!("Could not parse into a send body: {:?}", e)),
+            Err(e) => Some(format!("Could not parse into a send body: {e:?}")),
         };
 
         let error_msg = match TryInto::<StampResponseBodyType>::try_into(value) {
@@ -606,7 +604,7 @@ impl TryFrom<&[u8]> for StampMsgBody {
                 return Ok(Self::Response(body));
             }
             Err(e) => {
-                let this_err = Some(format!("Could not parse into a response body: {:?}", e));
+                let this_err = Some(format!("Could not parse into a response body: {e:?}"));
                 [error_msg, this_err]
                     .iter()
                     .flatten()
@@ -622,7 +620,7 @@ impl TryFrom<&[u8]> for StampMsgBody {
         };
 
         Err(StampError::Malformed(StampParseAttemptType::MessageBody,
-            format!("Could not parse the bytes of the message's body into a STAMP send or response body: {}", error_msg)
+            format!("Could not parse the bytes of the message's body into a STAMP send or response body: {error_msg}")
         ))
     }
 }
@@ -694,7 +692,7 @@ impl Debug for Ssid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Ssid::Mbz(_) => write!(f, "MBZ"),
-            Ssid::Ssid(s) => write!(f, "0x{:02x}", s),
+            Ssid::Ssid(s) => write!(f, "0x{s:02x}"),
         }
     }
 }
@@ -1048,8 +1046,7 @@ mod stamp_test_messages {
             Ssid::Ssid(ssid) => {
                 if *ssid != COMMON_EXPECTED_SSID {
                     panic!(
-                        "Incorrect ssid. Wanted {}, got {}",
-                        COMMON_EXPECTED_SSID, ssid
+                        "Incorrect ssid. Wanted {COMMON_EXPECTED_SSID}, got {ssid}"
                     );
                 }
             }
@@ -1321,7 +1318,7 @@ mod stamp_test_messages_with_tlvs {
 
         let contents = u64::from_be_bytes(parsed_tlv.value.clone().try_into().unwrap());
         if contents != 0x1122334455667788 {
-            panic!("Got {} contents, expected 0x1122334455667788", contents);
+            panic!("Got {contents} contents, expected 0x1122334455667788");
         }
 
         let tlv_bytes: Vec<u8> = parsed_tlv.into();
@@ -1433,7 +1430,7 @@ mod stamp_response_test {
         let deserialized = TryInto::<StampResponseBodyType>::try_into(raw.as_slice());
 
         if let Err(e) = deserialized {
-            panic!("Did not deserialize properly: {}", e);
+            panic!("Did not deserialize properly: {e}");
         }
 
         let deserialized = deserialized.unwrap();
@@ -1478,7 +1475,7 @@ mod stamp_response_test {
         let result = TryInto::<StampResponseBodyType>::try_into(serialized_src.as_slice());
 
         if let Err(e) = result {
-            panic!("Did not deserialize properly: {}", e);
+            panic!("Did not deserialize properly: {e}");
         }
 
         let result = result.unwrap();
