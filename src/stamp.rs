@@ -488,9 +488,7 @@ impl TryFrom<&[u8]> for StampResponseBodyType {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let err_msg = match StampResponseBodyType::try_from_authenticated_raw(value) {
             Ok(body) => return Ok(StampResponseBodyType::Authenticated(body)),
-            Err(e) => Some(format!(
-                "Authenticated response body parsing failed: {e:?}"
-            )),
+            Err(e) => Some(format!("Authenticated response body parsing failed: {e:?}")),
         };
 
         let error_msg = match StampResponseBodyType::try_from_unauthenticated_raw(value) {
@@ -1045,9 +1043,7 @@ mod stamp_test_messages {
             Ssid::Mbz(_) => panic!("Incorrect error synchronized status. Got false, wanted true."),
             Ssid::Ssid(ssid) => {
                 if *ssid != COMMON_EXPECTED_SSID {
-                    panic!(
-                        "Incorrect ssid. Wanted {COMMON_EXPECTED_SSID}, got {ssid}"
-                    );
+                    panic!("Incorrect ssid. Wanted {COMMON_EXPECTED_SSID}, got {ssid}");
                 }
             }
         }
