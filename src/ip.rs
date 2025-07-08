@@ -104,9 +104,7 @@ impl TryFrom<u8> for DscpValue {
         // NOTE: We expect that the given value to convert
         // is _already_ shifted to the right!
         if 0xc0 & value != 0 {
-            return Err(io::Error::other(format!(
-                "Invalid raw DSCP value: {value}"
-            )));
+            return Err(io::Error::other(format!("Invalid raw DSCP value: {value}")));
         }
         match value {
             0 => Ok(DscpValue::CS0),
@@ -131,9 +129,7 @@ impl TryFrom<u8> for DscpValue {
             38 => Ok(DscpValue::AF43),
             46 => Ok(DscpValue::EF),
             44 => Ok(DscpValue::VOICEADMIT),
-            _ => Err(io::Error::other(format!(
-                "Invalid raw DSCP value: {value}"
-            ))),
+            _ => Err(io::Error::other(format!("Invalid raw DSCP value: {value}"))),
         }
     }
 }
