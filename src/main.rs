@@ -58,6 +58,7 @@ mod netconf;
 mod ntp;
 mod os;
 mod parameters;
+mod parsers;
 mod periodicity;
 mod responder;
 mod server;

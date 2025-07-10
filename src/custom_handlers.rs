@@ -48,6 +48,7 @@ pub mod ch {
         },
         ntp::TimeSource,
         parameters::{TestArgumentKind, TestArguments},
+        parsers::{cli_bytes_parser, parse_duration},
         responder::Responder,
         server::{Session, SessionData, Sessions},
         stamp::{Ssid, StampError, StampMsg},
@@ -1549,11 +1550,6 @@ pub mod ch {
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
-    }
-
-    fn parse_duration(duration_str: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
-        let seconds: u64 = duration_str.parse()?;
-        Ok(Duration::from_secs(seconds))
     }
 
     impl TlvHandler for ReflectedControlTlv {
