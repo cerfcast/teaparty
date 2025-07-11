@@ -149,7 +149,7 @@ fn client(
     command: Commands,
     mut extra_args: ArgMatches,
     logger: slog::Logger,
-) -> Result<(), StampError> {
+) -> Result<(), TeapartyError> {
     let server_addr = SocketAddr::new(args.ip_addr, args.port);
     let (
         maybe_ssid,
@@ -189,9 +189,11 @@ fn client(
     info!(logger, "Connecting to the server at {}", server_addr);
 
     let server_socket = if server_addr.is_ipv4() {
-        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))?
+        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))
+            .map_err(StampError::Io)?
     } else {
-        UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), src_port))?
+        UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), src_port))
+            .map_err(StampError::Io)?
     };
 
     let mut test_arguments: TestArguments = Default::default();
@@ -278,6 +280,7 @@ fn client(
 
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
+        .map_err(|e| TeapartyError::Client(ClientError::Cli(e)))?
         .unwrap_or_default();
 
     malformed.iter().for_each(|o| match o {
@@ -346,7 +349,8 @@ fn client(
         &configurator,
         server_addr,
         logger.clone(),
-    )?;
+    )
+    .map_err(StampError::Io)?;
 
     info!(
         logger,
@@ -361,7 +365,9 @@ fn client(
     );
 
     let mut server_response = vec![0u8; 1500];
-    let (server_response_len, _) = server_socket.recv_from(&mut server_response)?;
+    let (server_response_len, _) = server_socket
+        .recv_from(&mut server_response)
+        .map_err(StampError::Io)?;
 
     info!(
         logger,
@@ -378,7 +384,7 @@ fn client(
 
     if let Err(e) = deserialized_response {
         error!(logger, "Could not deserialize the server's response: {}", e);
-        return Err(e);
+        return Err(e.into());
     }
 
     let deserialized_response = deserialized_response.unwrap();
@@ -407,7 +413,7 @@ fn client(
             logger,
             "An authenticated packet arrived which could not be validated: {}", e
         );
-        return Err(e);
+        return Err(e.into());
     }
 
     // Let's compare what we got back to what we sent!
@@ -422,9 +428,9 @@ fn client(
             logger,
             "The reflected packet did not contain the time that was sent (expected {:?} but got {:?})",client_msg.time, reflected_time
         );
-        return Err(StampError::Other(
+        return Err(TeapartyError::Stamp(StampError::Other(
             "Reflected contents are wrong.".to_string(),
-        ));
+        )));
     }
 
     let reflected_error = match &deserialized_response.body {
@@ -437,9 +443,7 @@ fn client(
             logger,
             "The reflected packet did not contain the error estimate that was sent (expected {:?} but got {:?})",client_msg.error, reflected_error
         );
-        return Err(StampError::Other(
-            "Reflected contents are wrong.".to_string(),
-        ));
+        return Err(StampError::Other("Reflected contents are wrong.".to_string()).into());
     }
 
     let reflected_sequenceno = match &deserialized_response.body {
@@ -452,15 +456,13 @@ fn client(
             logger,
             "The reflected packet did not contain the sequence number that was sent (expected {:?} but got {:?})",client_msg.sequence, reflected_sequenceno
         );
-        return Err(StampError::Other(
-            "Reflected contents are wrong.".to_string(),
-        ));
+        return Err(StampError::Other("Reflected contents are wrong.".to_string()).into());
     }
 
     Ok(())
 }
 
-fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), StampError> {
+fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), TeapartyError> {
     // Make a runtime and then start it!
     let runtime = Arc::new(Asymmetry::new(Some(logger.clone())));
     {
@@ -482,19 +484,24 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
-            ))
+            )
+            .into())
         }
     };
 
     let server_socket_addr = SocketAddr::from((args.ip_addr, args.port));
 
-    let udp_socket = UdpSocket::bind(server_socket_addr).map_err(|e| {
-        error!(
-            logger,
-            "There was an error creating a server that listens on {}: {}", server_socket_addr, e
-        );
-        e
-    })?;
+    let udp_socket = UdpSocket::bind(server_socket_addr)
+        .map_err(|e| {
+            error!(
+                logger,
+                "There was an error creating a server that listens on {}: {}",
+                server_socket_addr,
+                e
+            );
+            e
+        })
+        .map_err(StampError::Io)?;
 
     info!(logger, "Server listening on {}", server_socket_addr);
 
@@ -532,13 +539,17 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
     } else {
         // Configure the required parameters for the server socket so that we are able to read
         // information from the IP header about a received packet.
-        let configuration_warnings = server_socket.configure_cmsg().map_err(|e| {
-            error!(
-                logger,
-                "There was an error configuring metadata parameters on the server socket: {}.", e
-            );
-            e
-        })?;
+        let configuration_warnings = server_socket
+            .configure_cmsg()
+            .map_err(|e| {
+                error!(
+                    logger,
+                    "There was an error configuring metadata parameters on the server socket: {}.",
+                    e
+                );
+                e
+            })
+            .map_err(StampError::Io)?;
         if !configuration_warnings.is_empty() {
             warn!(
                 logger,
@@ -546,13 +557,16 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
                 configuration_warnings.join(";")
             );
         }
-        server_socket.set_nonblocking(true).map_err(|e| {
-            error!(
-                logger,
-                "Could not set the server socket as non blocking: {}", e
-            );
-            e
-        })?;
+        server_socket
+            .set_nonblocking(true)
+            .map_err(|e| {
+                error!(
+                    logger,
+                    "Could not set the server socket as non blocking: {}", e
+                );
+                e
+            })
+            .map_err(StampError::Io)?;
         info!(logger, "Listening at the internet layer.");
         vec![either::Right(server_socket.clone())]
     };
@@ -641,7 +655,9 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
             }
             either::Right(sock) => {
                 let mut connection_generator = ConnectionGenerator::from(sock);
-                connection_generator.configure_polling()?;
+                connection_generator
+                    .configure_polling()
+                    .map_err(StampError::Io)?;
                 connection_generator
             }
         };
@@ -761,7 +777,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Stam
     Ok(())
 }
 
-fn main() -> Result<(), StampError> {
+fn main() -> Result<(), TeapartyError> {
     // These handlers are used only for generating command-line parameters.
     let tlv_handlers = CustomHandlers::build();
     let tlvs_command = tlv_handlers.get_cli_commands();
@@ -805,7 +821,7 @@ fn main() -> Result<(), StampError> {
             );
             println!("{error_description}\n");
             println!("{}", basic_cli_parser.render_help().ansi());
-            return Err(StampError::Other(error_description));
+            return Err(StampError::Other(error_description).into());
         }
         let decorator = slog_term::PlainSyncDecorator::new(log_output_open_result.unwrap());
 
@@ -830,7 +846,7 @@ fn main() -> Result<(), StampError> {
         let parsing_error = given_command.unwrap_err();
         println!("{parsing_error}\n");
         println!("{}", basic_cli_parser.render_help().ansi());
-        return Err(StampError::Other(parsing_error.to_string()));
+        return Err(StampError::Other(parsing_error.to_string()).into());
     }
 
     let given_command = given_command.unwrap();
