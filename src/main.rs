@@ -17,13 +17,12 @@
  */
 
 use asymmetry::Asymmetry;
-use clap::{arg, ArgMatches, Args, Command, FromArgMatches, Parser, Subcommand, ValueEnum};
+use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
 use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
 use custom_handlers::CustomHandlers;
 use either::Either;
 use etherparse::Ethernet2Header;
-use ip::{DscpValue, EcnValue};
 use monitor::Monitor;
 use nix::sys::socket::Ipv6ExtHeader;
 use ntp::NtpTime;
@@ -32,7 +31,7 @@ use periodicity::Periodicity;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use server::{ServerCancellation, ServerSocket, SessionData, Sessions};
 use slog::{debug, error, info, trace, warn, Drain};
-use stamp::{Ssid, StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
+use stamp::{StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::ErrorKind::{TimedOut, WriteZero};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
@@ -40,13 +39,14 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::meta::MetaSocketAddr;
+use crate::app::{Cli, ClientError, Commands, ReflectorArgs, SenderArgs, TeapartyError};
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
 
 #[macro_use]
 extern crate rocket;
 
+mod app;
 mod asymmetry;
 mod connection_generator;
 mod custom_handlers;
@@ -66,24 +66,6 @@ mod stamp;
 mod test;
 mod tlv;
 mod util;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[arg(default_value_t=IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
-    ip_addr: IpAddr,
-
-    #[arg(default_value_t = 862)]
-    port: u16,
-
-    /// Specify the verbosity of output. Repeat to increase loquaciousness
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
-
-    /// Specify the file to which log information should be written (defaults to terminal)
-    #[arg(long, value_parser = clap::value_parser!(clio::ClioPath))]
-    log_output: Option<clio::ClioPath>,
-}
 
 #[derive(Clone, Debug, ValueEnum)]
 enum MalformedWhy {
@@ -129,76 +111,6 @@ impl FromStr for Ipv6ExtensionHeaderArg {
 
         Ok(Self { tipe, body })
     }
-}
-
-#[derive(Args, Debug)]
-struct SenderArgs {
-    /// Specify a non-zero Ssid (in decimal or hexadecimal [by using the 0x prefix])
-    #[arg(long)]
-    ssid: Option<Ssid>,
-
-    /// Include a malformed Tlv in the test packet
-    #[arg(long)]
-    malformed: Option<MalformedWhy>,
-
-    /// Enable a non-default ECN for testing
-    #[arg(long)]
-    ecn: Option<EcnValue>,
-
-    /// Enable a non-default DSCP for testing
-    #[arg(long)]
-    dscp: Option<DscpValue>,
-
-    /// Enable a non-default TTL for testing
-    #[arg(long)]
-    ttl: Option<u8>,
-
-    /// Enable a non-operating-system chosen source port for the test packet
-    #[arg(long)]
-    src_port: u16,
-
-    #[arg(long)]
-    authenticated: Option<String>,
-
-    /// Add an IPv6 Extension Header option to the Destination Extension Header (specified as T,L[,V])
-    #[arg(long)]
-    destination_ext: Vec<Ipv6ExtensionHeaderArg>,
-
-    /// Add an IPv6 Extension Header option to the Hop-by-hop Extension Header (specified as T,L[,V])
-    #[arg(long)]
-    hbh_ext: Vec<Ipv6ExtensionHeaderArg>,
-}
-
-#[derive(Args, Debug)]
-struct ReflectorArgs {
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Run teaparty in stateless mode."
-    )]
-    stateless: bool,
-
-    #[arg(long, action = clap::ArgAction::Append, help = "Specify heartbeat message target and interval (in seconds) as [IP:PORT]@[Seconds]")]
-    heartbeat: Vec<HeartbeatConfiguration>,
-
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Run teaparty in link-layer mode."
-    )]
-    link_layer: bool,
-
-    #[arg(
-        long,
-        help = "Specify the address (either as simply an IP or IP:PORT) on which the meta RESTful interface will listen (by default, meta interface will be on the same address as STAMP on port 8000)"
-    )]
-    meta_addr: Option<MetaSocketAddr>,
-}
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    Sender(SenderArgs),
-    Reflector(ReflectorArgs),
 }
 
 #[derive(Debug, Clone)]
