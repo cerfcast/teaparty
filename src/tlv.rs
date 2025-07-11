@@ -774,6 +774,10 @@ impl Tlvs {
         self.tlvs.iter().any(|tlv| tlv.tpe == tpe)
     }
 
+    pub fn contains_any(&self, tpes: &[u8]) -> bool {
+        self.tlvs.iter().any(|tlv| tpes.contains(&tlv.tpe))
+    }
+
     pub fn find(&self, tpe: u8) -> Option<&Tlv> {
         self.tlvs.iter().find(|tlv| tlv.tpe == tpe)
     }

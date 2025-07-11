@@ -484,7 +484,7 @@ pub fn handler(
             let server = server.socket.lock().unwrap();
             for handler in handlers.get_handlers() {
                 let mut handler = handler.lock().unwrap();
-                if response_stamp_msg.tlvs.contains(handler.tlv_type()[0]) {
+                if response_stamp_msg.tlvs.contains_any(&handler.tlv_type()) {
                     if let Err(e) = handler.pre_send_fixup(
                         &mut response_stamp_msg,
                         &server,
