@@ -19,6 +19,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
+use crate::custom_handlers::ch::BitPattern;
 use crate::monitor::Monitor;
 use crate::server::{ServerCancellation, Session, SessionData, SessionError};
 use crate::stamp::Ssid;
@@ -82,6 +83,7 @@ struct SessionRequest {
     dst_port: u16,
     ssid: u16,
     key: Option<String>,
+    ber: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -114,6 +116,14 @@ fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<St
             sd.key = Some(Vec::<u8>::from(key.as_bytes()));
         }
     }
+    if let Some(ber) = request.ber.as_ref() {
+        if !ber.is_empty() {
+            if let Ok(ber) = ber.parse::<BitPattern>() {
+                sd.ber = Some(ber);
+            }
+        }
+    }
+
     match sessions.maybe_new(s, sd) {
         Ok(()) => Ok(serde_json::to_string(&request.0).unwrap()),
         Err(SessionError::SessionExists) => Err(rocket::http::Status::InternalServerError),

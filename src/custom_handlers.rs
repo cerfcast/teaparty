@@ -36,6 +36,7 @@ pub mod ch {
 
     use clap::{ArgMatches, Command, FromArgMatches, Subcommand, ValueEnum};
     use nix::sys::socket::{Ipv6ExtHeader, Ipv6ExtHeaderType};
+    use serde::Serialize;
     use slog::{error, info, warn, Logger};
 
     use crate::{
@@ -1966,6 +1967,7 @@ pub mod ch {
                 reference_count: _,
                 last: _,
                 key: Some(key),
+                ber: _,
                 ssid: _,
                 history: _,
             }) = session
@@ -1986,7 +1988,7 @@ pub mod ch {
         }
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Serialize, Clone, Debug)]
     pub struct BitPattern {
         pattern: Vec<u8>,
     }

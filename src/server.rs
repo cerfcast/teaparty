@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{ntp, stamp::Ssid};
+use crate::{custom_handlers::ch::BitPattern, ntp, stamp::Ssid};
 use nix::sys::socket::{
     sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv6DstOpts, Ipv6HopOpts, Ipv6RecvHopLimit, Ipv6RecvTClass},
     SetSockOpt,
@@ -267,6 +267,7 @@ pub struct SessionData {
     pub reference_count: usize,
     pub last: std::time::SystemTime,
     pub key: Option<Vec<u8>>,
+    pub ber: Option<BitPattern>,
     pub ssid: Ssid,
     pub history: SessionHistory,
 }
@@ -278,6 +279,7 @@ impl SessionData {
             reference_count: 0,
             last: std::time::SystemTime::now(),
             key: None,
+            ber: None,
             ssid: Default::default(),
             history: SessionHistory::new(history_length),
         }
