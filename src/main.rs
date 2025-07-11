@@ -852,6 +852,9 @@ fn main() -> Result<(), StampError> {
             authenticated: _,
             destination_ext: _,
             hbh_ext: _,
-        }) => client(args, given_command, matches, logger),
+        }) => {
+            let sender_args = matches.subcommand_matches("sender").unwrap();
+            client(args, given_command, sender_args.clone(), logger)
+        }
     }
 }

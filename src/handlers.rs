@@ -214,36 +214,34 @@ impl Handlers {
         &self,
         args: Option<TestArguments>,
         matches: &mut ArgMatches,
-    ) -> Option<Tlvs> {
-        let matches = matches.subcommand_matches("sender")?;
-        let matches = matches.subcommand_matches("tlvs")?;
+    ) -> Result<Option<Tlvs>, clap::Error> {
+        let mut remaining_matches = matches.subcommand_matches("tlvs").cloned();
 
         let mut tlvs = Tlvs::new();
 
-        let mut matches = matches.clone();
-        loop {
-            let command = self
-                .handlers
-                .iter()
-                .find_map(|h| h.lock().unwrap().request(args.clone(), &mut matches));
+        let tlv_cli_commands = self.get_cli_commands();
 
-            if let Some((requested_tlvs, _)) = &command {
-                for tlv in requested_tlvs {
-                    tlvs.add_tlv(tlv.clone()).ok()?;
+        while let Some(matches) = remaining_matches.as_mut() {
+            let mut remainder: Option<String> = None;
+            for handler in self.handlers.iter() {
+                let request_result = handler.lock().unwrap().request(args.clone(), matches)?;
+
+                if let Some((requested_tlvs, request_remainder)) = &request_result {
+                    for tlv in requested_tlvs {
+                        tlvs.add_tlv(tlv.clone())
+                            .map_err(|_| clap::Error::new(clap::error::ErrorKind::InvalidValue))?;
+                    }
+                    remainder = request_remainder.clone();
+                    break;
                 }
             }
-
-            let next_tlv_command = if let Some((_, Some(remainder))) = command {
-                remainder
-            } else {
-                break;
-            };
-
-            matches = self
-                .get_cli_commands()
-                .get_matches_from(next_tlv_command.split(" "));
+            remaining_matches = remainder.map(|remainder| {
+                tlv_cli_commands
+                    .clone()
+                    .get_matches_from(remainder.split(" "))
+            });
         }
-        Some(tlvs)
+        Ok(Some(tlvs))
     }
 }
 
