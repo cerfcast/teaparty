@@ -50,7 +50,7 @@ use crate::tlv;
 use crate::tlv::Tlv;
 use crate::tlv::Tlvs;
 
-pub type TlvRequestResult = Option<(Vec<Tlv>, Option<String>)>;
+pub type TlvRequestResult = Result<Option<(Vec<Tlv>, Option<String>)>, clap::Error>;
 
 #[derive(Debug, Clone)]
 pub enum HandlerError {

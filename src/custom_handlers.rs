@@ -91,7 +91,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = DscpEcnTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let DscpEcnTlvCommand::DscpEcn {
@@ -106,7 +106,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::DSCPECN,
@@ -120,7 +120,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -242,7 +242,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = TimeTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let TimeTlvCommand::Time { next_tlv_command } = our_command;
@@ -252,7 +252,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: 0x3,
@@ -261,7 +261,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -358,7 +358,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = DestinationPortTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let DestinationPortTlvCommand::DestinationPort { next_tlv_command } = our_command;
@@ -372,7 +372,7 @@ pub mod ch {
 
             data[0..2].copy_from_slice(&983u16.to_be_bytes());
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::DESTINATION_PORT,
@@ -381,7 +381,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -522,7 +522,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = ClassOfServiceTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let ClassOfServiceTlvCommand::ClassOfService {
@@ -537,7 +537,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::COS,
@@ -551,7 +551,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -689,7 +689,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = LocationTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let LocationTlvCommand::Location { next_tlv_command } = our_command;
@@ -722,7 +722,7 @@ pub mod ch {
             let sub_tlv_value: Vec<u8> = sub_tlvs.into();
             request_value.extend_from_slice(&sub_tlv_value);
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::LOCATION,
@@ -731,7 +731,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -955,7 +955,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = UnrecognizedTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let UnrecognizedTlvCommand::Unrecognized { next_tlv_command } = our_command;
@@ -965,7 +965,7 @@ pub mod ch {
                 None
             };
 
-            Some(([Tlv::unrecognized(32)].to_vec(), next_tlv_command))
+            Ok(Some(([Tlv::unrecognized(32)].to_vec(), next_tlv_command)))
         }
 
         fn handle(
@@ -1035,7 +1035,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = PaddingTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let PaddingTlvCommand::Padding {
@@ -1048,7 +1048,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::PADDING,
@@ -1057,7 +1057,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -1162,7 +1162,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = AccessReportTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let AccessReportTlvCommand::AccessReport {
@@ -1176,7 +1176,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::ACCESSREPORT,
@@ -1185,7 +1185,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -1284,7 +1284,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = HistoryTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let HistoryTlvCommand::History {
@@ -1297,7 +1297,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::HISTORY,
@@ -1306,7 +1306,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -1396,7 +1396,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = FollowupTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let FollowupTlvCommand::Followup { next_tlv_command } = our_command;
@@ -1406,7 +1406,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::FOLLOWUP,
@@ -1415,7 +1415,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -1572,7 +1572,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = ReflectedControlTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let ReflectedControlTlvCommand::ReflectedControl {
@@ -1588,7 +1588,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::REFLECTED_CONTROL,
@@ -1602,7 +1602,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn request_fixup(
@@ -1909,7 +1909,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = HmacTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let HmacTlvCommand::Hmac { next_tlv_command } = our_command;
@@ -1920,7 +1920,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::HMAC_TLV,
@@ -1929,7 +1929,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -2115,12 +2115,13 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = BitErrorRateTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let BitErrorRateTlvCommand::BitErrorRate {
                 size: user_size,
                 pattern: user_pattern,
+                padding: user_padding,
                 next_tlv_command,
             } = our_command;
 
@@ -2248,7 +2249,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = V6ExtensionHeadersTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection {
@@ -2262,7 +2263,7 @@ pub mod ch {
                 None
             };
 
-            Some((
+            Ok(Some((
                 vec![Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::V6_EXTENSION_HEADERS_REFLECTION,
@@ -2270,7 +2271,7 @@ pub mod ch {
                     value: vec![0u8; size as usize],
                 }],
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -2439,7 +2440,7 @@ pub mod ch {
         ) -> TlvRequestResult {
             let maybe_our_command = DestinationAddressTlvCommand::from_arg_matches(matches);
             if maybe_our_command.is_err() {
-                return None;
+                return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
             let DestinationAddressTlvCommand::DestinationAddress {
@@ -2457,7 +2458,7 @@ pub mod ch {
                 IpAddr::V6(v6) => v6.octets().to_vec(),
             };
 
-            Some((
+            Ok(Some((
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::DESTINATION_ADDRESS,
@@ -2466,7 +2467,7 @@ pub mod ch {
                 }]
                 .to_vec(),
                 next_tlv_command,
-            ))
+            )))
         }
 
         fn handle(
@@ -2752,7 +2753,6 @@ pub mod ch {
     }
 }
 
-use ch::{BitErrorRateTlv, ClassOfServiceTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv};
 pub struct CustomHandlers {}
 
 impl CustomHandlers {
