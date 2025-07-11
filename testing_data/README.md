@@ -10,26 +10,26 @@ in this directory make it easy (easier?) to test Teaparty's authenticated operat
 
 ### Files
 
-`session_request.json` contains a properly formatted JSON object that can be `POST`ed to the `session` endpoint
+The `session_request*.json` files contain properly formatted JSON objects that can be `POST`ed to the `session` endpoint
 of the Teaparty server to create a new session with 
 
 | Parameter | Value |
 | -- | -- |
 | SSID | `5` |
-| HMAC Key | `testing` |
 | Source Port | `5001` |
 | Destination Port | `862` |
 | Source IP | `127.0.0.1` |
 | Destination IP | `0.0.0.0` |
 
-`session_request.curl` contains an invocation of `curl` that can be `source`d which will `POST`
-the contents of `session_request.json` to the `session` endpoint of a Teaparty server running
+and various values for `key` and `ber`.
+
+The `session_request*.curl` files contains an invocation of `curl` that can be `source`d which will `POST`
+the contents of the corresponding `.json` file to the `session` endpoint of a Teaparty server running
 on `127.0.0.1`.
 
-`session_sender.tea` contains an invocation of Teaparty that will test whether a client can send
-an authenticated STAMP test packet to the configured Reflector.
+The `session_sender*.tea` files contain invocations of Teaparty that will test whether the sessions with certain parameters exist.
 
-> Note: `source` the `session_request.curl` and `session_sender.tea` file from the root directory of this repository.
+> Note: When using `source` to use the files in `testing_data`, do so from the root directory of this repository.
 
 ## Testing Reflected IPv6 Extension Header Data
 
