@@ -81,7 +81,7 @@ struct SessionRequest {
     dst_ip: Ipv4Addr,
     dst_port: u16,
     ssid: u16,
-    key: String,
+    key: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -107,8 +107,13 @@ fn session(request: Json<SessionRequest>, monitor: &State<Monitor>) -> Result<St
     );
 
     let mut sd = SessionData::new(None);
-    sd.key = Some(Vec::<u8>::from(request.key.clone()));
 
+    // Configure the optional bits of the session.
+    if let Some(key) = request.key.as_ref() {
+        if !key.is_empty() {
+            sd.key = Some(Vec::<u8>::from(key.as_bytes()));
+        }
+    }
     match sessions.maybe_new(s, sd) {
         Ok(()) => Ok(serde_json::to_string(&request.0).unwrap()),
         Err(SessionError::SessionExists) => Err(rocket::http::Status::InternalServerError),
