@@ -2007,11 +2007,17 @@ pub mod ch {
         }
     }
 
+    impl BitPattern {
+        fn get_pattern(&self) -> Vec<u8> {
+            self.pattern.clone()
+        }
+    }
+
     #[derive(Default, Debug)]
     pub struct BitErrorRateTlv {
         padding: Vec<u8>,
         error_count: u32,
-        pattern: Vec<u8>,
+        pattern: Option<Vec<u8>>,
     }
     #[derive(Subcommand, Clone, Debug)]
     enum BitErrorRateTlvCommand {
@@ -2019,8 +2025,11 @@ pub mod ch {
             #[arg(long, default_value = "64")]
             size: u16,
 
-            #[arg(long, default_value = "ffee")]
-            pattern: BitPattern,
+            #[arg(long)]
+            pattern: Option<BitPattern>,
+
+            #[arg(long)]
+            padding: Option<String>,
 
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
@@ -2029,6 +2038,9 @@ pub mod ch {
 
     impl BitErrorRateTlv {
         fn bytes_from_pattern(pattern: &[u8], len: usize) -> Vec<u8> {
+            if len == 0 {
+                return vec![];
+            }
             let multiple = len / pattern.len();
             pattern.repeat(multiple)
         }
@@ -2044,7 +2056,7 @@ pub mod ch {
         }
 
         fn tlv_type(&self) -> Vec<u8> {
-            [Tlv::BER_PATTERN, Tlv::BER_COUNT].to_vec()
+            [Tlv::BER_COUNT, Tlv::BER_PATTERN].to_vec()
         }
 
         fn request_fixup(
@@ -2096,6 +2108,31 @@ pub mod ch {
                 "BER TLV is fixing up a response (in particular, its BER count)"
             );
 
+            // Try to find a valid pattern -- start with the one that might have been included in the test
+            // packet using the Bit Error Pattern TLV.
+            let pattern = self
+                .pattern
+                .clone()
+                // If that doesn't exist, try to get one from the session.
+                .or(_session
+                    .as_ref()
+                    .and_then(|session| session.ber.as_ref().map(|ber| ber.get_pattern())))
+                // And, if that doesn't exist, then just give an empty pattern!
+                .unwrap_or_default();
+
+            // Now, whatever the length of the padding, we need to expand the pattern for comparison
+            let pattern = Self::bytes_from_pattern(&pattern, self.padding.len());
+
+            self.error_count = pattern
+                .iter()
+                .zip(&self.padding)
+                .fold(0, |acc, (l, r)| acc + if *l != *r { 1 } else { 0 });
+
+            info!(
+                logger,
+                "There were {} differences between received and expected bits.", self.error_count
+            );
+
             if let Some(ber_tlv) = response
                 .tlvs
                 .iter_mut()
@@ -2105,6 +2142,19 @@ pub mod ch {
                     .value
                     .copy_from_slice(&u32::to_be_bytes(self.error_count));
             }
+
+            // Now, no matter what, recreate the padding from the pattern
+            // so that errors can be detected on the reverse path.
+            if let Some(padding_tlv) = response.tlvs.iter_mut().find(|tlv| tlv.tpe == Tlv::PADDING)
+            {
+                padding_tlv.value[0..pattern.len()].copy_from_slice(&pattern);
+            } else {
+                warn!(
+                    logger,
+                    "BER TLV fixup process could not find the PADDING TLV to correct"
+                );
+            }
+
             Ok(())
         }
 
@@ -2131,32 +2181,42 @@ pub mod ch {
                 None
             };
 
-            let actual_pattern =
-                Self::bytes_from_pattern(&user_pattern.pattern, user_size as usize);
-            Some((
-                [
-                    Tlv {
-                        flags: Flags::new_request(),
-                        tpe: Tlv::PADDING,
-                        length: actual_pattern.len() as u16,
-                        value: actual_pattern,
-                    },
-                    Tlv {
-                        flags: Flags::new_request(),
-                        tpe: Tlv::BER_COUNT,
-                        length: 4,
-                        value: vec![0u8; 4],
-                    },
-                    Tlv {
-                        flags: Flags::new_request(),
-                        tpe: Tlv::BER_PATTERN,
-                        length: user_pattern.pattern.len() as u16,
-                        value: user_pattern.pattern,
-                    },
-                ]
-                .to_vec(),
-                next_tlv_command,
-            ))
+            let actual_padding = if let Some(user_padding) = user_padding {
+                cli_bytes_parser(user_padding, |_| {
+                    clap::Error::new(clap::error::ErrorKind::InvalidValue)
+                })?
+            } else if let Some(user_pattern) = user_pattern.as_ref() {
+                Self::bytes_from_pattern(&user_pattern.get_pattern(), user_size as usize)
+            } else {
+                vec![0u8; user_size as usize]
+            };
+
+            let mut tlvs = vec![
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::BER_COUNT,
+                    length: 4,
+                    value: vec![0u8; 4],
+                },
+                Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::PADDING,
+                    length: actual_padding.len() as u16,
+                    value: actual_padding,
+                },
+            ];
+
+            if let Some(user_pattern) = &user_pattern {
+                let user_pattern = user_pattern.get_pattern();
+                tlvs.push(Tlv {
+                    flags: Flags::new_request(),
+                    tpe: Tlv::BER_PATTERN,
+                    length: user_pattern.len() as u16,
+                    value: user_pattern,
+                });
+            }
+
+            Ok(Some((tlvs, next_tlv_command)))
         }
 
         fn handle(
@@ -2170,36 +2230,43 @@ pub mod ch {
         ) -> Result<Tlv, StampError> {
             let mut response_tlv = tlv.clone();
 
-            // Handle the BER Count specially.
-            if tlv.tpe == Tlv::BER_COUNT {
-                if !tlv.is_all_zeros() {
-                    return Err(StampError::MalformedTlv(Error::FieldNotZerod(
-                        "BER Count".to_string(),
-                    )));
+            // There is only so much that can be done here ...
+            // This TLV handler is registered for the family of BER TLVs.
+            // That means until the entire set of TLVs in the test packet is
+            // handled, there will be no way to know whether there was a Bit Error Pattern TLV
+            // that specifies how to compare the values in the padding or whether
+            // the comparison should be made against a pattern generated by
+            // some other source.
+            // So, we simply accumulate information so that the source material
+            // is available when we are given the chance to fixup the response
+            // before it is generated.
+
+            match tlv.tpe {
+                Tlv::BER_COUNT => {
+                    if !tlv.is_all_zeros() {
+                        return Err(StampError::MalformedTlv(Error::FieldNotZerod(
+                            "BER Count".to_string(),
+                        )));
+                    }
+                    response_tlv.flags = Flags::new_response();
+                    Ok(response_tlv)
                 }
-                response_tlv.flags = Flags::new_response();
-                return Ok(response_tlv);
+                Tlv::BER_PATTERN => {
+                    if tlv.length != 0 {
+                        info!(
+                            logger,
+                            "Found a pattern for BER analysis in a Bit Error Pattern TLV: {:x?}",
+                            tlv.value
+                        );
+                        self.pattern =
+                            Some(Self::bytes_from_pattern(&tlv.value, self.padding.len()));
+                    }
+
+                    response_tlv.flags = Flags::new_response();
+                    Ok(response_tlv)
+                }
+                _ => unreachable!(),
             }
-
-            let expected_data = Self::bytes_from_pattern(&tlv.value, self.padding.len());
-
-            if expected_data == self.padding {
-                info!(logger, "Yes, the expected bits are all present.");
-                response_tlv.flags = Flags::new_response();
-                return Ok(response_tlv);
-            }
-
-            self.error_count = expected_data
-                .iter()
-                .zip(&self.padding)
-                .fold(0, |acc, (l, r)| acc + if *l != *r { 1 } else { 0 });
-
-            info!(
-                logger,
-                "There were {} differences between received and expected bits.", self.error_count
-            );
-            response_tlv.flags = Flags::new_response();
-            Ok(response_tlv)
         }
 
         fn handle_netconfig_error(
