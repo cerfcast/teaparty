@@ -16,12 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use crate::handlers;
 use std::sync::{Arc, Mutex};
-
-use crate::{
-    custom_handlers::ch::{DestinationAddressTlv, V6ExtensionHeadersReflectionTlv},
-    handlers,
-};
 
 // Allow dead code in here because it is an API and, yes, there
 // are fields that are not read ... yet.
@@ -2831,13 +2827,13 @@ impl CustomHandlers {
         handlers.add(ecn_handler);
         let time_handler = Arc::new(Mutex::new(ch::TimeTlv {}));
         handlers.add(time_handler);
-        let dst_port_tlv: DestinationPortTlv = Default::default();
+        let dst_port_tlv: ch::DestinationPortTlv = Default::default();
         let destination_port_handler = Arc::new(Mutex::new(dst_port_tlv));
         handlers.add(destination_port_handler);
-        let dst_address_tlv: DestinationAddressTlv = Default::default();
+        let dst_address_tlv: ch::DestinationAddressTlv = Default::default();
         let destination_address_handler = Arc::new(Mutex::new(dst_address_tlv));
         handlers.add(destination_address_handler);
-        let cos_tlv: ClassOfServiceTlv = Default::default();
+        let cos_tlv: ch::ClassOfServiceTlv = Default::default();
         let cos_handler = Arc::new(Mutex::new(cos_tlv));
         handlers.add(cos_handler);
         let location_handler = Arc::new(Mutex::new(ch::LocationTlv {}));
@@ -2852,16 +2848,16 @@ impl CustomHandlers {
         handlers.add(history_handler);
         let followup_handler = Arc::new(Mutex::new(ch::FollowupTlv {}));
         handlers.add(followup_handler);
-        let reflected_control_tlv: ReflectedControlTlv = Default::default();
+        let reflected_control_tlv: ch::ReflectedControlTlv = Default::default();
         let reflected_control_handler = Arc::new(Mutex::new(reflected_control_tlv));
         handlers.add(reflected_control_handler);
-        let hmac_tlv: HmacTlv = Default::default();
+        let hmac_tlv: ch::HmacTlv = Default::default();
         let hmac_tlv_handler = Arc::new(Mutex::new(hmac_tlv));
         handlers.add(hmac_tlv_handler);
-        let ber_tlv: BitErrorRateTlv = Default::default();
+        let ber_tlv: ch::BitErrorRateTlv = Default::default();
         let ber_tlv_handler = Arc::new(Mutex::new(ber_tlv));
         handlers.add(ber_tlv_handler);
-        let header_options_tlv: V6ExtensionHeadersReflectionTlv = Default::default();
+        let header_options_tlv: ch::V6ExtensionHeadersReflectionTlv = Default::default();
         let header_options_tlv_handler = Arc::new(Mutex::new(header_options_tlv));
         handlers.add(header_options_tlv_handler);
         handlers
