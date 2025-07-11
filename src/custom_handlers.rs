@@ -2036,8 +2036,8 @@ pub mod ch {
 
     impl BitErrorRateTlv {
         fn bytes_from_pattern(pattern: &[u8], len: usize) -> Vec<u8> {
-            if len == 0 {
-                return vec![];
+            if len == 0 || pattern.is_empty() {
+                return vec![0; len];
             }
             let multiple = len / pattern.len();
             pattern.repeat(multiple)
