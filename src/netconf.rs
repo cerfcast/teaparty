@@ -366,7 +366,11 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match TtlNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or((64,64)), socket, logger) {
+        match TtlNetConfigurationItem::swap_value_on_socket(
+            self.orig.unwrap_or((64, 64)),
+            socket,
+            logger,
+        ) {
             Ok(_) => {
                 self.orig = None;
                 Ok(())
@@ -419,7 +423,7 @@ impl DscpNetConfigurationItem {
 
 impl NetConfigurationItemT for DscpNetConfigurationItem {
     fn get(&mut self) -> NetConfigurationItem {
-        NetConfigurationItem::Dscp(TryInto::<DscpValue>::try_into(self.value>>2).unwrap())
+        NetConfigurationItem::Dscp(TryInto::<DscpValue>::try_into(self.value >> 2).unwrap())
     }
     fn set(&mut self, arg: NetConfigurationArgument) -> Result<(), NetConfigurationError> {
         match arg {
@@ -457,7 +461,11 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match DscpNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or_default(), socket, logger) {
+        match DscpNetConfigurationItem::swap_value_on_socket(
+            self.orig.unwrap_or_default(),
+            socket,
+            logger,
+        ) {
             Ok(_) => {
                 self.orig = None;
                 Ok(())
@@ -549,7 +557,11 @@ impl NetConfigurationItemT for EcnNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match EcnNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or_default(), socket, logger) {
+        match EcnNetConfigurationItem::swap_value_on_socket(
+            self.orig.unwrap_or_default(),
+            socket,
+            logger,
+        ) {
             Ok(_) => {
                 self.orig = None;
                 Ok(())
