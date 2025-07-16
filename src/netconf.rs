@@ -223,7 +223,7 @@ fn set_tos_values(
 }
 
 pub struct TtlNetConfigurationItem {
-    orig: (u8, u8),
+    orig: Option<(u8, u8)>,
     value: u8,
 }
 
@@ -354,7 +354,7 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
             logger,
         ) {
             Ok(orig) => {
-                self.orig = orig;
+                self.orig = Some(orig);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -366,9 +366,9 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match TtlNetConfigurationItem::swap_value_on_socket(self.orig, socket, logger) {
+        match TtlNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or((64,64)), socket, logger) {
             Ok(_) => {
-                self.orig = (0, 0);
+                self.orig = None;
                 Ok(())
             }
             Err(e) => Err(e),
@@ -377,7 +377,7 @@ impl NetConfigurationItemT for TtlNetConfigurationItem {
 }
 
 pub struct DscpNetConfigurationItem {
-    orig: (u8, u8),
+    orig: Option<(u8, u8)>,
     value: u8,
 }
 
@@ -419,7 +419,7 @@ impl DscpNetConfigurationItem {
 
 impl NetConfigurationItemT for DscpNetConfigurationItem {
     fn get(&mut self) -> NetConfigurationItem {
-        NetConfigurationItem::Dscp(TryInto::<DscpValue>::try_into(self.value).unwrap())
+        NetConfigurationItem::Dscp(TryInto::<DscpValue>::try_into(self.value>>2).unwrap())
     }
     fn set(&mut self, arg: NetConfigurationArgument) -> Result<(), NetConfigurationError> {
         match arg {
@@ -428,7 +428,7 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
                 Ok(())
             }
             _ => Err(NetConfigurationError::CouldNotSet(
-                "ECN".to_string(),
+                "DSCP".to_string(),
                 ErrorKind::InvalidInput.into(),
             )),
         }
@@ -446,7 +446,7 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
             logger,
         ) {
             Ok(orig) => {
-                self.orig = orig;
+                self.orig = Some(orig);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -457,9 +457,9 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match DscpNetConfigurationItem::swap_value_on_socket(self.orig, socket, logger) {
-            Ok(orig) => {
-                self.orig = orig;
+        match DscpNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or_default(), socket, logger) {
+            Ok(_) => {
+                self.orig = None;
                 Ok(())
             }
             Err(e) => Err(e),
@@ -468,7 +468,7 @@ impl NetConfigurationItemT for DscpNetConfigurationItem {
 }
 
 pub struct EcnNetConfigurationItem {
-    orig: (u8, u8),
+    orig: Option<(u8, u8)>,
     value: u8,
 }
 
@@ -538,7 +538,7 @@ impl NetConfigurationItemT for EcnNetConfigurationItem {
             logger,
         ) {
             Ok(orig) => {
-                self.orig = orig;
+                self.orig = Some(orig);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -549,9 +549,9 @@ impl NetConfigurationItemT for EcnNetConfigurationItem {
         socket: &UdpSocket,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        match EcnNetConfigurationItem::swap_value_on_socket(self.orig, socket, logger) {
-            Ok(orig) => {
-                self.orig = orig;
+        match EcnNetConfigurationItem::swap_value_on_socket(self.orig.unwrap_or_default(), socket, logger) {
+            Ok(_) => {
+                self.orig = None;
                 Ok(())
             }
             Err(e) => Err(e),
@@ -601,15 +601,15 @@ impl NetConfiguration {
         NetConfiguration {
             configurations: vec![
                 Arc::<Mutex<_>>::new(Mutex::new(TtlNetConfigurationItem {
-                    orig: (0, 0),
+                    orig: None,
                     value: 0,
                 })),
                 Arc::<Mutex<_>>::new(Mutex::new(EcnNetConfigurationItem {
-                    orig: (0, 0),
+                    orig: None,
                     value: 0,
                 })),
                 Arc::<Mutex<_>>::new(Mutex::new(DscpNetConfigurationItem {
-                    orig: (0, 0),
+                    orig: None,
                     value: 0,
                 })),
                 Arc::<Mutex<_>>::new(Mutex::new(ExtensionHeaderNetConfigurationItem {
