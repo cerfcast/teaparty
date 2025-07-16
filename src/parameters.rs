@@ -283,10 +283,12 @@ impl TestParameter for DscpTestParameter {
     ) -> Option<Vec<TestArgument>> {
         //Some(TestArgument::Dscp(ip_hdr.dscp))
         match ip_hdr {
+            // No need to shift right here because ipv4.dscp is _not_ a raw value (See TryInto<DscpValue> for Ipv4Dscp)
             IpHeaders::Left(ipv4) => TryInto::<DscpValue>::try_into(ipv4.dscp)
                 .map(TestArgument::Dscp)
                 .map(|v| Some(vec![v]))
                 .unwrap_or(None),
+            // Need to shift right here because the value extracted from traffic class is raw (and try_into expects shifting!)
             IpHeaders::Right(ipv6) => TryInto::<DscpValue>::try_into(ipv6.0.traffic_class >> 2)
                 .map(TestArgument::Dscp)
                 .map(|v| Some(vec![v]))
