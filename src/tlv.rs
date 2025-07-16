@@ -476,7 +476,6 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::DESTINATION_PORT, destination_port_tlv_display);
         m.insert(Tlv::DESTINATION_ADDRESS, destination_address_tlv_display);
         m.insert(Tlv::HISTORY, default_tlv_display);
-        m.insert(Tlv::DSCPECN, default_tlv_display);
         m.insert(Tlv::PADDING, default_tlv_display);
         m.insert(Tlv::LOCATION, default_tlv_display);
         m.insert(Tlv::TIMESTAMP, default_tlv_display);
@@ -589,7 +588,6 @@ impl Tlv {
     pub const HEARTBEAT: u8 = 176;
     pub const DESTINATION_PORT: u8 = 177;
     pub const HISTORY: u8 = 178;
-    pub const DSCPECN: u8 = 179;
     pub const REFLECTED_CONTROL: u8 = 180;
     pub const BER_COUNT: u8 = 181;
     pub const BER_PATTERN: u8 = 182;
@@ -609,7 +607,6 @@ impl Tlv {
             Self::HEARTBEAT => "Heartbeat".into(),
             Self::DESTINATION_PORT => "Destination Port".into(),
             Self::HISTORY => "History".into(),
-            Self::DSCPECN => "DSCP ECN".into(),
             Self::REFLECTED_CONTROL => "Reflected Control".into(),
             Self::PADDING => "Padding".into(),
             Self::LOCATION => "Location".into(),
@@ -973,7 +970,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1002,7 +999,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1028,7 +1025,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1060,7 +1057,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1088,7 +1085,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1120,7 +1117,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1153,7 +1150,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1212,7 +1209,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 
@@ -1272,7 +1269,7 @@ mod test_tlvs_methods {
         let dscp_ecn = Tlv {
             length: 16,
             flags: super::Flags::new_request(),
-            tpe: Tlv::DSCPECN,
+            tpe: Tlv::COS,
             value: vec![0; 16],
         };
 

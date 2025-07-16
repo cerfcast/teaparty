@@ -216,59 +216,19 @@ local ecn_type_map =
 	[3] = "CE",
 }
 
-local rp_type_map =
+local rpd_type_map =
 {
-	[0] = "Forward and Reverse DSCP; Forward Only ECN",
-	[1] = "Forward Only DSCP; Forward Only ECN", -- TODO: Confirm!
-	[2] = "Forward and Reverse DSCP; Forward and Reverse ECN",
-	[3] = "Forward Only DSCP; Forward and Reverse ECN",
+	[0] = "Forward and Reverse DSCP",
+	[1] = "Forward Only DSCP", -- TODO: Confirm!
+}
+
+local rpe_type_map =
+{
+	[0] = "Traditional CoS Support",
+	[1] = "New-style CoS Support", -- TODO: Confirm!
 }
 
 -- TLV Dissectors
-
-
--- TLV Dissectors: DSCP ECN
-local dscp_ecn_tlv_protofield = ProtoField.bytes("stamp.tlv.dscp_ecn", "DSCP ECN TLV")
-local dscp1_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.dscp1", "DSCP1", base.HEX, dscp_type_map, 0xfc,
-	"DSCP1 Field")
-local ecn1_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.ecn1", "ECN1", base.HEX, ecn_type_map, 0x03,
-	"ECN1 Field")
-local dscp2_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.dscp2", "DSCP2", base.HEX, dscp_type_map, 0xfc,
-	"DSCP2 Field")
-local ecn2_dscp_ecn_tlv_protofield = ProtoField.uint8("stamp.tlv.dscp_ecn.ecn2", "ECN2", base.HEX, ecn_type_map, 0x03,
-	"ECN2 Field")
-local rp_dscp_ecn_tlv_protofield = ProtoField.bool("stamp.tlv.dscp_ecn.rp", "RP", 8,
-	{ [1] = "Forward Path", [2] = "Forward and Reverse Path" }, 0x80,
-	"Reverse Path")
-
-stamp_protocol.fields = { dscp_ecn_tlv_protofield,
-	dscp1_dscp_ecn_tlv_protofield,
-	ecn1_dscp_ecn_tlv_protofield,
-	dscp2_dscp_ecn_tlv_protofield,
-	ecn2_dscp_ecn_tlv_protofield,
-	rp_dscp_ecn_tlv_protofield,
-}
-
-------
---- Dissect the DSCP/ECN TLV.
--- Dissect the contents of a [DSCP/ECN TLV](https://www.ietf.org/archive/id/draft-white-ippm-stamp-ecn-00.html).
--- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
--- @tparam TreeItem tree The tree under which to append this dissected TLV
--- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid DSCP/ECN TLV.
-local function tlv_dscp_ecn_dissector(buffer, tree)
-	if buffer:len() < 4 then
-		return false
-	end
-
-	local dscp_ecn_tree = tree:add(dscp_ecn_tlv_protofield, buffer(0))
-	dscp_ecn_tree.text = "DSCP ECN TLV"
-	dscp_ecn_tree:add(dscp1_dscp_ecn_tlv_protofield, buffer(0, 1))
-	dscp_ecn_tree:add(ecn1_dscp_ecn_tlv_protofield, buffer(0, 1))
-	dscp_ecn_tree:add(dscp2_dscp_ecn_tlv_protofield, buffer(1, 1))
-	dscp_ecn_tree:add(ecn2_dscp_ecn_tlv_protofield, buffer(1, 1))
-	dscp_ecn_tree:add(rp_dscp_ecn_tlv_protofield, buffer(2, 1))
-	return true
-end
 
 -- TLV Dissectors: HMAC
 
@@ -306,17 +266,20 @@ local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2
 	"DSCP2 Field")
 local ecn_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
-local rp_cos_tlv_protofield    = ProtoField.uint16("stamp.tlv.cos.rp", "RP", base.HEX, rp_type_map, 0x0003,
-	"Reverse Path")
+local rpd_cos_tlv_protofield    = ProtoField.uint16("stamp.tlv.cos.rpd", "RPD", base.HEX, rpd_type_map, 0x0003,
+	"Reverse Path (DSCP)")
 local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN2", base.HEX, ecn_type_map, 0xc000,
 	"ECN2 Field")
+local rpe_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.rpe", "RPE", base.HEX, rpe_type_map, 0x3000,
+	"RPE Field")
 
 stamp_protocol.fields          = { cos_tlv_protofield,
 	dscp1_cos_tlv_protofield,
 	dscp2_cos_tlv_protofield,
 	ecn_cos_tlv_protofield,
-	rp_cos_tlv_protofield,
+	rpd_cos_tlv_protofield,
 	ecn2_cos_tlv_protofield,
+	rpe_cos_tlv_protofield,
 }
 
 ------
@@ -335,8 +298,9 @@ local function tlv_cos_dissector(buffer, tree)
 	cos_tree:add(dscp1_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(dscp2_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(ecn_cos_tlv_protofield, buffer(0, 2))
-	cos_tree:add(rp_cos_tlv_protofield, buffer(0, 2))
+	cos_tree:add(rpd_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(ecn2_cos_tlv_protofield, buffer(2, 2))
+	cos_tree:add(rpe_cos_tlv_protofield, buffer(2, 2))
 	return true
 end
 

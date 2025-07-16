@@ -52,163 +52,6 @@ pub mod ch {
         tlv::{self, Error, Flags, Tlv, Tlvs},
     };
 
-    pub struct DscpEcnTlv {}
-
-    #[derive(Subcommand, Clone, Debug)]
-    enum DscpEcnTlvCommand {
-        DscpEcn {
-            #[arg(long, default_value = "ect0")]
-            ecn: EcnValue,
-
-            #[arg(long, default_value = "cs1")]
-            dscp: DscpValue,
-
-            #[arg(last = true)]
-            next_tlv_command: Vec<String>,
-        },
-    }
-
-    impl TlvHandler for DscpEcnTlv {
-        fn tlv_name(&self) -> String {
-            "DSCP ECN".into()
-        }
-
-        fn tlv_cli_command(&self, command: Command) -> Command {
-            DscpEcnTlvCommand::augment_subcommands(command)
-        }
-
-        fn tlv_type(&self) -> Vec<u8> {
-            [Tlv::DSCPECN].to_vec()
-        }
-
-        fn request(
-            &mut self,
-            _args: Option<TestArguments>,
-            matches: &mut ArgMatches,
-        ) -> TlvRequestResult {
-            let maybe_our_command = DscpEcnTlvCommand::from_arg_matches(matches);
-            if maybe_our_command.is_err() {
-                return Ok(None);
-            }
-            let our_command = maybe_our_command.unwrap();
-            let DscpEcnTlvCommand::DscpEcn {
-                ecn: user_ecn,
-                dscp: user_dscp,
-                next_tlv_command,
-            } = our_command;
-
-            let next_tlv_command = if !next_tlv_command.is_empty() {
-                Some(next_tlv_command.join(" "))
-            } else {
-                None
-            };
-
-            Ok(Some((
-                [Tlv {
-                    flags: Flags::new_request(),
-                    tpe: Tlv::DSCPECN,
-                    length: 4,
-                    value: vec![
-                        Into::<u8>::into(user_dscp) | Into::<u8>::into(user_ecn),
-                        0,
-                        0,
-                        0,
-                    ],
-                }]
-                .to_vec(),
-                next_tlv_command,
-            )))
-        }
-
-        fn handle(
-            &mut self,
-            tlv: &tlv::Tlv,
-            parameters: &TestArguments,
-            netconfig: &mut NetConfiguration,
-            _client: SocketAddr,
-            _session: &mut Option<SessionData>,
-            logger: slog::Logger,
-        ) -> Result<Tlv, StampError> {
-            info!(logger, "I am in the Ecn TLV handler!");
-
-            let ecn_argument: u8 = match parameters.get_parameter_value::<u8>(TestArgumentKind::Ecn)
-            {
-                Ok(ecn_arguments) => ecn_arguments[0],
-                Err(e) => return Err(e),
-            };
-
-            // Remember: DSCP bits are in the msb!
-            let dscp_argument: u8 =
-                match parameters.get_parameter_value::<u8>(TestArgumentKind::Dscp) {
-                    Ok(dscp_arguments) => dscp_arguments[0],
-                    Err(e) => return Err(e),
-                };
-
-            info!(logger, "Got ecn argument: {:x}", ecn_argument);
-            info!(logger, "Got dscp argument: {:x}", dscp_argument);
-
-            let dscp_ecn_response = dscp_argument | ecn_argument;
-
-            let ecn_requested_response: EcnValue = (tlv.value[0] & 0x3).into();
-            let dscp_requested_response: DscpValue = ((tlv.value[0] & 0xfc) >> 2).try_into()?;
-
-            info!(logger, "Ecn requested back? {:?}", ecn_requested_response);
-            info!(logger, "Dscp requested back? {:?}", dscp_requested_response);
-            info!(logger, "Response flags? {:?}", Flags::new_response());
-
-            let response = Tlv {
-                flags: Flags::new_response(),
-                tpe: Tlv::DSCPECN,
-                length: 4,
-                value: vec![tlv.value[0], dscp_ecn_response, 0, 0],
-            };
-
-            netconfig.add_configuration(
-                NetConfigurationItemKind::Dscp,
-                NetConfigurationArgument::Dscp(dscp_requested_response),
-                Tlv::DSCPECN,
-            );
-
-            netconfig.add_configuration(
-                NetConfigurationItemKind::Ecn,
-                NetConfigurationArgument::Ecn(ecn_requested_response),
-                Tlv::DSCPECN,
-            );
-            Ok(response)
-        }
-
-        fn prepare_response_source(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(logger, "Preparing the response target in the Dscp Ecn Tlv.");
-            address
-        }
-        fn handle_netconfig_error(
-            &mut self,
-            response: &mut StampMsg,
-            _socket: &UdpSocket,
-            item: NetConfigurationItem,
-            logger: Logger,
-        ) {
-            error!(logger, "There was an error doing DSCP/ECN net configuration on reflected packet. Updating RP value. (DSCP ECN Handler)");
-            match item {
-                NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
-                    for tlv in &mut response.tlvs.tlvs {
-                        if self.tlv_type().contains(&tlv.tpe) {
-                            // Adjust our response to indicate that there was an error
-                            // setting the requested parameters on the packet!
-                            tlv.value[2] |= 0x1 << 6;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
     pub struct TimeTlv {}
 
     #[derive(Subcommand, Clone, Debug)]
@@ -432,11 +275,18 @@ pub mod ch {
 
     #[derive(Default, Debug)]
     pub struct ClassOfServiceTlv {
+        // Value intended by Session-Sender to be used as the DSCP value of the reflected test packet.
         dscp1: DscpValue,
+        // Value of the DSCP field of the IP header of the received test packet.
         dscp2: DscpValue,
+        // Value intended by Session-Sender to be used as the DSCP value of the reflected test packet.
         ecn1: EcnValue,
+        // Value of the ECN field of the IP header of the received test packet.
         ecn2: EcnValue,
-        rp: u8,
+        // Value which signals whether reliable DSCP information is carried in the reverse path.
+        rpd: u8,
+        // Value which signals whether reliable ECN information is carried in the reverse path.
+        rpe: u8,
     }
 
     impl TryFrom<&Tlv> for ClassOfServiceTlv {
@@ -446,7 +296,7 @@ pub mod ch {
                 return Err(StampError::MalformedTlv(Error::NotEnoughData));
             }
 
-            if tlv.value[2] & 0x3f != 0 || tlv.value[3] != 0 {
+            if tlv.value[2] & 0x0f != 0 || tlv.value[3] != 0 {
                 return Err(StampError::MalformedTlv(Error::FieldNotZerod(
                     "Reserved".to_string(),
                 )));
@@ -455,16 +305,18 @@ pub mod ch {
             let dscp1: DscpValue = ((tlv.value[0] & 0xfc) >> 2).try_into()?;
             let dscp2: DscpValue =
                 (((tlv.value[0] & 0x3) << 4) | (tlv.value[1] >> 4)).try_into()?;
-            let ecn1: EcnValue = ((tlv.value[1] & 0x0c) >> 2).into();
-            let ecn2: EcnValue = ((tlv.value[2] & 0xc0) >> 6).into();
-            let rp: u8 = tlv.value[1] & 0x3;
+            let ecn2: EcnValue = ((tlv.value[1] & 0x0c) >> 2).into();
+            let ecn1: EcnValue = ((tlv.value[2] & 0xc0) >> 6).into();
+            let rpd: u8 = tlv.value[1] & 0x3;
+            let rpe: u8 = (tlv.value[2] & 0x30) >> 4;
 
             Ok(Self {
                 dscp1,
                 dscp2,
                 ecn1,
                 ecn2,
-                rp,
+                rpd,
+                rpe,
             })
         }
     }
@@ -478,8 +330,8 @@ pub mod ch {
             let ecn2_b: u8 = value.ecn2.into();
 
             let dscp_byte1 = dscp1_b | (dscp2_b >> 6);
-            let dscp_byte2 = (dscp2_b << 2) | (ecn1_b << 2) | value.rp & 0x3;
-            let reserved_byte1 = ecn2_b << 6;
+            let dscp_byte2 = (dscp2_b << 2) | (ecn2_b << 2) | value.rpd & 0x3;
+            let reserved_byte1 = (ecn1_b << 6) | (value.rpe << 4);
 
             vec![dscp_byte1, dscp_byte2, reserved_byte1, 0]
         }
@@ -491,7 +343,7 @@ pub mod ch {
             #[arg(long, default_value = "cs1")]
             dscp: DscpValue,
 
-            #[arg(long, default_value = "NotEct")]
+            #[arg(long, default_value = "not-ect")]
             ecn: EcnValue,
 
             #[arg(last = true)]
@@ -564,9 +416,15 @@ pub mod ch {
 
             let mut cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
 
-            if cos_tlv.rp != 0 {
+            if cos_tlv.rpd != 0 {
                 return Err(StampError::MalformedTlv(Error::FieldNotZerod(
-                    "RP".to_string(),
+                    "RPD".to_string(),
+                )));
+            }
+
+            if cos_tlv.rpe != 0 {
+                return Err(StampError::MalformedTlv(Error::FieldNotZerod(
+                    "RPE".to_string(),
                 )));
             }
 
@@ -586,13 +444,9 @@ pub mod ch {
             info!(logger, "Got ecn argument: {:x}", ecn_argument);
             info!(logger, "Got dscp argument: {:x}", dscp_argument);
 
-            cos_tlv.ecn1 = ecn_argument.into();
+            cos_tlv.ecn2 = ecn_argument.into();
             // Into from DscpValue to u8 assumes that the DSCP bits are in lsb.
             cos_tlv.dscp2 = (dscp_argument >> 2).try_into()?;
-
-            if cos_tlv.ecn2 != EcnValue::NotEct {
-                cos_tlv.rp = 0x2;
-            }
 
             info!(logger, "Dscp requested back? {:?}", cos_tlv.dscp1);
 
@@ -604,9 +458,12 @@ pub mod ch {
 
             netconfig.add_configuration(
                 NetConfigurationItemKind::Ecn,
-                NetConfigurationArgument::Ecn(cos_tlv.ecn2),
+                NetConfigurationArgument::Ecn(cos_tlv.ecn1),
                 Tlv::COS,
             );
+
+            // Must set the RPE value to 1 in reflected packet:
+            cos_tlv.rpe = 1;
 
             let response = Tlv {
                 flags: Flags::new_response(),
@@ -624,18 +481,22 @@ pub mod ch {
             item: NetConfigurationItem,
             logger: Logger,
         ) {
-            error!(logger, "There was an error doing DSCP/ECN net configuration on reflected packet. Updating RP value. (Class of Service Handler)");
-            match item {
-                NetConfigurationItem::Dscp(_) | NetConfigurationItem::Ecn(_) => {
-                    for tlv in &mut response.tlvs.tlvs {
-                        if self.tlv_type().contains(&tlv.tpe) {
-                            // Adjust our response to indicate that there was an error
-                            // setting the reverse path parameters on the packet!
+            for tlv in &mut response.tlvs.tlvs {
+                if self.tlv_type().contains(&tlv.tpe) {
+                    // Adjust our response to indicate that there was an error
+                    // setting the reverse path parameters on the packet!
+                    match item {
+                        // An error setting the DSCP value means that we change the RPD!
+                        NetConfigurationItem::Dscp(_) => {
+                            error!(logger, "There was an error doing DSCP net configuration on reflected packet. Updating RPD value. (Class of Service Handler)");
                             tlv.value[1] |= 0x1;
                         }
-                    }
+                        NetConfigurationItem::Ecn(_) => {
+                            error!(logger, "There was an error doing ECN net configuration on reflected packet. No semantics defined to update RPE. (Class of Service Handler)");
+                        }
+                        _ => {}
+                    };
                 }
-                _ => {}
             }
         }
     }
@@ -2754,7 +2615,7 @@ pub mod ch {
             let expected_result = [
                 Into::<u8>::into(crate::ip::DscpValue::AF13) | (0x16 >> 4), // Shift 0x16 (see above) right by 4 to isolate top 2 bits.
                 (0x16 << 4), // Shift 0x16 (see above) left to put the bottom 4 bits in the top 4 bits of a u8.
-                0,
+                0x10,
                 0,
             ];
 
@@ -2823,8 +2684,6 @@ pub struct CustomHandlers {}
 impl CustomHandlers {
     pub fn build() -> handlers::Handlers {
         let mut handlers = handlers::Handlers::new();
-        let ecn_handler = Arc::new(Mutex::new(ch::DscpEcnTlv {}));
-        handlers.add(ecn_handler);
         let time_handler = Arc::new(Mutex::new(ch::TimeTlv {}));
         handlers.add(time_handler);
         let dst_port_tlv: ch::DestinationPortTlv = Default::default();

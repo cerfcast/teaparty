@@ -208,7 +208,6 @@ The `tlvs` subcommand will put TLVs into the test packet.
 Usage: teaparty sender tlvs [COMMAND]
 
 Commands:
-  dscp-ecn           
   time               
   destination-port   
   destination-address
@@ -232,7 +231,6 @@ Options:
 | Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
 | class-of-service | Class of Service | The DSCP value requested to be set in the reflected IP packet can be specified with the `--dscp`. By default, the requested value is `CS1`. |
-| dscp-ecn | DSCP ECN | The values requested to be set in the reflected IP packet for the DSCP and ECN values can be specified with the `--dscp` and `--ecn` flags, respectively. By default, the requested values are `CS1` and `ECT0`, respectively. |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destination-port | Destination Port| 983 |
 | destination-address | Destination Address | The IP Address used as the value of the TLV can be specified using the `--address` parameter. |
@@ -256,10 +254,10 @@ It is possible to put more than one TLV into a test packet by separating multipl
 
 _Example_:
 ```console
-$ 127.0.0.1 sender --ecn ect1 --dscp af11 tlvs time -- dscp-ecn --ecn ect0 --dscp af21
+$ 127.0.0.1 sender --ecn ect1 --dscp af11 tlvs time -- class-of-service --ecn ect0 --dscp af21
 ```
 
-will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a DSCP ECN TLV (requesting that the reflected IP packet's headers have DSCP and ECN fields set to `AF21` and `ECT0`, respectively), and with the test IP packet's ECN and DSCP values set to `ECT1` and `AF11`, respectively.
+will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a Class-of-Service TLV (requesting that the reflected IP packet's headers have DSCP and ECN fields set to `AF21` and `ECT0`, respectively), and with the test IP packet's ECN and DSCP values set to `ECT1` and `AF11`, respectively.
 
 ### Contributing
 
@@ -311,8 +309,6 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 
 | TLV | Supported |
 | -- | -- |
-| DSCP ECN (reflector) | &#9989; |
-| DSCP ECN (sender) | &#9989; |
 | Heartbeat (reflector) | &#9989; |
 | Heartbeat (sender) | &#10060; |
 | Destination port (reflector) | &#9989; |
