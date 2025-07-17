@@ -52,6 +52,10 @@ impl Debug for NtpTime {
         f.debug_struct("NtpTime")
             .field("seconds", &format_args!("0x{:x?}", self.seconds))
             .field("fractions", &format_args!("0x{:x?}", self.fractions))
+            .field(
+                "unix_time",
+                &Into::<chrono::DateTime<Utc>>::into(self.clone()),
+            )
             .finish()
     }
 }
@@ -103,6 +107,14 @@ impl From<chrono::DateTime<Utc>> for NtpTime {
         let then = Utc.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap();
         let difference = value.signed_duration_since(then);
         NtpTime::from_nanos(difference.num_nanoseconds().unwrap() as u64)
+    }
+}
+
+impl From<NtpTime> for chrono::DateTime<Utc> {
+    fn from(value: NtpTime) -> Self {
+        let nanos = chrono::Duration::nanoseconds(NtpTime::to_nanos(value) as i64);
+        let then = Utc.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap();
+        then + nanos
     }
 }
 
