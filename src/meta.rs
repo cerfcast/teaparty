@@ -28,6 +28,7 @@ use rocket::serde::{json::Json, Deserialize};
 use rocket::{Config, State};
 use serde::Serialize;
 use slog::Logger;
+use slog::{error, info};
 
 #[derive(Clone, Debug)]
 pub struct MetaSocketAddr {
@@ -158,22 +159,43 @@ pub fn launch_meta(
             port: listen_on.port(),
             ..Config::release_default()
         };
-        let logger = logger.clone();
+        let thread_logger = logger.clone();
         let joinable = std::thread::spawn(move || {
-            slog::info!(logger, "Starting the meta thread!");
+            info!(thread_logger, "Starting the meta thread!");
             let r = rocket::build()
                 .configure(rocket_config)
                 .manage(monitor)
                 .mount("/", routes![index, heartbeats, stop_heartbeat, session])
                 .launch();
 
-            let rt = rocket::tokio::runtime::Builder::new_current_thread()
+            match rocket::tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("Uh oh!");
-            rt.block_on(r).expect("Could not start!");
+            {
+                Ok(rt) => {
+                    if let Err(meta_start_error) = rt.block_on(r) {
+                        error!(
+                            thread_logger,
+                            "Could not start the meta thread: {meta_start_error}"
+                        );
+                    };
+                }
+                Err(e) => {
+                    error!(
+                        thread_logger,
+                        "There was an error building the meta thread's Rocket runtime: {e}"
+                    );
+                }
+            };
         });
-        joinable.join().unwrap();
+
+        match joinable.join() {
+            Err(joinable_launch_error) => {
+                info!(logger, "Could not wait for the meta server to shut down (maybe it didn't start properly?): {joinable_launch_error:?}.");
+            }
+            Ok(_) => {
+                info!(logger, "meta server is shut down.");
+            }
+        }
     }
-    slog::info!(logger, "Stopping the meta thread!");
 }
