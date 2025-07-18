@@ -189,11 +189,17 @@ fn client(
     info!(logger, "Connecting to the server at {}", server_addr);
 
     let server_socket = if server_addr.is_ipv4() {
-        UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), src_port))
-            .map_err(StampError::Io)?
+        UdpSocket::bind(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            src_port.unwrap_or_default(),
+        ))
+        .map_err(StampError::Io)?
     } else {
-        UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), src_port))
-            .map_err(StampError::Io)?
+        UdpSocket::bind(SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            src_port.unwrap_or_default(),
+        ))
+        .map_err(StampError::Io)?
     };
 
     let mut test_arguments: TestArguments = Default::default();

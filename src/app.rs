@@ -70,7 +70,7 @@ pub struct SenderArgs {
 
     /// Enable a non-operating-system chosen source port for the test packet
     #[arg(long)]
-    pub src_port: u16,
+    pub src_port: Option<u16>,
 
     #[arg(long)]
     pub authenticated: Option<String>,
