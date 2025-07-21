@@ -467,6 +467,11 @@ fn ipv6_extension_header_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::
     basic_tlv_display(tlv, f)?;
     write!(f, " IPv6 Extension Header Reflection: {:2x?}", tlv.value)
 }
+fn padding_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    write!(f, " Padding: {:x?}", tlv.value)
+}
+
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -476,7 +481,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::DESTINATION_PORT, destination_port_tlv_display);
         m.insert(Tlv::DESTINATION_ADDRESS, destination_address_tlv_display);
         m.insert(Tlv::HISTORY, default_tlv_display);
-        m.insert(Tlv::PADDING, default_tlv_display);
+        m.insert(Tlv::PADDING, padding_tlv_display);
         m.insert(Tlv::LOCATION, default_tlv_display);
         m.insert(Tlv::TIMESTAMP, default_tlv_display);
         m.insert(Tlv::COS, cos_tlv_display);
