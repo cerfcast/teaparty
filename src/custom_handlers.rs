@@ -2458,12 +2458,12 @@ pub mod ch {
             if self.address.is_none() {
                 return address;
             }
-            let destination_address = self.address.unwrap();
+            let source_address = self.address.unwrap();
 
             for tlv in response.tlvs.tlvs.iter() {
                 if self.tlv_type().contains(&tlv.tpe) {
                     let port = address.port();
-                    return SocketAddr::new(destination_address, port);
+                    return SocketAddr::new(source_address, port);
                 }
             }
             address
@@ -2479,6 +2479,7 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (Destination Address) that does not set net configuration items.");
         }
     }
+
 
     #[cfg(test)]
     mod custom_handlers_test {
