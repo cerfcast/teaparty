@@ -203,7 +203,7 @@ impl Responder {
                 "There was an error binding the response source socket: {}. Abandoning response.",
                 e
             );
-                    return;
+                    continue;
                 }
 
                 Arc::new(Mutex::new(response_src_socket.unwrap()))
@@ -226,7 +226,7 @@ impl Responder {
                     logger.clone(),
                 ) {
                     error!(logger, "There was an error performing net configuration on a reflected packet: {}; Abandoning response.", e);
-                    return;
+                    continue;
                 }
 
                 info!(logger, "Responding with stamp msg: {:x?}", stamp_msg);
@@ -243,7 +243,7 @@ impl Responder {
 
                 if let Err(e) = netconfig.unconfigure(&locked_socket_to_prepare, logger.clone()) {
                     error!(logger, "There was an error performing net unconfiguration: {}. Such a situation is bad.", e);
-                    return;
+                    continue;
                 }
 
                 write_result
