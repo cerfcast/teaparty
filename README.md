@@ -222,6 +222,7 @@ Commands:
   hmac
   bit-error-rate
   v6-extension-header-reflection  
+  return-path
   help               Print this message or the help of the given subcommand(s)
 
 Options:
@@ -242,6 +243,7 @@ Options:
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 | bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `--size`, respectively). |
 | v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `--size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
+| return-path | Return Path | `--address` the address the reflector will use as the destination of the reflected packet. |
 
 _Example_:
 
@@ -302,8 +304,10 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | -- | -- |
 | Destination Node Address TLV (sender) | &#9989; |
 | Destination Node Address TLV (reflector) | &#9989; |
-| Return Path TLV (sender) | &#10060; |
-| Return Path TLV (reflector) | &#10060; |
+| Return Path TLV (sender - return address sub-TLV) | &#9989; |
+| Return Path TLV (reflector - return address sub-TLV) | &#9989; |
+| Return Path TLV (sender - return path control code and segment list sub-TLVs) | &#10060; |
+| Return Path TLV (sender - return path control code and segment list sub-TLVs) | &#10060; |
 
 #### Yet-to-be-standardized TLVs
 
