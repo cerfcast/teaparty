@@ -182,10 +182,13 @@ impl Responder {
                     .as_ref()
                     .and_then(|handler| handler.get_handler(response_tlv.tpe))
                 {
-                    (modified_src, modified_destination) = response_tlv_handler
-                        .lock()
-                        .unwrap()
-                        .prepare_response_addrs(&mut stamp_msg, modified_src, modified_destination, logger.clone());
+                    (modified_src, modified_destination) =
+                        response_tlv_handler.lock().unwrap().prepare_response_addrs(
+                            &mut stamp_msg,
+                            modified_src,
+                            modified_destination,
+                            logger.clone(),
+                        );
                 }
             }
 
