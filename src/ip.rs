@@ -264,3 +264,9 @@ mod test_ecn_conversions {
         assert!(Into::<u8>::into(value) == 3);
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct Srv6SegmentList {}
+
+#[derive(Debug, Clone)]
+pub struct MplsSegmentList {}

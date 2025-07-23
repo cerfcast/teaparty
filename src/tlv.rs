@@ -27,6 +27,7 @@ use std::{
 use crate::{
     custom_handlers::ch::{
         ClassOfServiceTlv, DestinationAddressTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv,
+        ReturnPathTlv,
     },
     os::MacAddr,
     stamp::StampError,
@@ -471,7 +472,14 @@ fn padding_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     write!(f, " Padding: {:x?}", tlv.value)
 }
-
+fn return_path_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    if let Ok(return_path_tlv) = TryInto::<ReturnPathTlv>::try_into(tlv) {
+        write!(f, " Return Path TLV: {return_path_tlv:x?}")
+    } else {
+        write!(f, " Return Path TLV (failed to parse): {:x?}", tlv.value)
+    }
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -491,6 +499,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::HMAC_TLV, hmac_tlv_display);
         m.insert(Tlv::BER_PATTERN, ber_pattern_tlv_display);
         m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
+        m.insert(Tlv::RETURN_PATH, return_path_tlv_display);
         m.insert(
             Tlv::V6_EXTENSION_HEADERS_REFLECTION,
             ipv6_extension_header_tlv_display,
@@ -606,6 +615,7 @@ impl Tlv {
     pub const FOLLOWUP: u8 = 7;
     pub const HMAC_TLV: u8 = 8;
     pub const DESTINATION_ADDRESS: u8 = 9;
+    pub const RETURN_PATH: u8 = 10;
 
     pub fn type_to_string(tpe: u8) -> String {
         match tpe {
@@ -624,6 +634,7 @@ impl Tlv {
             Self::BER_PATTERN => "BER Pattern".into(),
             Self::V6_EXTENSION_HEADERS_REFLECTION => "Reflected IPv6 Extension Header Data".into(),
             Self::DESTINATION_ADDRESS => "Destination Address".into(),
+            Self::RETURN_PATH => "Return Path".into(),
             _ => "Unrecognized".into(),
         }
     }
