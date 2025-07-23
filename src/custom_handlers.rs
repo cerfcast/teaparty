@@ -128,18 +128,6 @@ pub mod ch {
             Ok(response)
         }
 
-        fn prepare_response_source(
-            &mut self,
-            _: &mut StampMsg,
-            address: SocketAddr,
-            logger: Logger,
-        ) -> SocketAddr {
-            info!(
-                logger,
-                "Preparing the response target in the Timestamp Tlv."
-            );
-            address
-        }
         fn handle_netconfig_error(
             &mut self,
             _response: &mut StampMsg,
@@ -241,12 +229,13 @@ pub mod ch {
             Ok(result_tlv)
         }
 
-        fn prepare_response_source(
+        fn prepare_response_addrs(
             &mut self,
             response: &mut StampMsg,
-            address: SocketAddr,
+            source_address: SocketAddr,
+            destination_address: SocketAddr,
             logger: Logger,
-        ) -> SocketAddr {
+        ) -> (SocketAddr, SocketAddr) {
             info!(
                 logger,
                 "Preparing the response target in the destination port Tlv."
@@ -254,12 +243,12 @@ pub mod ch {
             for tlv in response.tlvs.tlvs.iter() {
                 if self.tlv_type().contains(&tlv.tpe) {
                     let new_port: u16 = u16::from_be_bytes(tlv.value[0..2].try_into().unwrap());
-                    let mut ipv4 = address;
+                    let mut ipv4 = source_address;
                     ipv4.set_port(new_port);
-                    return ipv4;
+                    return (source_address, ipv4);
                 }
             }
-            address
+            (source_address, destination_address)
         }
 
         fn handle_netconfig_error(
@@ -2444,29 +2433,30 @@ pub mod ch {
             Ok(result_tlv)
         }
 
-        fn prepare_response_source(
+        fn prepare_response_addrs(
             &mut self,
             response: &mut StampMsg,
-            address: SocketAddr,
+            source_address: SocketAddr,
+            destination_address: SocketAddr,
             logger: Logger,
-        ) -> SocketAddr {
+        ) -> (SocketAddr, SocketAddr) {
             info!(
                 logger,
                 "Preparing the response source in the destination address Tlv by changing the source address."
             );
 
             if self.address.is_none() {
-                return address;
+                return (source_address, destination_address);
             }
-            let source_address = self.address.unwrap();
+            let new_source_address = self.address.unwrap();
 
             for tlv in response.tlvs.tlvs.iter() {
                 if self.tlv_type().contains(&tlv.tpe) {
-                    let port = address.port();
-                    return SocketAddr::new(source_address, port);
+                    let port = source_address.port();
+                    return (SocketAddr::new(new_source_address, port), destination_address);
                 }
             }
-            address
+            (source_address, destination_address)
         }
 
         fn handle_netconfig_error(
@@ -2479,7 +2469,6 @@ pub mod ch {
             panic!("There was a net configuration error in a handler (Destination Address) that does not set net configuration items.");
         }
     }
-
 
     #[cfg(test)]
     mod custom_handlers_test {

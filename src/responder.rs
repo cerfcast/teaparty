@@ -174,6 +174,7 @@ impl Responder {
             // Moved from handler
 
             let mut modified_src = src;
+            let mut modified_destination = dest;
 
             // Let each of the handlers have the chance to modify the socket from which the response will be sent.
             for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
@@ -181,10 +182,10 @@ impl Responder {
                     .as_ref()
                     .and_then(|handler| handler.get_handler(response_tlv.tpe))
                 {
-                    modified_src = response_tlv_handler
+                    (modified_src, modified_destination) = response_tlv_handler
                         .lock()
                         .unwrap()
-                        .prepare_response_source(&mut stamp_msg, modified_src, logger.clone());
+                        .prepare_response_addrs(&mut stamp_msg, modified_src, modified_destination, logger.clone());
                 }
             }
 
@@ -236,7 +237,7 @@ impl Responder {
                         &Into::<Vec<u8>>::into(stamp_msg.clone()),
                         &locked_socket_to_prepare,
                         &netconfig,
-                        dest,
+                        modified_destination,
                         logger.clone(),
                     )
                 };

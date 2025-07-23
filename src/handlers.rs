@@ -114,15 +114,17 @@ pub trait TlvHandler {
 
     /// Customize the IP/port of the destination of the reflected STAMP packet.
     ///
-    /// This method generates a (possibly) modified [`address`]. Return [`address`]
-    /// if there is no change necessary.
-    fn prepare_response_source(
+    /// This method generates a (possibly) modified [`source_address`] and
+    /// [`destination_address`]. Return a tuple of addresses (source, then destination)
+    /// to specify the requested (and possibly modified) source and destination addresses.
+    fn prepare_response_addrs(
         &mut self,
         _response: &mut StampMsg,
-        address: SocketAddr,
+        source_address: SocketAddr,
+        destination_address: SocketAddr,
         _logger: Logger,
-    ) -> SocketAddr {
-        address
+    ) -> (SocketAddr, SocketAddr) {
+        (source_address, destination_address)
     }
 
     /// Do final fixup of STAMP message before it is transmitted.
