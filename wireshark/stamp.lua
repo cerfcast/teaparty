@@ -3,6 +3,8 @@
 local stamp_protocol = Proto("STAMP", "STAMP Protocol")
 
 
+local dissect_tlv
+
 --- Field Sizes
 
 local uint32_field_size = 4
@@ -571,6 +573,78 @@ local function tlv_destination_address_dissector(buffer, tree)
 	return false
 end
 
+-- TLV Dissectors: Return Path TLV
+
+local return_path_tlv_protofield = ProtoField.bytes("stamp.tlv.return_path",
+	"Return Path TLV")
+
+stamp_protocol.fields            = { return_path_tlv_protofield,
+}
+
+------
+--- Dissect the Return Path TLV
+-- Dissect the contents of a [Return Path TLV](https://datatracker.ietf.org/doc/rfc9503/)
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Return Path TLV
+local function tlv_return_path_dissector(buffer, tree)
+	-- Note: Make sure that there are at least 4 bytes
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local return_path_return_address_v4_protofield = ProtoField.ipv4("stamp.tlv.return_path.return_address4",
+		"Return Address")
+	local return_path_return_address_v6_protofield = ProtoField.ipv6("stamp.tlv.return_path.return_address6",
+		"Return Address")
+
+
+	------
+	--- Dissect the Return Path Return Address Sub TLV
+	-- Dissect the contents of a [Return Path Return Address Sub TLV](https://datatracker.ietf.org/doc/rfc9503/)
+	-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+	-- @tparam TreeItem tree The tree under which to append this dissected TLV
+	-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Return Path TLV
+	local function return_path_return_address_subtlv_dissector(buffer, tree)
+		if buffer:len() < 4 then
+			return false
+		end
+
+		local return_path_return_address_tree = tree:add(return_path_tlv_protofield, buffer)
+		return_path_return_address_tree.text = "Return Address"
+		if buffer:len() == 4 then
+			return_path_return_address_tree:add(return_path_return_address_v4_protofield, buffer)
+			return true
+		elseif buffer:len() == 16 then
+			return_path_return_address_tree:add(return_path_return_address_v6_protofield, buffer)
+			return true
+		end
+	end
+
+	local tlv_dissector_map = {
+		[0x2] = return_path_return_address_subtlv_dissector,
+	}
+	local tlv_type_map = {
+		[0x2] = "Return Address",
+	}
+
+	local return_path_type_subtlv_protofield = ProtoField.uint8("stamp.tlv.return_path.type", "Type", base.HEX, tlv_type_map, "Type")
+
+	stamp_protocol.fields = { return_path_return_address_v4_protofield, return_path_return_address_v6_protofield, return_path_type_subtlv_protofield }
+
+	local return_path_tree = tree:add(return_path_tlv_protofield, buffer)
+	return_path_tree.text = "Return Path"
+
+	-- Now, let's dissect some sub tlvs
+
+	local next_field_start = 0
+	while next_field_start < buffer:len() do
+		next_field_start = next_field_start +
+			dissect_tlv(buffer(next_field_start), tree, tlv_dissector_map, tlv_type_map, return_path_type_subtlv_protofield)
+	end
+
+	return false
+end
 
 local tlv_type_map = {
 	[0xb3] = "DSCP ECN",
@@ -581,18 +655,19 @@ local tlv_type_map = {
 	"Followup",
 	[0x8] = "HMAC",
 	[0x9] = "Destination Address",
+	[0xa] = "Return Path",
 	[181] = "Bit Error Count",
 	[182] = "Bit Error Pattern",
 	[183] = "Reflected IPv6 Extension Header"
 }
 local tlv_dissector_map = {
-	[0xb3] = tlv_dscp_ecn_dissector,
 	[0x1] = tlv_padding_dissector,
 	[0x04] = tlv_cos_dissector,
 	[0x7] = tlv_followup_dissector,
 	[0x6] = tlv_access_report_dissector,
 	[0x08] = tlv_hmac_dissector,
 	[0x09] = tlv_destination_address_dissector,
+	[0x0a] = tlv_return_path_dissector,
 	[181] = tlv_bercount_dissector,
 	[182] = tlv_berpattern_dissector,
 	[183] = tlv_reflected_ipv6_ext_header_dissector
@@ -673,8 +748,8 @@ end
 --- Convert between a TLV's type and its name
 -- @tparam int type TLV type identifier.
 -- @treturn string The name of the TLV identified by `type`.
-local function tlv_type_to_name(type)
-	local type_name = tlv_type_map[type]
+local function tlv_type_to_name(type, type_map)
+	local type_name = type_map[type]
 
 	if type_name == nil then
 		return "Unknown"
@@ -686,7 +761,7 @@ end
 -- @tparam Tvb buffer Bytes containing the raw contents of the timestamp and (optionally) error estimate.
 -- @tparam TreeItem tree The tree on which to attach the dissected TLV.
 -- @treturn int The size of the dissected TLV (including type and length fields).
-local function dissect_tlv(buffer, tree)
+dissect_tlv = function(buffer, tree, dissector_map, type_map, type_tlv_protofield)
 	if buffer:len() < 4 then
 		tree:add(buffer, "Error")
 		return buffer:len()
@@ -696,7 +771,7 @@ local function dissect_tlv(buffer, tree)
 	local tlv_length = buffer(2, 2):uint()
 
 	local tlv_tree = tree:add(tlv_protofield, buffer(0, math.min(tlv_length + 4, buffer:len())))
-	tlv_tree.text = "TLV: " .. tlv_type_to_name(tlv_type)
+	tlv_tree.text = "TLV: " .. tlv_type_to_name(tlv_type, type_map)
 	if tlv_length + 4 > buffer:len() then
 		tlv_tree:add(buffer, "TLV Length exceeds packet size.")
 		return buffer:len()
@@ -708,7 +783,7 @@ local function dissect_tlv(buffer, tree)
 	tlv_tree:add(type_tlv_protofield, buffer(1, 1))
 	tlv_tree:add(length_tlv_protofield, buffer(2, 2))
 
-	local handler = tlv_dissector_map[tlv_type]
+	local handler = dissector_map[tlv_type]
 
 	if handler ~= nil then
 		handler(buffer(4, tlv_length), tlv_tree)
@@ -823,7 +898,8 @@ function stamp_protocol.dissector(buffer, pinfo, tree)
 
 	-- As long as there are more bytes in the packet, try to parse TLVs!
 	while next_field_start < buffer:len() do
-		next_field_start = next_field_start + dissect_tlv(buffer(next_field_start), subtree)
+		next_field_start = next_field_start +
+			dissect_tlv(buffer(next_field_start), subtree, tlv_dissector_map, tlv_type_map, type_tlv_protofield)
 	end
 end
 
