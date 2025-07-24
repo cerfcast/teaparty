@@ -86,28 +86,32 @@ local function dissect_timestamp(buffer, name, display, include_error_estimate, 
 end
 
 -- Sequence
-local sequence_protofield = ProtoField.uint32("stamp.sequence", "Sequence", base.DEC)
-local sender_sequence_protofield = ProtoField.uint32("stamp.sender.sequence", "Sequence", base.DEC)
+local sequence_protofield                    = ProtoField.uint32("stamp.sequence", "Sequence", base.DEC)
+local sender_sequence_protofield             = ProtoField.uint32("stamp.sender.sequence", "Sequence", base.DEC)
 
 -- Timestamp
-local ts_protofield = ProtoField.none("stamp.timestamp", "Timestamp", base.HEX)
-local ts_seconds_protofield = ProtoField.uint32("stamp.timestamp.seconds", "Seconds", base.DEC)
-local ts_fractions_protofield = ProtoField.uint32("stamp.timestamp.fractions", "Fractions", base.DEC)
+local ts_protofield                          = ProtoField.none("stamp.timestamp", "Timestamp", base.HEX)
+local ts_seconds_protofield                  = ProtoField.uint32("stamp.timestamp.seconds", "Seconds", base.DEC)
+local ts_fractions_protofield                = ProtoField.uint32("stamp.timestamp.fractions", "Fractions", base.DEC)
 
 -- Error Estimate
-local error_protofield = ProtoField.none("stamp.timestamp.error_estimate", "Error Estimate", base.HEX)
-local error_s_protofield = ProtoField.bool("stamp.timestamp.error_estimate.s", "S", 8,
+local error_protofield                       = ProtoField.none("stamp.timestamp.error_estimate", "Error Estimate",
+	base.HEX)
+local error_s_protofield                     = ProtoField.bool("stamp.timestamp.error_estimate.s", "S", 8,
 	{ [1] = "Synchronized", [2] = "Not synchronized" }, 0x80,
 	"Whether source generating the timestamp is synchronized with an external source.")
-local error_z_protofield = ProtoField.bool("stamp.timestamp.error_estimate.z", "Z", 8, { [1] = "Not Zero", [2] = "Zero" },
+local error_z_protofield                     = ProtoField.bool("stamp.timestamp.error_estimate.z", "Z", 8,
+	{ [1] = "Not Zero", [2] = "Zero" },
 	0x40, "Must be zero.")
-local error_scale_protofield = ProtoField.uint8("stamp.timestamp.error_estimate.scale", "Scale", base.UNIT_STRING, { "" },
+local error_scale_protofield                 = ProtoField.uint8("stamp.timestamp.error_estimate.scale", "Scale",
+	base.UNIT_STRING, { "" },
 	0x3f,
 	"Scale")
-local error_multiplier_protofield = ProtoField.uint8("stamp.timestamp.error_estimate.multiplier", "Multiplier", base.DEC,
+local error_multiplier_protofield            = ProtoField.uint8("stamp.timestamp.error_estimate.multiplier", "Multiplier",
+	base.DEC,
 	{ "" }, 0xff, "Multiplier")
 
-timestamp_fields["stamp.timestamp"] = {
+timestamp_fields["stamp.timestamp"]          = {
 	[""] = ts_protofield,
 	["seconds"] = ts_seconds_protofield,
 	["fractions"] = ts_fractions_protofield,
@@ -121,9 +125,10 @@ timestamp_fields["stamp.timestamp"] = {
 }
 
 -- Received Timestamp
-local ts_received_protofield = ProtoField.none("stamp.received_timestamp", "Timestamp", base.HEX)
-local ts_received_seconds_protofield = ProtoField.uint32("stamp.received_timestamp.seconds", "Seconds", base.DEC)
-local ts_received_fractions_protofield = ProtoField.uint32("stamp.received_timestamp.fractions", "Fractions", base.DEC)
+local ts_received_protofield                 = ProtoField.none("stamp.received_timestamp", "Timestamp", base.HEX)
+local ts_received_seconds_protofield         = ProtoField.uint32("stamp.received_timestamp.seconds", "Seconds", base.DEC)
+local ts_received_fractions_protofield       = ProtoField.uint32("stamp.received_timestamp.fractions", "Fractions",
+	base.DEC)
 
 timestamp_fields["stamp.received_timestamp"] = {
 	[""] = ts_received_protofield,
@@ -133,24 +138,26 @@ timestamp_fields["stamp.received_timestamp"] = {
 }
 
 -- Sender Timestamp
-local ts_sender_protofield = ProtoField.none("stamp.sender_timestamp", "Timestamp", base.HEX)
-local ts_sender_seconds_protofield = ProtoField.uint32("stamp.sender_timestamp.seconds", "Seconds", base.DEC)
-local ts_sender_fractions_protofield = ProtoField.uint32("stamp.sender_timestamp.fractions", "Fractions", base.DEC)
+local ts_sender_protofield                   = ProtoField.none("stamp.sender_timestamp", "Timestamp", base.HEX)
+local ts_sender_seconds_protofield           = ProtoField.uint32("stamp.sender_timestamp.seconds", "Seconds", base.DEC)
+local ts_sender_fractions_protofield         = ProtoField.uint32("stamp.sender_timestamp.fractions", "Fractions",
+	base.DEC)
 
 -- Sender Error Estimate
-local sender_error_protofield = ProtoField.none("stamp.sender_timestamp.error_estimate", "Error Estimate", base.HEX)
-local sender_error_s_protofield = ProtoField.bool("stamp.sender_timestamp.error_estimate.s", "S", 8,
+local sender_error_protofield                = ProtoField.none("stamp.sender_timestamp.error_estimate", "Error Estimate",
+	base.HEX)
+local sender_error_s_protofield              = ProtoField.bool("stamp.sender_timestamp.error_estimate.s", "S", 8,
 	{ [1] = "Synchronized", [2] = "Not synchronized" }, 0x80,
 	"Whether source generating the timestamp is synchronized with an external source.")
-local sender_error_z_protofield = ProtoField.bool("stamp.sender_timestamp.error_estimate.z", "Z", 8,
+local sender_error_z_protofield              = ProtoField.bool("stamp.sender_timestamp.error_estimate.z", "Z", 8,
 	{ [1] = "Not Zero", [2] = "Zero" }, 0x40, "Must be zero.")
-local sender_error_scale_protofield = ProtoField.uint8("stamp.sender_timestamp.error_estimate.scale", "Scale",
+local sender_error_scale_protofield          = ProtoField.uint8("stamp.sender_timestamp.error_estimate.scale", "Scale",
 	base.UNIT_STRING, { "" }, 0x3f,
 	"Scale")
-local sender_error_multiplier_protofield = ProtoField.uint8("stamp.sender_timestamp.error_estimate.multiplier",
+local sender_error_multiplier_protofield     = ProtoField.uint8("stamp.sender_timestamp.error_estimate.multiplier",
 	"Multiplier", base.DEC, { "" }, 0xff, "Multiplier")
 
-timestamp_fields["stamp.sender_timestamp"] = {
+timestamp_fields["stamp.sender_timestamp"]   = {
 	[""] = ts_sender_protofield,
 	["seconds"] = ts_sender_seconds_protofield,
 	["fractions"] = ts_sender_fractions_protofield,
@@ -164,15 +171,15 @@ timestamp_fields["stamp.sender_timestamp"] = {
 }
 
 -- TTL
-local sender_ttl_protofield = ProtoField.uint8("stamp.sender_ttl", "Sender TTL", base.DEC)
+local sender_ttl_protofield                  = ProtoField.uint8("stamp.sender_ttl", "Sender TTL", base.DEC)
 
 -- Ssid
-local ssid_protofield = ProtoField.uint16("stamp.ssid", "SSID", base.HEX)
+local ssid_protofield                        = ProtoField.uint16("stamp.ssid", "SSID", base.HEX)
 
 -- HMAC
-local hmac_protofield = ProtoField.bytes("stamp.hmac", "HMAC")
+local hmac_protofield                        = ProtoField.bytes("stamp.hmac", "HMAC")
 
-stamp_protocol.fields = { sequence_protofield, sender_sequence_protofield,
+stamp_protocol.fields                        = { sequence_protofield, sender_sequence_protofield,
 	ts_protofield, ts_seconds_protofield, ts_fractions_protofield,
 	error_protofield, error_s_protofield, error_z_protofield, error_scale_protofield, error_multiplier_protofield,
 	sender_error_protofield, sender_error_s_protofield, sender_error_z_protofield, sender_error_scale_protofield,
@@ -184,7 +191,7 @@ stamp_protocol.fields = { sequence_protofield, sender_sequence_protofield,
 	hmac_protofield,
 }
 
-local dscp_type_map =
+local dscp_type_map                          =
 {
 	[0] = "CS0",
 	[8] = "CS1",
@@ -210,7 +217,7 @@ local dscp_type_map =
 	[44] = "VOICEADMIT",
 }
 
-local ecn_type_map =
+local ecn_type_map                           =
 {
 	[0] = "Not ECT",
 	[1] = "ECT(1)",
@@ -218,13 +225,13 @@ local ecn_type_map =
 	[3] = "CE",
 }
 
-local rpd_type_map =
+local rpd_type_map                           =
 {
 	[0] = "Forward and Reverse DSCP",
 	[1] = "Forward Only DSCP", -- TODO: Confirm!
 }
 
-local rpe_type_map =
+local rpe_type_map                           =
 {
 	[0] = "Traditional CoS Support",
 	[1] = "New-style CoS Support", -- TODO: Confirm!
@@ -234,10 +241,10 @@ local rpe_type_map =
 
 -- TLV Dissectors: HMAC
 
-local hmac_tlv_protofield      = ProtoField.bytes("stamp.tlv.hmac", "HMAC TLV")
-local hmac_hmac_tlv_protofield = ProtoField.bytes("stamp.tlv.hmac.hmac", "HMAC")
+local hmac_tlv_protofield                    = ProtoField.bytes("stamp.tlv.hmac", "HMAC TLV")
+local hmac_hmac_tlv_protofield               = ProtoField.bytes("stamp.tlv.hmac.hmac", "HMAC")
 
-stamp_protocol.fields          = { hmac_tlv_protofield,
+stamp_protocol.fields                        = { hmac_tlv_protofield,
 	hmac_hmac_tlv_protofield,
 }
 
@@ -268,11 +275,11 @@ local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2
 	"DSCP2 Field")
 local ecn_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
-local rpd_cos_tlv_protofield    = ProtoField.uint16("stamp.tlv.cos.rpd", "RPD", base.HEX, rpd_type_map, 0x0003,
+local rpd_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpd", "RPD", base.HEX, rpd_type_map, 0x0003,
 	"Reverse Path (DSCP)")
 local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN2", base.HEX, ecn_type_map, 0xc000,
 	"ECN2 Field")
-local rpe_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.rpe", "RPE", base.HEX, rpe_type_map, 0x3000,
+local rpe_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpe", "RPE", base.HEX, rpe_type_map, 0x3000,
 	"RPE Field")
 
 stamp_protocol.fields          = { cos_tlv_protofield,
@@ -539,10 +546,12 @@ end
 
 local destination_address_tlv_protofield            = ProtoField.bytes("stamp.tlv.destination_address",
 	"Destination Address TLV")
-local destination_address_tlv_address_v6_protofield     = ProtoField.ipv6("stamp.tlv.destination_address.address", "Destination Address")
-local destination_address_tlv_address_v4_protofield     = ProtoField.ipv4("stamp.tlv.destination_address.address", "Destination Address")
+local destination_address_tlv_address_v6_protofield = ProtoField.ipv6("stamp.tlv.destination_address.address",
+	"Destination Address")
+local destination_address_tlv_address_v4_protofield = ProtoField.ipv4("stamp.tlv.destination_address.address",
+	"Destination Address")
 
-stamp_protocol.fields                                     = { destination_address_tlv_protofield,
+stamp_protocol.fields                               = { destination_address_tlv_protofield,
 	destination_address_tlv_address_v4_protofield,
 	destination_address_tlv_address_v6_protofield,
 }
