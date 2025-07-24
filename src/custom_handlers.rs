@@ -2479,6 +2479,7 @@ pub mod ch {
         pub ip_segment_list: Option<Srv6SegmentList>,
         pub mpls_segment_list: Option<MplsSegmentList>,
         pub control_code: Option<u32>,
+        pub flags: Flags,
     }
 
     impl ReturnPathTlv {
@@ -2540,7 +2541,7 @@ pub mod ch {
                     sub_tlvs
                         .add_tlv(Tlv {
                             tpe: ReturnPathTlv::RETURN_ADDRESS,
-                            flags: Flags::new_request(),
+                            flags: value.flags.clone(),
                             length: 4,
                             value: v4.octets().to_vec(),
                         })
@@ -2550,7 +2551,7 @@ pub mod ch {
                     sub_tlvs
                         .add_tlv(Tlv {
                             tpe: ReturnPathTlv::RETURN_ADDRESS,
-                            flags: Flags::new_request(),
+                            flags: value.flags.clone(),
                             length: 16,
                             value: v6.octets().to_vec(),
                         })
@@ -2615,6 +2616,7 @@ pub mod ch {
             // Take the user's specified IP address and use it as the address in the Return-Address Sub Tlv
             let return_path_tlv = ReturnPathTlv {
                 address: Some(address),
+                flags: Flags::new_request(),
                 ..Default::default()
             };
 
@@ -2637,15 +2639,20 @@ pub mod ch {
         ) -> Result<Tlv, StampError> {
             info!(logger, "I am handling a return path Tlv.");
 
-            let mut result_tlv = tlv.clone();
-
-            let return_path_tlv = TryInto::<ReturnPathTlv>::try_into(tlv)?;
+            // Start by creating a sub TLV.
+            let mut return_path_tlv = TryInto::<ReturnPathTlv>::try_into(tlv)?;
+            return_path_tlv.flags = Flags::new_response();
 
             self.address = return_path_tlv.address;
+            return_path_tlv
+                .flags
+                .set_unrecognized(self.address.is_none());
 
-            // If there is no destination address, then the response should be unrecognized.
+            // There is an Into implementation that will convert that into a true TLV.
+            let mut result_tlv = TryInto::<Tlv>::try_into(&return_path_tlv)?;
             result_tlv.flags.set_unrecognized(self.address.is_none());
 
+            // And that is what will be reflected.
             Ok(result_tlv)
         }
 
