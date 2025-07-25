@@ -265,6 +265,32 @@ local function tlv_hmac_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: Destination Port
+
+local destination_port_tlv_protofield       = ProtoField.bytes("stamp.tlv.destination_port", "Destination Port Tlv")
+local port_destination_port_tlv_protofield = ProtoField.uint16("stamp.tlv.destination_port.port", "Port", base.DECc00)
+
+stamp_protocol.fields          = { destination_port_tlv_protofield,
+	port_destination_port_tlv_protofield,
+}
+
+------
+--- Dissect the Destination Port TLV
+-- Dissect the contents of a Destination Port TLV.
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Destination Port TLV.
+local function tlv_destination_port_dissector(buffer, tree)
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local destination_port_tree = tree:add(destination_port_tlv_protofield, buffer(0))
+	destination_port_tree.text = "Destination Port"
+	destination_port_tree:add(port_destination_port_tlv_protofield, buffer(0, 2))
+	return true
+end
+
 
 -- TLV Dissectors: COS
 
@@ -665,6 +691,7 @@ local tlv_type_map = {
 	[0x8] = "HMAC",
 	[0x9] = "Destination Address",
 	[0xa] = "Return Path",
+	[177] = "Destination Port",
 	[181] = "Bit Error Count",
 	[182] = "Bit Error Pattern",
 	[183] = "Reflected IPv6 Extension Header"
@@ -677,6 +704,7 @@ local tlv_dissector_map = {
 	[0x08] = tlv_hmac_dissector,
 	[0x09] = tlv_destination_address_dissector,
 	[0x0a] = tlv_return_path_dissector,
+	[177] = tlv_destination_port_dissector,
 	[181] = tlv_bercount_dissector,
 	[182] = tlv_berpattern_dissector,
 	[183] = tlv_reflected_ipv6_ext_header_dissector

@@ -162,6 +162,9 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum DestinationPortTlvCommand {
         DestinationPort {
+            #[arg(long, default_value_t = 863)]
+            port: u16,
+
             #[arg(last = true)]
             next_tlv_command: Vec<String>,
         },
@@ -189,7 +192,10 @@ pub mod ch {
                 return Ok(None);
             }
             let our_command = maybe_our_command.unwrap();
-            let DestinationPortTlvCommand::DestinationPort { next_tlv_command } = our_command;
+            let DestinationPortTlvCommand::DestinationPort {
+                port,
+                next_tlv_command,
+            } = our_command;
             let next_tlv_command = if !next_tlv_command.is_empty() {
                 Some(next_tlv_command.join(" "))
             } else {
@@ -198,7 +204,7 @@ pub mod ch {
 
             let mut data = [0u8; 4];
 
-            data[0..2].copy_from_slice(&983u16.to_be_bytes());
+            data[0..2].copy_from_slice(&port.to_be_bytes());
 
             Ok(Some((
                 [Tlv {

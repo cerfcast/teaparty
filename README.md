@@ -233,7 +233,7 @@ Options:
 | -- | -- | -- | 
 | class-of-service | Class of Service | The DSCP value requested to be set in the reflected IP packet can be specified with the `--dscp`. By default, the requested value is `CS1`. |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
-| destination-port | Destination Port| 983 |
+| destination-port | Destination Port| To request the reflector send the reflected packet to a port different than the one on which the test packet is received, set `--port`. By default, the value is `983`. |
 | destination-address | Destination Address | The IP Address used as the value of the TLV can be specified using the `--address` parameter. |
 | location | Location | A Source IP Address sub-TLV |
 | unrecognized | _Special_| Will include a TLV whose type is unrecognized |
