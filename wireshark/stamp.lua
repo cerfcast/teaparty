@@ -294,7 +294,7 @@ end
 
 -- TLV Dissectors: COS
 
-local cos_tlv_protofield       = ProtoField.bytes("stamp.tlv.cos", "DSCP ECN TLV")
+local cos_tlv_protofield       = ProtoField.bytes("stamp.tlv.cos", "Class of Service ECN TLV")
 local dscp1_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp1", "DSCP1", base.HEX, dscp_type_map, 0xfc00,
 	"DSCP1 Field")
 local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2", base.HEX, dscp_type_map, 0x03f0,
@@ -675,14 +675,14 @@ local function tlv_return_path_dissector(buffer, tree)
 	local next_field_start = 0
 	while next_field_start < buffer:len() do
 		next_field_start = next_field_start +
-			dissect_tlv(buffer(next_field_start), tree, tlv_dissector_map, tlv_type_map, return_path_type_subtlv_protofield)
+			dissect_tlv(buffer(next_field_start), tree, tlv_dissector_map, tlv_type_map,
+				return_path_type_subtlv_protofield)
 	end
 
 	return false
 end
 
 local tlv_type_map = {
-	[0xb3] = "DSCP ECN",
 	[0x1] = "Padding",
 	[0x4] = "Class of Service",
 	[0x7] = "Followup",
