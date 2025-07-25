@@ -241,8 +241,8 @@ Options:
 | history | History | Will include a TLV that requests information about the previous _N_ reflected packets in the current session (defaults to 3; customize with `--length`) |
 | reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
-| bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `--size`, respectively). |
-| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `--size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
+| bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `-size`, respectively). |
+| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `-size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
 | return-path | Return Path | `--address` the address the reflector will use as the destination of the reflected packet. |
 
 _Example_:

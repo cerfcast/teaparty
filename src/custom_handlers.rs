@@ -1870,7 +1870,7 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum BitErrorRateTlvCommand {
         BitErrorRate {
-            #[arg(long, default_value = "64")]
+            #[arg(short, default_value_t = 64)]
             size: u16,
 
             #[arg(long)]
@@ -2136,7 +2136,7 @@ pub mod ch {
     #[derive(Subcommand, Clone, Debug)]
     enum V6ExtensionHeadersTlvCommand {
         V6ExtensionHeaderReflection {
-            #[arg(long)]
+            #[arg(short, default_value_t = 8)]
             size: u16,
 
             #[arg(last = true)]
