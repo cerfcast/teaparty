@@ -267,10 +267,10 @@ end
 
 -- TLV Dissectors: Destination Port
 
-local destination_port_tlv_protofield       = ProtoField.bytes("stamp.tlv.destination_port", "Destination Port Tlv")
+local destination_port_tlv_protofield      = ProtoField.bytes("stamp.tlv.destination_port", "Destination Port Tlv")
 local port_destination_port_tlv_protofield = ProtoField.uint16("stamp.tlv.destination_port.port", "Port", base.DECc00)
 
-stamp_protocol.fields          = { destination_port_tlv_protofield,
+stamp_protocol.fields                      = { destination_port_tlv_protofield,
 	port_destination_port_tlv_protofield,
 }
 
@@ -663,9 +663,11 @@ local function tlv_return_path_dissector(buffer, tree)
 		[0x2] = "Return Address",
 	}
 
-	local return_path_type_subtlv_protofield = ProtoField.uint8("stamp.tlv.return_path.type", "Type", base.HEX, tlv_type_map, "Type")
+	local return_path_type_subtlv_protofield = ProtoField.uint8("stamp.tlv.return_path.type", "Type", base.HEX,
+		tlv_type_map, "Type")
 
-	stamp_protocol.fields = { return_path_return_address_v4_protofield, return_path_return_address_v6_protofield, return_path_type_subtlv_protofield }
+	stamp_protocol.fields = { return_path_return_address_v4_protofield, return_path_return_address_v6_protofield,
+		return_path_type_subtlv_protofield }
 
 	local return_path_tree = tree:add(return_path_tlv_protofield, buffer)
 	return_path_tree.text = "Return Path"
