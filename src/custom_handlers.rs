@@ -905,8 +905,8 @@ pub mod ch {
                 [Tlv {
                     flags: Flags::new_request(),
                     tpe: Tlv::PADDING,
-                    length: 4 + size,
-                    value: vec![0u8; 4 + size as usize],
+                    length: size,
+                    value: vec![0u8; size as usize],
                 }]
                 .to_vec(),
                 next_tlv_command,
