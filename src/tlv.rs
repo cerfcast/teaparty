@@ -480,6 +480,10 @@ fn return_path_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
         write!(f, " Return Path TLV (failed to parse): {:x?}", tlv.value)
     }
 }
+fn unrecognized_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    write!(f, " Unrecognized")
+}
 
 #[allow(clippy::type_complexity)]
 static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt::Result>> =
@@ -509,8 +513,11 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
 
 impl Debug for Tlv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let handler = TLV_DISPLAY.get(&self.tpe).unwrap();
-        handler(self, f)
+        if let Some(handler) = TLV_DISPLAY.get(&self.tpe) {
+            handler(self, f)
+        } else {
+            unrecognized_tlv_display(self, f)
+        }
     }
 }
 
