@@ -27,12 +27,10 @@ use nix::sys::socket::{ControlMessageOwned, Ipv6ExtHeader};
 use slog::Logger;
 use slog::{error, info};
 
-use crate::handlers::Handlers;
 use crate::ip::{DscpValue, EcnValue};
 use crate::stamp::StampMsg;
 use crate::tlv::Tlv;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum NetConfigurationError {
     CouldNotSet(String, std::io::Error),
@@ -44,7 +42,6 @@ impl Display for NetConfigurationError {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum NetConfigurationArgument {
     Ttl(u8),
     Ecn(EcnValue),
@@ -77,7 +74,6 @@ pub trait NetConfigurationItemT: Display {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum NetConfigurationItem {
     Ttl(u8),
     Ecn(EcnValue),
@@ -591,7 +587,6 @@ impl Debug for NetConfigurationItem {
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
 #[repr(usize)]
-#[allow(dead_code)]
 pub enum NetConfigurationItemKind {
     Ttl = 0,
     Ecn = 1,
@@ -684,10 +679,10 @@ impl NetConfiguration {
         &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
-        handlers: Option<Handlers>,
+        //handlers: Option<either::Either<ReflectorHandlers, SenderHandlers>>,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        for (configuration, setter) in &mut self
+        for (configuration, _setter) in &mut self
             .configurations
             .iter()
             .zip(self.setters.clone())
@@ -695,8 +690,9 @@ impl NetConfiguration {
         {
             let mut configurator = configuration.lock().unwrap();
             let configuration_result = configurator.configure(response, socket, logger.clone());
-
             if let Err(e) = configuration_result {
+                unimplemented!();
+                /*
                 if let Some(handlers) = &handlers {
                     if let Some(erring_handler) = handlers.get_handler(setter) {
                         let mut erring_handler = erring_handler.lock().unwrap();
@@ -723,6 +719,7 @@ impl NetConfiguration {
                             logger,
                             "There was a net config error ({}) but no handlers are available to respond.", e);
                 }
+                */
             }
         }
         Ok(())

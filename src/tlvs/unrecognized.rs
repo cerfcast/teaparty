@@ -1,0 +1,146 @@
+/*
+ * Teaparty - a STAMP protocol implementation
+ * Copyright (C) 2024, 2025  Will Hawkins and Cerfcast
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+
+use std::{
+    net::{SocketAddr, UdpSocket},
+    sync::{Arc, Mutex},
+};
+
+use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
+use slog::{info, Logger};
+
+use crate::{
+    handlers::{TlvRequestResult, TlvSenderHandler},
+    netconf::{NetConfiguration, NetConfigurationItem},
+    parameters::TestArguments,
+    server::SessionData,
+    stamp::{StampError, StampMsg},
+    tlv::{self, Tlv},
+};
+
+pub struct UnrecognizedTlv {}
+
+#[derive(Subcommand, Clone, Debug)]
+enum UnrecognizedTlvCommand {
+    Unrecognized {
+        #[arg(last = true)]
+        next_tlv_command: Vec<String>,
+    },
+}
+impl TlvReflectorHandler for UnrecognizedTlv {
+    fn tlv_name(&self) -> String {
+        "Unrecognized".into()
+    }
+
+    fn tlv_type(&self) -> Vec<u8> {
+        [0].to_vec()
+    }
+
+    fn handle(
+        &mut self,
+        tlv: &tlv::Tlv,
+        _parameters: &TestArguments,
+        _netconfig: &mut NetConfiguration,
+        _client: SocketAddr,
+        _session: &mut Option<SessionData>,
+        logger: slog::Logger,
+    ) -> Result<Tlv, StampError> {
+        info!(logger, "I am in the Unrecognized TLV handler!");
+        Ok(tlv.clone())
+    }
+
+    fn pre_send_fixup(
+        &mut self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _config: &mut NetConfiguration,
+        _session: &Option<SessionData>,
+        _logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
+}
+
+impl TlvHandler for UnrecognizedTlv {
+    fn handle_netconfig_error(
+        &mut self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _item: NetConfigurationItem,
+        _logger: Logger,
+    ) {
+        panic!("There was a net configuration error in a handler (Unrecognized) that does not set net configuration items.");
+    }
+}
+impl TlvSenderHandler for UnrecognizedTlv {
+    fn tlv_name(&self) -> String {
+        "Unrecognized".into()
+    }
+
+    fn tlv_sender_command(&self, command: Command) -> Command {
+        UnrecognizedTlvCommand::augment_subcommands(command)
+    }
+
+    fn tlv_sender_type(&self) -> Vec<u8> {
+        [0].to_vec()
+    }
+
+    fn request(&mut self, _: Option<TestArguments>, matches: &mut ArgMatches) -> TlvRequestResult {
+        let maybe_our_command = UnrecognizedTlvCommand::from_arg_matches(matches);
+        if maybe_our_command.is_err() {
+            return Ok(None);
+        }
+        let our_command = maybe_our_command.unwrap();
+        let UnrecognizedTlvCommand::Unrecognized { next_tlv_command } = our_command;
+        let next_tlv_command = if !next_tlv_command.is_empty() {
+            Some(next_tlv_command.join(" "))
+        } else {
+            None
+        };
+
+        Ok(Some(([Tlv::unrecognized(32)].to_vec(), next_tlv_command)))
+    }
+
+    fn pre_send_fixup(
+        &mut self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _config: &mut NetConfiguration,
+        _session: &Option<SessionData>,
+        _logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
+}
+pub struct UnrecognizedTlvReflectorConfig {}
+
+impl TlvHandlerGenerator for UnrecognizedTlvReflectorConfig {
+    fn tlv_reflector_name(&self) -> String {
+        "unrecognized".into()
+    }
+
+    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
+        Arc::new(Mutex::new(UnrecognizedTlv {}))
+    }
+
+    fn configure(&self) {
+        println!("Going to configure an unregonized\n");
+    }
+}

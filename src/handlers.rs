@@ -28,7 +28,6 @@ use slog::Logger;
 use slog::{debug, error, info, warn};
 
 use crate::asymmetry::Asymmetry;
-use crate::custom_handlers::CustomHandlers;
 use crate::netconf::NetConfiguration;
 use crate::netconf::NetConfigurationItem;
 use crate::ntp;
@@ -57,26 +56,33 @@ pub enum HandlerError {
     MissingRawSize,
 }
 
-/// An object that participates in handling STAMP messages
-/// with certain TLVs.
-///
-/// When a test packet is received ...
-/// 1. A new instance of every registered class that implements
-///    the TlvHandler trait (see src/custome_handlers.rs) is generated.
-/// 2. Every object instantiated that implements the TlvHandler trait
-///    will have its [`TlvHandler::request_fixup`] method called.
-/// 3. Every registered TlvHandler's [`TlvHandler::handle`] method
-///    will be called (where the Tlv's type matches the TlvHandler's type
-///    as returned by [`TlvHandler::tlv_type``]).
-/// 4. After the response packet is generated, every registered TlvHandler's
-///    [`TlvHandler::prepare_response_target`] method will be called so that
-///    every handler has the chance to change the destination IP/port of the
-///    reflected packet.
+/// When Teaparty starts, it will parse the command line and
+/// generate an array of Handler Generators. Once those are
+/// configured a _single_ time, they will generate tlv handlers
+/// every time that a packet is received.
+pub trait TlvHandlerGenerator {
+    fn tlv_reflector_name(&self) -> String;
+    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>>;
+    fn configure(&self);
+}
+
 pub trait TlvHandler {
+    /// Handle any errors that resulted from a failure to apply requested netconfig
+    /// to response.
+    ///
+    /// `item` is the netconfig that could not be applied.
+    fn handle_netconfig_error(
+        &mut self,
+        response: &mut StampMsg,
+        socket: &UdpSocket,
+        item: NetConfigurationItem,
+        logger: Logger,
+    );
+}
+
+pub trait TlvReflectorHandler {
     /// The name of the TLV.
     fn tlv_name(&self) -> String;
-
-    fn tlv_cli_command(&self, command: Command) -> Command;
 
     /// The type of the TLV for which this object will respond.
     fn tlv_type(&self) -> Vec<u8>;
@@ -105,13 +111,6 @@ pub trait TlvHandler {
         logger: slog::Logger,
     ) -> Result<Tlv, StampError>;
 
-    /// Generate a TLV to include a STAMP test packet.
-    fn request(
-        &mut self,
-        arguments: Option<TestArguments>,
-        matches: &mut ArgMatches,
-    ) -> TlvRequestResult;
-
     /// Customize the IP/port of the destination of the reflected STAMP packet.
     ///
     /// This method generates a (possibly) modified [`source_address`] and
@@ -126,30 +125,6 @@ pub trait TlvHandler {
     ) -> (SocketAddr, SocketAddr) {
         (source_address, destination_address)
     }
-
-    /// Do final fixup of STAMP message before it is transmitted.
-    fn pre_send_fixup(
-        &mut self,
-        _response: &mut StampMsg,
-        _socket: &UdpSocket,
-        _config: &mut NetConfiguration,
-        _session: &Option<SessionData>,
-        _logger: Logger,
-    ) -> Result<(), StampError> {
-        Ok(())
-    }
-
-    /// Handle any errors that resulted from a failure to apply requested netconfig
-    /// to response.
-    ///
-    /// `item` is the netconfig that could not be applied.
-    fn handle_netconfig_error(
-        &mut self,
-        response: &mut StampMsg,
-        socket: &UdpSocket,
-        item: NetConfigurationItem,
-        logger: Logger,
-    );
 
     /// Startup any asymmetric processing resulting from STAMP test packet.
     ///
@@ -168,15 +143,69 @@ pub trait TlvHandler {
     ) -> Result<(), StampError> {
         Ok(())
     }
+
+    fn pre_send_fixup(
+        &mut self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _config: &mut NetConfiguration,
+        _session: &Option<SessionData>,
+        _logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
+}
+
+/// An object that participates in handling STAMP messages
+/// with certain TLVs.
+///
+/// When a test packet is received ...
+/// 1. A new instance of every registered class that implements
+///    the TlvHandler trait (see src/custome_handlers.rs) is generated.
+/// 2. Every object instantiated that implements the TlvHandler trait
+///    will have its [`TlvHandler::request_fixup`] method called.
+/// 3. Every registered TlvHandler's [`TlvHandler::handle`] method
+///    will be called (where the Tlv's type matches the TlvHandler's type
+///    as returned by [`TlvHandler::tlv_type``]).
+/// 4. After the response packet is generated, every registered TlvHandler's
+///    [`TlvHandler::prepare_response_target`] method will be called so that
+///    every handler has the chance to change the destination IP/port of the
+///    reflected packet.
+pub trait TlvSenderHandler {
+    /// The name of the TLV.
+    fn tlv_name(&self) -> String;
+
+    fn tlv_sender_command(&self, command: Command) -> Command;
+
+    /// The type of the TLV for which this object will respond.
+    fn tlv_sender_type(&self) -> Vec<u8>;
+
+    /// Generate a TLV to include a STAMP test packet.
+    fn request(
+        &mut self,
+        arguments: Option<TestArguments>,
+        matches: &mut ArgMatches,
+    ) -> TlvRequestResult;
+
+    /// Do final fixup of STAMP message before it is transmitted.
+    fn pre_send_fixup(
+        &mut self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _config: &mut NetConfiguration,
+        _session: &Option<SessionData>,
+        _logger: Logger,
+    ) -> Result<(), StampError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
-pub struct Handlers {
-    // TODO: Remove the mutex here, if possible.
-    handlers: Vec<Arc<Mutex<dyn TlvHandler + Send>>>,
+pub struct SenderHandlers {
+    handlers: Vec<Arc<Mutex<dyn TlvSenderHandler + Send>>>,
 }
 
-impl Handlers {
+impl SenderHandlers {
     pub fn new() -> Self {
         Self {
             ..Default::default()
@@ -184,16 +213,16 @@ impl Handlers {
     }
 
     /// Add a Tlv handler to the list of available handlers.
-    pub fn add(&mut self, handler: Arc<Mutex<dyn TlvHandler + Send>>) {
+    pub fn add(&mut self, handler: Arc<Mutex<dyn TlvSenderHandler + Send>>) {
         self.handlers.push(handler)
     }
 
     /// Given a Tlv type value, find a handler, if one is available.
-    pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvHandler + Send>>> {
+    pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvSenderHandler + Send>>> {
         self.handlers
             .iter()
             .find(|e| {
-                let handler_type = e.lock().unwrap().tlv_type();
+                let handler_type = e.lock().unwrap().tlv_sender_type();
                 handler_type
                     .iter()
                     .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
@@ -205,10 +234,10 @@ impl Handlers {
         let command = Command::new("tlvs").no_binary_name(true);
         self.handlers
             .iter()
-            .fold(command, |e, tlv| tlv.lock().unwrap().tlv_cli_command(e))
+            .fold(command, |e, tlv| tlv.lock().unwrap().tlv_sender_command(e))
     }
 
-    pub fn get_handlers(&mut self) -> IterMut<'_, Arc<Mutex<dyn TlvHandler + Send>>> {
+    pub fn get_handlers(&mut self) -> IterMut<'_, Arc<Mutex<dyn TlvSenderHandler + Send>>> {
         self.handlers.iter_mut()
     }
 
@@ -247,6 +276,43 @@ impl Handlers {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct ReflectorHandlers {
+    // TODO: Remove the mutex here, if possible.
+    // I THINK THAT IT SHOULD BE POSSIBLE TO SIMPLY REMOVE THIS.
+    handlers: Vec<Arc<Mutex<dyn TlvReflectorHandler + Send>>>,
+}
+
+impl ReflectorHandlers {
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    /// Add a Tlv handler to the list of available handlers.
+    pub fn add(&mut self, handler: Arc<Mutex<dyn TlvReflectorHandler + Send>>) {
+        self.handlers.push(handler)
+    }
+
+    /// Given a Tlv type value, find a handler, if one is available.
+    pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvReflectorHandler + Send>>> {
+        self.handlers
+            .iter()
+            .find(|e| {
+                let handler_type = e.lock().unwrap().tlv_type();
+                handler_type
+                    .iter()
+                    .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+            })
+            .cloned()
+    }
+
+    pub fn get_handlers(&mut self) -> IterMut<'_, Arc<Mutex<dyn TlvReflectorHandler + Send>>> {
+        self.handlers.iter_mut()
+    }
+}
+
 #[allow(clippy::complexity)]
 pub fn handler(
     received_time: chrono::DateTime<chrono::Utc>,
@@ -256,6 +322,7 @@ pub fn handler(
     responder: Arc<responder::Responder>,
     server: ServerSocket,
     client_address: SocketAddr,
+    mut handlers: ReflectorHandlers,
     runtime: Arc<Asymmetry<()>>,
     logger: slog::Logger,
 ) {
@@ -308,10 +375,6 @@ pub fn handler(
         },
         src_stamp_msg
     );
-
-    // Each request is handled by a new set of handlers. This instance of the handlers
-    // will follow the request as it works its way through the handling process.
-    let mut handlers = CustomHandlers::build();
 
     let session_key = Session::new(
         client_address,

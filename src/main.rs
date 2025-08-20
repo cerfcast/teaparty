@@ -20,7 +20,7 @@ use asymmetry::Asymmetry;
 use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
 use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
-use custom_handlers::CustomHandlers;
+use custom_handlers::CustomSenderHandlers;
 use either::Either;
 use etherparse::Ethernet2Header;
 use monitor::Monitor;
@@ -40,6 +40,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::app::{Cli, ClientError, Commands, ReflectorArgs, SenderArgs, TeapartyError};
+use crate::custom_handlers::CustomReflectorHandlersGenerators;
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
 
@@ -66,6 +67,8 @@ mod stamp;
 mod test;
 mod tlv;
 mod util;
+
+mod tlvs;
 
 #[derive(Clone, Debug, ValueEnum)]
 enum MalformedWhy {
@@ -282,7 +285,7 @@ fn client(
         test_arguments.add_argument(parameters::TestArgumentKind::HeaderOption, hbh_ext_argument);
     }
 
-    let handlers = CustomHandlers::build();
+    let handlers = CustomSenderHandlers::build();
 
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
@@ -344,7 +347,7 @@ fn client(
         .configure(
             &mut client_msg,
             &server_socket,
-            Some(handlers),
+            //Some(either::Right(handlers)),
             logger.clone(),
         )
         .map_err(|v| StampError::Other(v.to_string()))?;
@@ -477,6 +480,8 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
             runtime.run();
         });
     }
+
+    let reflector_handler_generator = CustomReflectorHandlersGenerators::new();
 
     // The command is specific to the server. The match should *only* yield a
     // server command.
@@ -692,6 +697,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
             let sessions = sessions.clone();
             let server_cancellation = server_cancellation.clone();
             let server_socket = server_socket.clone();
+            let reflector_handler_generator = reflector_handler_generator.clone();
             let runtime = runtime.clone();
             thread::spawn(move || {
                 loop {
@@ -733,6 +739,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
                                         let responder = responder.clone();
                                         let sessions = sessions.clone();
                                         let server_socket = server_socket.clone();
+                                        let handlers = reflector_handler_generator.generate();
                                         let runtime = runtime.clone();
                                         // If the server did not run forever, it may have been necessary
                                         // to `join` on this handle to make sure that the server did not
@@ -746,6 +753,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
                                                 responder,
                                                 server_socket,
                                                 client_address,
+                                                handlers,
                                                 runtime,
                                                 logger,
                                             );
@@ -785,7 +793,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
 
 fn main() -> Result<(), TeapartyError> {
     // These handlers are used only for generating command-line parameters.
-    let tlv_handlers = CustomHandlers::build();
+    let tlv_handlers = CustomSenderHandlers::build();
     let tlvs_command = tlv_handlers.get_cli_commands();
 
     let sender_command = Command::new("sender");

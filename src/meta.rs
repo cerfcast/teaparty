@@ -19,10 +19,10 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
-use crate::custom_handlers::ch::BitPattern;
 use crate::monitor::Monitor;
 use crate::server::{ServerCancellation, Session, SessionData, SessionError};
 use crate::stamp::Ssid;
+use crate::tlvs::biterrorrate::BitPattern;
 use rocket::http::Status;
 use rocket::serde::{json::Json, Deserialize};
 use rocket::{Config, State};

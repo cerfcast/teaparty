@@ -25,13 +25,15 @@ use std::{
 };
 
 use crate::{
-    custom_handlers::ch::{
-        ClassOfServiceTlv, DestinationAddressTlv, DestinationPortTlv, HmacTlv, ReflectedControlTlv,
-        ReturnPathTlv,
-    },
     os::MacAddr,
     stamp::StampError,
-    tlv, util,
+    tlv,
+    tlvs::{
+        classofservice::ClassOfServiceTlv, destinationaddress::DestinationAddressTlv,
+        destinationport::DestinationPortTlv, hmac::HmacTlv, reflectedcontrol::ReflectedControlTlv,
+        returnpath::ReturnPathTlv,
+    },
+    util,
 };
 
 #[derive(Clone, PartialEq)]
@@ -413,6 +415,70 @@ pub struct Tlv {
     pub tpe: u8,
     pub length: u16,
     pub value: Vec<u8>,
+}
+
+#[derive(Default)]
+pub struct Recognized {}
+#[derive(Default)]
+pub struct Unrecognized {}
+
+#[derive(Default)]
+pub struct SubTlvInto<T, F, const S: u8>
+where
+    T: TryInto<Tlvs>,
+{
+    pub s: T,
+    pub _f: std::marker::PhantomData<F>,
+}
+
+impl<T, const S: u8> TryFrom<SubTlvInto<T, Recognized, S>> for Tlv
+where
+    T: TryInto<Tlvs>,
+{
+    type Error = T::Error;
+    fn try_from(value: SubTlvInto<T, Recognized, S>) -> Result<Tlv, Self::Error> {
+        let mut result = TryInto::<Tlvs>::try_into(value.s)?;
+
+        for s in result.iter_mut() {
+            s.flags.set_unrecognized(false);
+        }
+        let sub_tlv_bytes = Into::<Vec<u8>>::into(result);
+        let mut flags = Flags::new();
+        flags.set_unrecognized(false);
+        flags.set_malformed(false);
+        flags.set_integrity(false);
+        Ok(Tlv {
+            tpe: S,
+            flags,
+            length: sub_tlv_bytes.len() as u16,
+            value: sub_tlv_bytes,
+        })
+    }
+}
+
+impl<T, const S: u8> TryFrom<SubTlvInto<T, Unrecognized, S>> for Tlv
+where
+    T: TryInto<Tlvs>,
+{
+    type Error = T::Error;
+    fn try_from(value: SubTlvInto<T, Unrecognized, S>) -> Result<Tlv, Self::Error> {
+        let mut result = TryInto::<Tlvs>::try_into(value.s)?;
+
+        for s in result.iter_mut() {
+            s.flags.set_unrecognized(true);
+        }
+        let sub_tlv_bytes = Into::<Vec<u8>>::into(result);
+        let mut flags = Flags::new();
+        flags.set_unrecognized(true);
+        flags.set_malformed(false);
+        flags.set_integrity(false);
+        Ok(Tlv {
+            tpe: S,
+            flags,
+            length: sub_tlv_bytes.len() as u16,
+            value: sub_tlv_bytes,
+        })
+    }
 }
 
 fn basic_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {

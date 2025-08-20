@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{custom_handlers::ch::BitPattern, ntp, stamp::Ssid};
+use crate::{ntp, stamp::Ssid, tlvs::biterrorrate::BitPattern};
 use nix::sys::socket::{
     sockopt::{IpRecvTos, Ipv4RecvTtl, Ipv6DstOpts, Ipv6HopOpts, Ipv6RecvHopLimit, Ipv6RecvTClass},
     SetSockOpt,

@@ -9,13 +9,11 @@ use crate::{
     HeartbeatConfiguration, Ipv6ExtensionHeaderArg, MalformedWhy,
 };
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum ClientError {
     Cli(clap::Error),
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum TeapartyError {
     Client(ClientError),

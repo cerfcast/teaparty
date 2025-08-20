@@ -30,7 +30,7 @@ use slog::{warn, Logger};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::{
-    handlers::Handlers, netconf::NetConfiguration, server::ServerSocket, stamp::StampMsg,
+    handlers::ReflectorHandlers, netconf::NetConfiguration, server::ServerSocket, stamp::StampMsg,
     util::to_sockaddr_storage,
 };
 
@@ -43,7 +43,7 @@ pub struct Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<Handlers>,
+                Option<ReflectorHandlers>,
             )>,
         >,
     >,
@@ -55,7 +55,7 @@ pub struct Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<Handlers>,
+                Option<ReflectorHandlers>,
             )>,
         >,
     >,
@@ -70,14 +70,14 @@ impl Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<Handlers>,
+                Option<ReflectorHandlers>,
             )>,
             Receiver<(
                 StampMsg,
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<Handlers>,
+                Option<ReflectorHandlers>,
             )>,
         ) = channel();
         Responder {
@@ -131,7 +131,7 @@ impl Responder {
     pub fn respond(
         &self,
         msg: StampMsg,
-        handlers: Option<Handlers>,
+        handlers: Option<ReflectorHandlers>,
         config: NetConfiguration,
         src: SocketAddr,
         dest: SocketAddr,
@@ -223,12 +223,9 @@ impl Responder {
 
                 let locked_socket_to_prepare = response_src_socket.lock().unwrap();
 
-                if let Err(e) = netconfig.configure(
-                    &mut stamp_msg,
-                    &locked_socket_to_prepare,
-                    handlers.clone(),
-                    logger.clone(),
-                ) {
+                if let Err(e) =
+                    netconfig.configure(&mut stamp_msg, &locked_socket_to_prepare, logger.clone())
+                {
                     error!(logger, "There was an error performing net configuration on a reflected packet: {}; Abandoning response.", e);
                     continue;
                 }
