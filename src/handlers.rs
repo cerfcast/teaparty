@@ -293,7 +293,6 @@ impl TlvNetConfiguratorCollection for SenderHandlers {
     }
 }
 
-
 pub trait TlvReflectorHandlerConfigurator: TlvReflectorHandler + NetConfigurator {}
 
 #[derive(Default)]
