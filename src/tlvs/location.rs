@@ -382,10 +382,6 @@ impl TlvHandlerGenerator for LocationTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(LocationTlv {}))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a reflected-control\n");
-    }
 }
 
 #[cfg(test)]

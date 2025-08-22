@@ -175,8 +175,4 @@ impl TlvHandlerGenerator for HistoryTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(HistoryTlv {}))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a reflected-control\n");
-    }
 }

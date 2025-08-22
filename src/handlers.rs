@@ -26,7 +26,9 @@ use clap::ArgMatches;
 use clap::Command;
 use slog::Logger;
 use slog::{debug, error, info, warn};
+use yaml_rust2::Yaml;
 
+use crate::app::TeapartyError;
 use crate::asymmetry::Asymmetry;
 use crate::netconf::NetConfiguration;
 use crate::netconf::NetConfigurationItem;
@@ -63,7 +65,10 @@ pub enum HandlerError {
 pub trait TlvHandlerGenerator {
     fn tlv_reflector_name(&self) -> String;
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>>;
-    fn configure(&self);
+    fn configure(&self, _config: &Yaml, logger: Logger) -> Result<(), TeapartyError> {
+        info!(logger, "Generator for {} does not accept configuration.", self.tlv_reflector_name());
+        Ok(())
+    }
 }
 
 pub trait TlvHandler {

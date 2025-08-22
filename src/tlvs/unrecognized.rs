@@ -139,8 +139,4 @@ impl TlvHandlerGenerator for UnrecognizedTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(UnrecognizedTlv {}))
     }
-
-    fn configure(&self) {
-        println!("Going to configure an unregonized\n");
-    }
 }

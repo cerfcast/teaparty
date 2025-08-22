@@ -38,8 +38,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use yaml_rust2::yaml;
 
-use crate::app::{Cli, ClientError, Commands, ReflectorArgs, SenderArgs, TeapartyError};
+use crate::app::{
+    extract_configuration, parse_general_config, Cli, ClientError, Commands, ReflectorArgs,
+    ReflectorGeneralConfiguration, SenderArgs, TeapartyError,
+};
 use crate::custom_handlers::CustomReflectorHandlersGenerators;
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
@@ -125,6 +129,7 @@ struct HeartbeatConfiguration {
 impl FromStr for HeartbeatConfiguration {
     type Err = clap::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        println!("s: {s}");
         let components = s.split("@").collect::<Vec<&str>>();
 
         if components.len() != 2 {
@@ -481,17 +486,10 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
         });
     }
 
-    let reflector_handler_generator = CustomReflectorHandlersGenerators::new();
+    let mut reflector_handler_generator = CustomReflectorHandlersGenerators::new();
 
-    // The command is specific to the server. The match should *only* yield a
-    // server command.
-    let (stateless, heartbeats, link_layer, meta_addr) = match command {
-        Commands::Reflector(ReflectorArgs {
-            stateless,
-            heartbeat,
-            link_layer,
-            meta_addr,
-        }) => (stateless, heartbeat, link_layer, meta_addr),
+    let config = match command {
+        Commands::Reflector(ReflectorArgs { config }) => config,
         _ => {
             return Err(StampError::Other(
                 "Somehow a non-server command was found during an invocation of the server.".into(),
@@ -499,6 +497,37 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
             .into())
         }
     };
+
+    let mut reflector_config = ReflectorGeneralConfiguration::default();
+
+    if let Some(config_path) = config {
+        let valid_yaml = extract_configuration(config_path)?;
+        if let Some(config_yaml) = valid_yaml.as_vec() {
+            for config_sequence_node in config_yaml.iter() {
+                if let Some(config_section) = config_sequence_node.as_hash() {
+                    for (config_section_title, config_section) in config_section {
+                        if *config_section_title == yaml::Yaml::String("general".to_string()) {
+                            info!(logger, "Handling general configuration of reflector.");
+                            reflector_config = parse_general_config(config_section)?;
+                        } else {
+                            reflector_handler_generator.config(
+                                config_section_title.as_str().unwrap(),
+                                config_section,
+                                logger.clone(),
+                            );
+                        }
+                    }
+                } else {
+                    return Err(TeapartyError::Server(app::ServerError::Config("Every element in the top-level sequence of configuration items must be a YAML mapping".to_string(),
+                    )));
+                }
+            }
+        } else {
+            return Err(TeapartyError::Server(app::ServerError::Config(
+                "Configuration file's top-level YAML format is not a sequence".into(),
+            )));
+        }
+    }
 
     let server_socket_addr = SocketAddr::from((args.ip_addr, args.port));
 
@@ -521,7 +550,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
     // Depending on whether the user wanted to look for sender packets at the
     // link layer or the network layer, configure a set of listeners (better known
     // as generators of packets).
-    let listeners: Vec<Either<NetworkInterface, ServerSocket>> = if link_layer {
+    let listeners: Vec<Either<NetworkInterface, ServerSocket>> = if reflector_config.link_layer {
         // Find the interfaces that contain the IP address on which the user wants the
         // reflector to listen.
         let listening_interfaces = datalink::interfaces()
@@ -584,7 +613,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
 
     info!(logger, "listeners: {:?}", listeners);
 
-    let sessions = if !stateless {
+    let sessions = if !reflector_config.stateless {
         Some(Sessions::new())
     } else {
         None
@@ -592,7 +621,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
 
     let periodical = Periodicity::new(
         server_socket.clone(),
-        heartbeats.clone(),
+        reflector_config.heartbeat.clone(),
         sessions.clone(),
         std::time::Duration::from_secs(10),
         runtime.clone(),
@@ -630,7 +659,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
         let logger = logger.clone();
         let _server_cancellation = server_cancellation.clone();
 
-        let meta_listen_addr = match meta_addr {
+        let meta_listen_addr = match reflector_config.meta_addr {
             Some(addr) => addr.addr,
             None => Into::<SocketAddr>::into((server_socket_addr.ip(), 8000)),
         };
@@ -856,8 +885,7 @@ fn main() -> Result<(), TeapartyError> {
 
     let given_command = Commands::from_arg_matches(&matches);
 
-    if given_command.is_err() {
-        let parsing_error = given_command.unwrap_err();
+    if let Err(parsing_error) = given_command {
         println!("{parsing_error}\n");
         println!("{}", basic_cli_parser.render_help().ansi());
         return Err(StampError::Other(parsing_error.to_string()).into());
@@ -866,12 +894,7 @@ fn main() -> Result<(), TeapartyError> {
     let given_command = given_command.unwrap();
 
     match &given_command {
-        Commands::Reflector(ReflectorArgs {
-            stateless: _,
-            heartbeat: _,
-            link_layer: _,
-            meta_addr: _,
-        }) => server(args, given_command, logger),
+        Commands::Reflector(ReflectorArgs { config: _ }) => server(args, given_command, logger),
         Commands::Sender(SenderArgs {
             ssid: _,
             malformed: _,

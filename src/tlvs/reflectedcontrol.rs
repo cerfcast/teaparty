@@ -118,10 +118,6 @@ impl TlvHandlerGenerator for ReflectedControlTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(ReflectedControlTlv::default()))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a reflected-control\n");
-    }
 }
 
 impl TlvReflectorHandler for ReflectedControlTlv {

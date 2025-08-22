@@ -185,8 +185,4 @@ impl TlvHandlerGenerator for FollowupTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(FollowupTlv {}))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a reflected-control\n");
-    }
 }

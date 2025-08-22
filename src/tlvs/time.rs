@@ -138,8 +138,4 @@ impl TlvHandlerGenerator for TimeTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(TimeTlv {}))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a time\n");
-    }
 }

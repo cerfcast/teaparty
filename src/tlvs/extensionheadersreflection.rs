@@ -293,8 +293,4 @@ impl TlvHandlerGenerator for V6ExtensionHeadersReflectionTlvReflectorConfig {
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
         Arc::new(Mutex::new(V6ExtensionHeadersReflectionTlv::default()))
     }
-
-    fn configure(&self) {
-        println!("Going to configure a reflected-control\n");
-    }
 }

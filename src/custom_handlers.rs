@@ -16,6 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use slog::{info, Logger};
+use yaml_rust2::Yaml;
+
 use crate::{
     handlers::{self, ReflectorHandlers, TlvHandlerGenerator},
     tlvs::{
@@ -46,6 +49,7 @@ pub struct CustomReflectorHandlersGenerators {
 }
 
 impl CustomReflectorHandlersGenerators {
+    #[allow(clippy::all)]
     pub fn new() -> CustomReflectorHandlersGenerators {
         let mut generators: Vec<Arc<Mutex<dyn TlvHandlerGenerator + Send>>> = vec![];
         generators.push(Arc::new(Mutex::new(TimeTlvReflectorConfig {})));
@@ -71,8 +75,14 @@ impl CustomReflectorHandlersGenerators {
         CustomReflectorHandlersGenerators { generators }
     }
 
-    pub fn config(&mut self) {
-        todo!()
+    pub fn config(&mut self, config_title: &str, config: &Yaml, logger: Logger) {
+        for generator in &self.generators {
+            let generator = generator.lock().unwrap();
+            if generator.tlv_reflector_name() == config_title {
+                info!(logger, "Found reflector generator with name matching config ({config_title}).");
+                generator.configure(config, logger.clone());
+            }
+        }
     }
 
     pub fn generate(&self) -> ReflectorHandlers {
