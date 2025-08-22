@@ -31,7 +31,7 @@ use crate::app::TeapartyError;
 use crate::asymmetry::Asymmetry;
 use crate::netconf::NetConfiguration;
 use crate::netconf::NetConfigurator;
-use crate::netconf::TlvNetConfigurators;
+use crate::netconf::TlvNetConfiguratorCollection;
 use crate::ntp;
 use crate::parameters::TestArgumentKind;
 use crate::parameters::TestArguments;
@@ -202,21 +202,6 @@ pub struct SenderHandlers {
     handlers: Vec<Box<dyn TlvSenderHandlerConfigurator + Send>>,
 }
 
-impl TlvNetConfigurators for SenderHandlers {
-    fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)> {
-        if let Some(pos) = self.handlers.iter().position(|e| {
-            let handler_type = e.tlv_sender_type();
-            handler_type
-                .iter()
-                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
-        }) {
-            Some(self.handlers[pos].as_ref())
-        } else {
-            None
-        }
-    }
-}
-
 impl SenderHandlers {
     pub fn new() -> Self {
         Self {
@@ -292,19 +277,11 @@ impl SenderHandlers {
     }
 }
 
-pub trait TlvReflectorHandlerConfigurator: TlvReflectorHandler + NetConfigurator {}
-
-#[derive(Default)]
-pub struct ReflectorHandlers {
-    // TODO: Remove the mutex here, if possible.
-    // I THINK THAT IT SHOULD BE POSSIBLE TO SIMPLY REMOVE THIS.
-    handlers: Vec<Box<dyn TlvReflectorHandlerConfigurator + Send>>,
-}
-
-impl TlvNetConfigurators for ReflectorHandlers {
+impl TlvNetConfiguratorCollection for SenderHandlers {
     fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)> {
+        // TODO: Determine whether there is a way to reuse get_handler.
         if let Some(pos) = self.handlers.iter().position(|e| {
-            let handler_type = e.tlv_type();
+            let handler_type = e.tlv_sender_type();
             handler_type
                 .iter()
                 .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
@@ -316,6 +293,14 @@ impl TlvNetConfigurators for ReflectorHandlers {
     }
 }
 
+
+pub trait TlvReflectorHandlerConfigurator: TlvReflectorHandler + NetConfigurator {}
+
+#[derive(Default)]
+pub struct ReflectorHandlers {
+    handlers: Vec<Box<dyn TlvReflectorHandlerConfigurator + Send>>,
+}
+
 impl ReflectorHandlers {
     pub fn new() -> Self {
         Self {
@@ -324,13 +309,13 @@ impl ReflectorHandlers {
     }
 
     /// Add a Tlv handler to the list of available handlers.
-    //pub fn add(&mut self, handler: Arc<Mutex<dyn TlvReflectorHandler + Send>>) {
     pub fn add(&mut self, handler: Box<dyn TlvReflectorHandlerConfigurator + Send>) {
         self.handlers.push(handler)
     }
 
     /// Given a Tlv type value, find a handler, if one is available.
     pub fn get_handler(&mut self, tlv_id: u8) -> Option<&mut (dyn TlvReflectorHandler + Send)> {
+        // TODO: Determine whether it is possible to use find instead of position.
         if let Some(pos) = self.handlers.iter().position(|e| {
             let handler_type = e.tlv_type();
             handler_type
@@ -345,6 +330,21 @@ impl ReflectorHandlers {
 
     pub fn get_handlers(&mut self) -> IterMut<'_, Box<dyn TlvReflectorHandlerConfigurator + Send>> {
         self.handlers.iter_mut()
+    }
+}
+
+impl TlvNetConfiguratorCollection for ReflectorHandlers {
+    fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)> {
+        if let Some(pos) = self.handlers.iter().position(|e| {
+            let handler_type = e.tlv_type();
+            handler_type
+                .iter()
+                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+        }) {
+            Some(self.handlers[pos].as_ref())
+        } else {
+            None
+        }
     }
 }
 

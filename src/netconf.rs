@@ -679,7 +679,7 @@ impl NetConfiguration {
         &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
-        handlers: &dyn TlvNetConfigurators,
+        handlers: &dyn TlvNetConfiguratorCollection,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
         for (configuration, setter) in &mut self
@@ -724,6 +724,6 @@ pub trait NetConfigurator {
     }
 }
 
-pub trait TlvNetConfigurators {
+pub trait TlvNetConfiguratorCollection {
     fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)>;
 }
