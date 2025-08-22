@@ -20,7 +20,9 @@ use slog::{info, Logger};
 use yaml_rust2::Yaml;
 
 use crate::{
-    app::TeapartyError, handlers::{self, ReflectorHandlers, TlvHandlerGenerator}, tlvs::{
+    app::TeapartyError,
+    handlers::{self, ReflectorHandlers, TlvHandlerGenerator},
+    tlvs::{
         accessreport::{AccessReportTlv, AccessReportTlvReflectorConfig},
         biterrorrate::{BitErrorRateTlv, BitErrorRateTlvReflectorConfig},
         classofservice::{ClassOfServiceTlv, ClassOfServiceTlvReflectorConfig},
@@ -38,7 +40,7 @@ use crate::{
         returnpath::{ReturnPathTlv, ReturnPathTlvReflectorConfig},
         time::{TimeTlv, TimeTlvReflectorConfig},
         unrecognized::{UnrecognizedTlv, UnrecognizedTlvReflectorConfig},
-    }
+    },
 };
 use std::sync::{Arc, Mutex};
 
@@ -74,7 +76,12 @@ impl CustomReflectorHandlersGenerators {
         CustomReflectorHandlersGenerators { generators }
     }
 
-    pub fn config(&mut self, config_title: &str, config: &Yaml, logger: Logger) -> Result<(), TeapartyError> {
+    pub fn config(
+        &mut self,
+        config_title: &str,
+        config: &Yaml,
+        logger: Logger,
+    ) -> Result<(), TeapartyError> {
         for generator in &self.generators {
             let generator = generator.lock().unwrap();
             if generator.tlv_reflector_name() == config_title {
