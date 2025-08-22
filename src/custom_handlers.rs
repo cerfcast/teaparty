@@ -79,7 +79,10 @@ impl CustomReflectorHandlersGenerators {
         for generator in &self.generators {
             let generator = generator.lock().unwrap();
             if generator.tlv_reflector_name() == config_title {
-                info!(logger, "Found reflector generator with name matching config ({config_title}).");
+                info!(
+                    logger,
+                    "Found reflector generator with name matching config ({config_title})."
+                );
                 generator.configure(config, logger.clone());
             }
         }

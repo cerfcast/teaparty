@@ -66,7 +66,11 @@ pub trait TlvHandlerGenerator {
     fn tlv_reflector_name(&self) -> String;
     fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>>;
     fn configure(&self, _config: &Yaml, logger: Logger) -> Result<(), TeapartyError> {
-        info!(logger, "Generator for {} does not accept configuration.", self.tlv_reflector_name());
+        info!(
+            logger,
+            "Generator for {} does not accept configuration.",
+            self.tlv_reflector_name()
+        );
         Ok(())
     }
 }

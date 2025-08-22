@@ -1,4 +1,7 @@
-use std::{io::Read, net::{IpAddr, Ipv4Addr}};
+use std::{
+    io::Read,
+    net::{IpAddr, Ipv4Addr},
+};
 
 use clap::{Args, Parser, Subcommand};
 use clio::ClioPath;
@@ -21,7 +24,6 @@ pub enum ServerError {
     Cli(clap::Error),
     Config(String),
 }
-
 
 #[derive(Debug)]
 pub enum TeapartyError {
@@ -108,7 +110,6 @@ pub struct ReflectorGeneralConfiguration {
     pub link_layer: bool,
 
     pub meta_addr: Option<MetaSocketAddr>,
-
 }
 
 pub fn extract_configuration(config_path: ClioPath) -> Result<Yaml, TeapartyError> {
