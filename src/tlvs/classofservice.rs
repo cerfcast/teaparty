@@ -23,10 +23,11 @@ use slog::{error, info, Logger};
 
 use crate::{
     handlers::{
-        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+        TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator,
     },
-    netconf::NetConfigurator,
     ip::{DscpValue, EcnValue},
+    netconf::NetConfigurator,
     netconf::{
         NetConfiguration, NetConfigurationArgument, NetConfigurationItem, NetConfigurationItemKind,
     },
@@ -273,7 +274,6 @@ impl TlvSenderHandler for ClassOfServiceTlv {
         )))
     }
 }
-
 
 impl TlvReflectorHandlerConfigurator for ClassOfServiceTlv {}
 impl TlvSenderHandlerConfigurator for ClassOfServiceTlv {}

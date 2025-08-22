@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
+use crate::handlers::{
+    TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+    TlvSenderHandlerConfigurator,
+};
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
@@ -26,7 +29,7 @@ use slog::{info, Logger};
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
     ip::{MplsSegmentList, Srv6SegmentList},
-    netconf::{NetConfiguration, NetConfigurationItem,NetConfigurator},
+    netconf::{NetConfiguration, NetConfigurationItem, NetConfigurator},
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},

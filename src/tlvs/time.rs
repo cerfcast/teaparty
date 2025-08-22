@@ -23,9 +23,10 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{
-        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+        TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator,
     },
-    netconf::{NetConfiguration, NetConfigurationItem,NetConfigurator},
+    netconf::{NetConfiguration, NetConfigurationItem, NetConfigurator},
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},

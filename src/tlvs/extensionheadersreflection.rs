@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
+use crate::handlers::{
+    TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+    TlvSenderHandlerConfigurator,
+};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -282,7 +285,6 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
         Ok(())
     }
 }
-
 
 impl TlvSenderHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}
 impl TlvReflectorHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}

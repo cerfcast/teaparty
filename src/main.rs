@@ -349,12 +349,7 @@ fn client(
     }
 
     configurator
-        .configure(
-            &mut client_msg,
-            &server_socket,
-            &handlers,
-            logger.clone(),
-        )
+        .configure(&mut client_msg, &server_socket, &handlers, logger.clone())
         .map_err(|v| StampError::Other(v.to_string()))?;
 
     let send_length = Responder::write(

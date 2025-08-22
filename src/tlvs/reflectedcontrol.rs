@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{ReflectorHandlers, TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
+use crate::handlers::{
+    ReflectorHandlers, TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+    TlvSenderHandlerConfigurator,
+};
 use std::sync::Arc;
 
 use std::{
@@ -30,7 +33,7 @@ use slog::{info, Logger};
 use crate::{
     asymmetry::{Asymmetry, TaskResult},
     handlers::{HandlerError, TlvRequestResult, TlvSenderHandler},
-    netconf::{NetConfigurator, NetConfiguration, NetConfigurationItem},
+    netconf::{NetConfiguration, NetConfigurationItem, NetConfigurator},
     parameters::TestArguments,
     parsers::parse_duration,
     responder::Responder,

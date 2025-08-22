@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
+use crate::handlers::{
+    TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+    TlvSenderHandlerConfigurator,
+};
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
@@ -214,7 +217,6 @@ impl TlvSenderHandler for DestinationAddressTlv {
         )))
     }
 }
-
 
 impl TlvSenderHandlerConfigurator for DestinationAddressTlv {}
 impl TlvReflectorHandlerConfigurator for DestinationAddressTlv {}

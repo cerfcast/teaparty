@@ -691,19 +691,19 @@ impl NetConfiguration {
             let mut configurator = configuration.lock().unwrap();
             let configuration_result = configurator.configure(response, socket, logger.clone());
             if let Err(e) = configuration_result {
-                    if let Some(erring_handler) = handlers.get_tlv_configurator(setter) {
-                        erring_handler.handle_netconfig_error(
-                            response,
-                            socket,
-                            configurator.get(),
-                            logger.clone(),
-                        );
-                    } else {
-                        error!(
+                if let Some(erring_handler) = handlers.get_tlv_configurator(setter) {
+                    erring_handler.handle_netconfig_error(
+                        response,
+                        socket,
+                        configurator.get(),
+                        logger.clone(),
+                    );
+                } else {
+                    error!(
                             logger,
                             "There was a net config error ({}) but no handlers are available to respond.", e);
-                    }
                 }
+            }
         }
         Ok(())
     }
@@ -727,4 +727,3 @@ pub trait NetConfigurator {
 pub trait TlvNetConfigurators {
     fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)>;
 }
-
