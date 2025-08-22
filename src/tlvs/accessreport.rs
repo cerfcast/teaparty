@@ -16,7 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
+
+use crate::netconf::NetConfigurator;
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -136,9 +138,9 @@ impl TlvReflectorHandler for AccessReportTlv {
     }
 }
 
-impl TlvHandler for AccessReportTlv {
+impl NetConfigurator for AccessReportTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -202,6 +204,9 @@ impl TlvSenderHandler for AccessReportTlv {
     }
 }
 
+impl TlvReflectorHandlerConfigurator for AccessReportTlv {}
+impl TlvSenderHandlerConfigurator for AccessReportTlv {}
+
 pub struct AccessReportTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for AccessReportTlvReflectorConfig {
@@ -209,7 +214,7 @@ impl TlvHandlerGenerator for AccessReportTlvReflectorConfig {
         "access-report".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(AccessReportTlv {})
     }
 }

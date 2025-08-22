@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -25,7 +25,7 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
-    netconf::{NetConfiguration, NetConfigurationItem},
+    netconf::{NetConfiguration, NetConfigurationItem,NetConfigurator},
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},
@@ -100,9 +100,9 @@ impl TlvReflectorHandler for HistoryTlv {
         Ok(())
     }
 }
-impl TlvHandler for HistoryTlv {
+impl NetConfigurator for HistoryTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -164,6 +164,10 @@ impl TlvSenderHandler for HistoryTlv {
     }
 }
 
+
+impl TlvSenderHandlerConfigurator for HistoryTlv {}
+impl TlvReflectorHandlerConfigurator for HistoryTlv {}
+
 pub struct HistoryTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for HistoryTlvReflectorConfig {
@@ -171,7 +175,7 @@ impl TlvHandlerGenerator for HistoryTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(HistoryTlv {})
     }
 }

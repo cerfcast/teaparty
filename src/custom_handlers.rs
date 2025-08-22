@@ -109,42 +109,41 @@ pub struct CustomSenderHandlers {}
 impl CustomSenderHandlers {
     pub fn build() -> handlers::SenderHandlers {
         let mut handlers = handlers::SenderHandlers::new();
-        let time_handler = Arc::new(Mutex::new(TimeTlv {}));
-        handlers.add(time_handler);
+        handlers.add(Box::new(TimeTlv {}));
         let dst_port_tlv: DestinationPortTlv = Default::default();
-        let destination_port_handler = Arc::new(Mutex::new(dst_port_tlv));
+        let destination_port_handler = Box::new(dst_port_tlv);
         handlers.add(destination_port_handler);
         let dst_address_tlv: DestinationAddressTlv = Default::default();
-        let destination_address_handler = Arc::new(Mutex::new(dst_address_tlv));
+        let destination_address_handler = Box::new(dst_address_tlv);
         handlers.add(destination_address_handler);
         let cos_tlv: ClassOfServiceTlv = Default::default();
-        let cos_handler = Arc::new(Mutex::new(cos_tlv));
+        let cos_handler = Box::new(cos_tlv);
         handlers.add(cos_handler);
-        let location_handler = Arc::new(Mutex::new(LocationTlv {}));
+        let location_handler = Box::new(LocationTlv {});
         handlers.add(location_handler);
-        let unrecognized_handler = Arc::new(Mutex::new(UnrecognizedTlv {}));
+        let unrecognized_handler = Box::new(UnrecognizedTlv {});
         handlers.add(unrecognized_handler);
-        let padding_handler = Arc::new(Mutex::new(PaddingTlv {}));
+        let padding_handler = Box::new(PaddingTlv {});
         handlers.add(padding_handler);
-        let access_report_handler = Arc::new(Mutex::new(AccessReportTlv {}));
+        let access_report_handler = Box::new(AccessReportTlv {});
         handlers.add(access_report_handler);
-        let history_handler = Arc::new(Mutex::new(HistoryTlv {}));
+        let history_handler = Box::new(HistoryTlv {});
         handlers.add(history_handler);
-        let followup_handler = Arc::new(Mutex::new(FollowupTlv {}));
+        let followup_handler = Box::new(FollowupTlv {});
         handlers.add(followup_handler);
         let reflected_control_tlv: ReflectedControlTlv = Default::default();
-        let reflected_control_handler = Arc::new(Mutex::new(reflected_control_tlv));
+        let reflected_control_handler = Box::new(reflected_control_tlv);
         handlers.add(reflected_control_handler);
         let hmac_tlv: HmacTlv = Default::default();
-        let hmac_tlv_handler = Arc::new(Mutex::new(hmac_tlv));
+        let hmac_tlv_handler = Box::new(hmac_tlv);
         handlers.add(hmac_tlv_handler);
         let ber_tlv: BitErrorRateTlv = Default::default();
-        let ber_tlv_handler = Arc::new(Mutex::new(ber_tlv));
+        let ber_tlv_handler = Box::new(ber_tlv);
         handlers.add(ber_tlv_handler);
         let header_options_tlv: V6ExtensionHeadersReflectionTlv = Default::default();
-        let header_options_tlv_handler = Arc::new(Mutex::new(header_options_tlv));
+        let header_options_tlv_handler = Box::new(header_options_tlv);
         handlers.add(header_options_tlv_handler);
-        let return_path_tlv_handler = Arc::new(Mutex::new(ReturnPathTlv::default()));
+        let return_path_tlv_handler = Box::new(ReturnPathTlv::default());
         handlers.add(return_path_tlv_handler);
         handlers
     }

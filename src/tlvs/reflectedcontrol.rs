@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{ReflectorHandlers, TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 use std::sync::Arc;
 
 use std::{
@@ -30,7 +30,7 @@ use slog::{info, Logger};
 use crate::{
     asymmetry::{Asymmetry, TaskResult},
     handlers::{HandlerError, TlvRequestResult, TlvSenderHandler},
-    netconf::{NetConfiguration, NetConfigurationItem},
+    netconf::{NetConfigurator, NetConfiguration, NetConfigurationItem},
     parameters::TestArguments,
     parsers::parse_duration,
     responder::Responder,
@@ -114,7 +114,7 @@ impl TlvHandlerGenerator for ReflectedControlTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(ReflectedControlTlv {
             reflected_length: 0,
             count: 0,
@@ -302,7 +302,7 @@ impl TlvReflectorHandler for ReflectedControlTlv {
 
                 responder.respond(
                     actual_response_msg,
-                    None,
+                    ReflectorHandlers::new(),
                     NetConfiguration::new(),
                     base_src,
                     base_destination,
@@ -324,18 +324,6 @@ impl TlvReflectorHandler for ReflectedControlTlv {
             });
         }
         Ok(())
-    }
-}
-
-impl TlvHandler for ReflectedControlTlv {
-    fn handle_netconfig_error(
-        &mut self,
-        _response: &mut StampMsg,
-        _socket: &UdpSocket,
-        _item: NetConfigurationItem,
-        _logger: Logger,
-    ) {
-        panic!("There was a net configuration error in a handler (Reflected Test Packet Control TLV) that does not set net configuration items.");
     }
 }
 
@@ -392,6 +380,21 @@ impl TlvSenderHandler for ReflectedControlTlv {
         )))
     }
 }
+
+impl NetConfigurator for ReflectedControlTlv {
+    fn handle_netconfig_error(
+        &self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _item: NetConfigurationItem,
+        _logger: Logger,
+    ) {
+        panic!("There was a net configuration error in a handler (Padding) that does not set net configuration items.");
+    }
+}
+
+impl TlvSenderHandlerConfigurator for ReflectedControlTlv {}
+impl TlvReflectorHandlerConfigurator for ReflectedControlTlv {}
 
 #[cfg(test)]
 mod reflected_control_tlv_tests {

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
@@ -25,7 +25,7 @@ use slog::{info, warn, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
-    netconf::{NetConfiguration, NetConfigurationItem},
+    netconf::{NetConfiguration, NetConfigurationItem,NetConfigurator},
     parameters::{TestArgumentKind, TestArguments},
     server::SessionData,
     stamp::{StampError, StampMsg},
@@ -250,9 +250,9 @@ impl TlvReflectorHandler for LocationTlv {
     }
 }
 
-impl TlvHandler for LocationTlv {
+impl NetConfigurator for LocationTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -371,6 +371,9 @@ impl TlvSenderHandler for LocationTlv {
     }
 }
 
+impl TlvSenderHandlerConfigurator for LocationTlv {}
+impl TlvReflectorHandlerConfigurator for LocationTlv {}
+
 pub struct LocationTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for LocationTlvReflectorConfig {
@@ -378,7 +381,7 @@ impl TlvHandlerGenerator for LocationTlvReflectorConfig {
         "location".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(LocationTlv {})
     }
 }

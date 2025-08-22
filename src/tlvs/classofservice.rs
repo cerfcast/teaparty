@@ -23,8 +23,9 @@ use slog::{error, info, Logger};
 
 use crate::{
     handlers::{
-        TlvHandler, TlvHandlerGenerator, TlvReflectorHandler, TlvRequestResult, TlvSenderHandler,
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator
     },
+    netconf::NetConfigurator,
     ip::{DscpValue, EcnValue},
     netconf::{
         NetConfiguration, NetConfigurationArgument, NetConfigurationItem, NetConfigurationItemKind,
@@ -192,9 +193,9 @@ impl TlvReflectorHandler for ClassOfServiceTlv {
     }
 }
 
-impl TlvHandler for ClassOfServiceTlv {
+impl NetConfigurator for ClassOfServiceTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         response: &mut StampMsg,
         _socket: &UdpSocket,
         item: NetConfigurationItem,
@@ -273,6 +274,10 @@ impl TlvSenderHandler for ClassOfServiceTlv {
     }
 }
 
+
+impl TlvReflectorHandlerConfigurator for ClassOfServiceTlv {}
+impl TlvSenderHandlerConfigurator for ClassOfServiceTlv {}
+
 pub struct ClassOfServiceTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for ClassOfServiceTlvReflectorConfig {
@@ -280,7 +285,7 @@ impl TlvHandlerGenerator for ClassOfServiceTlvReflectorConfig {
         "class-of-service".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(ClassOfServiceTlv::default())
     }
 }

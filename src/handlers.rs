@@ -20,7 +20,6 @@ use std::net::SocketAddr;
 use std::net::UdpSocket;
 use std::slice::IterMut;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use clap::ArgMatches;
 use clap::Command;
@@ -31,7 +30,8 @@ use yaml_rust2::Yaml;
 use crate::app::TeapartyError;
 use crate::asymmetry::Asymmetry;
 use crate::netconf::NetConfiguration;
-use crate::netconf::NetConfigurationItem;
+use crate::netconf::NetConfigurator;
+use crate::netconf::TlvNetConfigurators;
 use crate::ntp;
 use crate::parameters::TestArgumentKind;
 use crate::parameters::TestArguments;
@@ -64,7 +64,7 @@ pub enum HandlerError {
 /// every time that a packet is received.
 pub trait TlvHandlerGenerator {
     fn tlv_reflector_name(&self) -> String;
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send>;
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send>;
     fn configure(&self, _config: &Yaml, logger: Logger) -> Result<(), TeapartyError> {
         info!(
             logger,
@@ -73,20 +73,6 @@ pub trait TlvHandlerGenerator {
         );
         Ok(())
     }
-}
-
-pub trait TlvHandler {
-    /// Handle any errors that resulted from a failure to apply requested netconfig
-    /// to response.
-    ///
-    /// `item` is the netconfig that could not be applied.
-    fn handle_netconfig_error(
-        &mut self,
-        response: &mut StampMsg,
-        socket: &UdpSocket,
-        item: NetConfigurationItem,
-        logger: Logger,
-    );
 }
 
 pub trait TlvReflectorHandler {
@@ -209,9 +195,26 @@ pub trait TlvSenderHandler {
     }
 }
 
-#[derive(Clone, Default)]
+pub trait TlvSenderHandlerConfigurator: TlvSenderHandler + NetConfigurator {}
+
+#[derive(Default)]
 pub struct SenderHandlers {
-    handlers: Vec<Arc<Mutex<dyn TlvSenderHandler + Send>>>,
+    handlers: Vec<Box<dyn TlvSenderHandlerConfigurator + Send>>,
+}
+
+impl TlvNetConfigurators for SenderHandlers {
+    fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)> {
+        if let Some(pos) = self.handlers.iter().position(|e| {
+            let handler_type = e.tlv_sender_type();
+            handler_type
+                .iter()
+                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+        }) {
+            Some(self.handlers[pos].as_ref())
+        } else {
+            None
+        }
+    }
 }
 
 impl SenderHandlers {
@@ -222,36 +225,40 @@ impl SenderHandlers {
     }
 
     /// Add a Tlv handler to the list of available handlers.
-    pub fn add(&mut self, handler: Arc<Mutex<dyn TlvSenderHandler + Send>>) {
+    pub fn add(&mut self, handler: Box<dyn TlvSenderHandlerConfigurator + Send>) {
         self.handlers.push(handler)
     }
 
     /// Given a Tlv type value, find a handler, if one is available.
-    pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvSenderHandler + Send>>> {
-        self.handlers
-            .iter()
-            .find(|e| {
-                let handler_type = e.lock().unwrap().tlv_sender_type();
-                handler_type
-                    .iter()
-                    .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
-            })
-            .cloned()
+    pub fn get_handler(
+        &mut self,
+        tlv_id: u8,
+    ) -> Option<&mut (dyn TlvSenderHandlerConfigurator + Send)> {
+        if let Some(pos) = self.handlers.iter().position(|e| {
+            let handler_type = e.tlv_sender_type();
+            handler_type
+                .iter()
+                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+        }) {
+            Some(self.handlers[pos].as_mut())
+        } else {
+            None
+        }
     }
 
     pub fn get_cli_commands(&self) -> Command {
         let command = Command::new("tlvs").no_binary_name(true);
         self.handlers
             .iter()
-            .fold(command, |e, tlv| tlv.lock().unwrap().tlv_sender_command(e))
+            .fold(command, |e, tlv| tlv.tlv_sender_command(e))
     }
 
-    pub fn get_handlers(&mut self) -> IterMut<'_, Arc<Mutex<dyn TlvSenderHandler + Send>>> {
+    pub fn get_handlers(&mut self) -> IterMut<'_, Box<dyn TlvSenderHandlerConfigurator + Send>> {
         self.handlers.iter_mut()
     }
 
     pub fn get_requests(
-        &self,
+        &mut self,
         args: Option<TestArguments>,
         matches: &mut ArgMatches,
     ) -> Result<Option<Tlvs>, clap::Error> {
@@ -263,8 +270,8 @@ impl SenderHandlers {
 
         while let Some(matches) = remaining_matches.as_mut() {
             let mut remainder: Option<String> = None;
-            for handler in self.handlers.iter() {
-                let request_result = handler.lock().unwrap().request(args.clone(), matches)?;
+            for handler in self.handlers.iter_mut() {
+                let request_result = handler.request(args.clone(), matches)?;
 
                 if let Some((requested_tlvs, request_remainder)) = &request_result {
                     for tlv in requested_tlvs {
@@ -285,11 +292,28 @@ impl SenderHandlers {
     }
 }
 
+pub trait TlvReflectorHandlerConfigurator: TlvReflectorHandler + NetConfigurator {}
+
 #[derive(Default)]
 pub struct ReflectorHandlers {
     // TODO: Remove the mutex here, if possible.
     // I THINK THAT IT SHOULD BE POSSIBLE TO SIMPLY REMOVE THIS.
-    handlers: Vec<Box<dyn TlvReflectorHandler + Send>>,
+    handlers: Vec<Box<dyn TlvReflectorHandlerConfigurator + Send>>,
+}
+
+impl TlvNetConfigurators for ReflectorHandlers {
+    fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)> {
+        if let Some(pos) = self.handlers.iter().position(|e| {
+            let handler_type = e.tlv_type();
+            handler_type
+                .iter()
+                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+        }) {
+            Some(self.handlers[pos].as_ref())
+        } else {
+            None
+        }
+    }
 }
 
 impl ReflectorHandlers {
@@ -301,7 +325,7 @@ impl ReflectorHandlers {
 
     /// Add a Tlv handler to the list of available handlers.
     //pub fn add(&mut self, handler: Arc<Mutex<dyn TlvReflectorHandler + Send>>) {
-    pub fn add(&mut self, handler: Box<dyn TlvReflectorHandler + Send>) {
+    pub fn add(&mut self, handler: Box<dyn TlvReflectorHandlerConfigurator + Send>) {
         self.handlers.push(handler)
     }
 
@@ -319,7 +343,7 @@ impl ReflectorHandlers {
         }
     }
 
-    pub fn get_handlers(&mut self) -> IterMut<'_, Box<dyn TlvReflectorHandler + Send>> {
+    pub fn get_handlers(&mut self) -> IterMut<'_, Box<dyn TlvReflectorHandlerConfigurator + Send>> {
         self.handlers.iter_mut()
     }
 }
@@ -610,7 +634,7 @@ pub fn handler(
     // specific handlers.
     responder.respond(
         response_stamp_msg.clone(),
-        Some(handlers),
+        handlers,
         netconfig,
         // src and dest are "backward": They are from the perspective of the session sender!
         session_key.dst.clone(),

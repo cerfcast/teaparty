@@ -43,7 +43,7 @@ pub struct Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<ReflectorHandlers>,
+                ReflectorHandlers,
             )>,
         >,
     >,
@@ -55,7 +55,7 @@ pub struct Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<ReflectorHandlers>,
+                ReflectorHandlers,
             )>,
         >,
     >,
@@ -70,14 +70,14 @@ impl Responder {
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<ReflectorHandlers>,
+                ReflectorHandlers,
             )>,
             Receiver<(
                 StampMsg,
                 NetConfiguration,
                 SocketAddr,
                 SocketAddr,
-                Option<ReflectorHandlers>,
+                ReflectorHandlers,
             )>,
         ) = channel();
         Responder {
@@ -131,7 +131,7 @@ impl Responder {
     pub fn respond(
         &self,
         msg: StampMsg,
-        handlers: Option<ReflectorHandlers>,
+        handlers: ReflectorHandlers,
         config: NetConfiguration,
         src: SocketAddr,
         dest: SocketAddr,
@@ -178,10 +178,7 @@ impl Responder {
 
             // Let each of the handlers have the chance to modify the socket from which the response will be sent.
             for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
-                if let Some(response_tlv_handler) = handlers
-                    .as_mut()
-                    .and_then(|handler| handler.get_handler(response_tlv.tpe))
-                {
+                if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
                     (modified_src, modified_destination) = response_tlv_handler
                         .prepare_response_addrs(
                             &mut stamp_msg,
@@ -223,9 +220,12 @@ impl Responder {
 
                 let locked_socket_to_prepare = response_src_socket.lock().unwrap();
 
-                if let Err(e) =
-                    netconfig.configure(&mut stamp_msg, &locked_socket_to_prepare, logger.clone())
-                {
+                if let Err(e) = netconfig.configure(
+                    &mut stamp_msg,
+                    &locked_socket_to_prepare,
+                    &handlers,
+                    logger.clone(),
+                ) {
                     error!(logger, "There was an error performing net configuration on a reflected packet: {}; Abandoning response.", e);
                     continue;
                 }

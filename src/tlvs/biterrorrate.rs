@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::{
     net::{SocketAddr, UdpSocket},
@@ -28,7 +28,7 @@ use serde::Serialize;
 use slog::{info, warn, Logger};
 
 use crate::{
-    handlers::TlvHandler,
+    netconf::NetConfigurator,
     handlers::{TlvRequestResult, TlvSenderHandler},
     netconf::{NetConfiguration, NetConfigurationItem},
     parameters::TestArguments,
@@ -255,9 +255,9 @@ impl TlvReflectorHandler for BitErrorRateTlv {
     }
 }
 
-impl TlvHandler for BitErrorRateTlv {
+impl NetConfigurator for BitErrorRateTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -404,6 +404,9 @@ impl TlvSenderHandler for BitErrorRateTlv {
     }
 }
 
+impl TlvReflectorHandlerConfigurator for BitErrorRateTlv {}
+impl TlvSenderHandlerConfigurator for BitErrorRateTlv {}
+
 pub struct BitErrorRateTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for BitErrorRateTlvReflectorConfig {
@@ -411,7 +414,7 @@ impl TlvHandlerGenerator for BitErrorRateTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(BitErrorRateTlv::default())
     }
 }

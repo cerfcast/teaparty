@@ -23,9 +23,10 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{
-        TlvHandler, TlvHandlerGenerator, TlvReflectorHandler, TlvRequestResult, TlvSenderHandler,
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator
     },
     netconf::{NetConfiguration, NetConfigurationItem},
+    netconf::NetConfigurator,
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},
@@ -111,9 +112,9 @@ impl TlvReflectorHandler for DestinationPortTlv {
     }
 }
 
-impl TlvHandler for DestinationPortTlv {
+impl NetConfigurator for DestinationPortTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -168,6 +169,9 @@ impl TlvSenderHandler for DestinationPortTlv {
     }
 }
 
+
+impl TlvSenderHandlerConfigurator for DestinationPortTlv {}
+impl TlvReflectorHandlerConfigurator for DestinationPortTlv {}
 pub struct DestinationPortTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for DestinationPortTlvReflectorConfig {
@@ -175,7 +179,7 @@ impl TlvHandlerGenerator for DestinationPortTlvReflectorConfig {
         "destination-port".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(DestinationPortTlv::default())
     }
 }

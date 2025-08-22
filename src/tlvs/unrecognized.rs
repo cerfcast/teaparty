@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -25,6 +25,7 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
+    netconf::NetConfigurator,
     netconf::{NetConfiguration, NetConfigurationItem},
     parameters::TestArguments,
     server::SessionData,
@@ -75,9 +76,9 @@ impl TlvReflectorHandler for UnrecognizedTlv {
     }
 }
 
-impl TlvHandler for UnrecognizedTlv {
+impl NetConfigurator for UnrecognizedTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -126,6 +127,9 @@ impl TlvSenderHandler for UnrecognizedTlv {
         Ok(())
     }
 }
+
+impl TlvSenderHandlerConfigurator for UnrecognizedTlv {}
+impl TlvReflectorHandlerConfigurator for UnrecognizedTlv {}
 pub struct UnrecognizedTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for UnrecognizedTlvReflectorConfig {
@@ -133,7 +137,7 @@ impl TlvHandlerGenerator for UnrecognizedTlvReflectorConfig {
         "unrecognized".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(UnrecognizedTlv {})
     }
 }

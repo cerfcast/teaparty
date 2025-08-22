@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -25,6 +25,7 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
+    netconf::NetConfigurator,
     netconf::{NetConfiguration, NetConfigurationItem},
     ntp::TimeSource,
     parameters::TestArguments,
@@ -109,9 +110,9 @@ impl TlvReflectorHandler for FollowupTlv {
     }
 }
 
-impl TlvHandler for FollowupTlv {
+impl NetConfigurator for FollowupTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -174,6 +175,10 @@ impl TlvSenderHandler for FollowupTlv {
     }
 }
 
+
+impl TlvSenderHandlerConfigurator for FollowupTlv {}
+impl TlvReflectorHandlerConfigurator for FollowupTlv {}
+
 pub struct FollowupTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for FollowupTlvReflectorConfig {
@@ -181,7 +186,7 @@ impl TlvHandlerGenerator for FollowupTlvReflectorConfig {
         "followup".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(FollowupTlv {})
     }
 }

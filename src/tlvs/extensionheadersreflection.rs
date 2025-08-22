@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -26,6 +26,7 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
+    netconf::NetConfigurator,
     netconf::{
         NetConfiguration, NetConfigurationArgument, NetConfigurationItem, NetConfigurationItemKind,
     },
@@ -158,9 +159,9 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
     }
 }
 
-impl TlvHandler for V6ExtensionHeadersReflectionTlv {
+impl NetConfigurator for V6ExtensionHeadersReflectionTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -282,6 +283,10 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
     }
 }
 
+
+impl TlvSenderHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}
+impl TlvReflectorHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}
+
 pub struct V6ExtensionHeadersReflectionTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for V6ExtensionHeadersReflectionTlvReflectorConfig {
@@ -289,7 +294,7 @@ impl TlvHandlerGenerator for V6ExtensionHeadersReflectionTlvReflectorConfig {
         "extension-headers".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(V6ExtensionHeadersReflectionTlv::default())
     }
 }

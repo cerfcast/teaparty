@@ -290,7 +290,7 @@ fn client(
         test_arguments.add_argument(parameters::TestArgumentKind::HeaderOption, hbh_ext_argument);
     }
 
-    let handlers = CustomSenderHandlers::build();
+    let mut handlers = CustomSenderHandlers::build();
 
     let mut tlvs = handlers
         .get_requests(Some(test_arguments), &mut extra_args)
@@ -338,7 +338,7 @@ fn client(
 
     for request_tlvs in client_msg.tlvs.tlvs.clone().iter() {
         if let Some(handler) = handlers.get_handler(request_tlvs.tpe) {
-            let _ = handler.lock().unwrap().pre_send_fixup(
+            let _ = handler.pre_send_fixup(
                 &mut client_msg,
                 &server_socket,
                 &mut configurator,
@@ -352,7 +352,7 @@ fn client(
         .configure(
             &mut client_msg,
             &server_socket,
-            //Some(either::Right(handlers)),
+            &handlers,
             logger.clone(),
         )
         .map_err(|v| StampError::Other(v.to_string()))?;

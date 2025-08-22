@@ -23,9 +23,9 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{
-        TlvHandler, TlvHandlerGenerator, TlvReflectorHandler, TlvRequestResult, TlvSenderHandler,
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvRequestResult, TlvSenderHandler, TlvSenderHandlerConfigurator
     },
-    netconf::{NetConfiguration, NetConfigurationItem},
+    netconf::{NetConfiguration, NetConfigurationItem,NetConfigurator},
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},
@@ -76,9 +76,9 @@ impl TlvReflectorHandler for TimeTlv {
     }
 }
 
-impl TlvHandler for TimeTlv {
+impl NetConfigurator for TimeTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -127,6 +127,9 @@ impl TlvSenderHandler for TimeTlv {
     }
 }
 
+impl TlvSenderHandlerConfigurator for TimeTlv {}
+impl TlvReflectorHandlerConfigurator for TimeTlv {}
+
 pub struct TimeTlvReflectorConfig {}
 
 impl TlvHandlerGenerator for TimeTlvReflectorConfig {
@@ -134,7 +137,7 @@ impl TlvHandlerGenerator for TimeTlvReflectorConfig {
         "time".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(TimeTlv {})
     }
 }

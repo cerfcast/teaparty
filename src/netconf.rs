@@ -679,10 +679,10 @@ impl NetConfiguration {
         &mut self,
         response: &mut StampMsg,
         socket: &UdpSocket,
-        //handlers: Option<either::Either<ReflectorHandlers, SenderHandlers>>,
+        handlers: &dyn TlvNetConfigurators,
         logger: Logger,
     ) -> Result<(), NetConfigurationError> {
-        for (configuration, _setter) in &mut self
+        for (configuration, setter) in &mut self
             .configurations
             .iter()
             .zip(self.setters.clone())
@@ -691,18 +691,7 @@ impl NetConfiguration {
             let mut configurator = configuration.lock().unwrap();
             let configuration_result = configurator.configure(response, socket, logger.clone());
             if let Err(e) = configuration_result {
-                unimplemented!();
-                /*
-                if let Some(handlers) = &handlers {
-                    if let Some(erring_handler) = handlers.get_handler(setter) {
-                        let mut erring_handler = erring_handler.lock().unwrap();
-
-                        error!(
-                            logger,
-                            "Asking {} to handle a net configuration error: {}",
-                            erring_handler.tlv_name(),
-                            e
-                        );
+                    if let Some(erring_handler) = handlers.get_tlv_configurator(setter) {
                         erring_handler.handle_netconfig_error(
                             response,
                             socket,
@@ -714,14 +703,28 @@ impl NetConfiguration {
                             logger,
                             "There was a net config error ({}) but no handlers are available to respond.", e);
                     }
-                } else {
-                    error!(
-                            logger,
-                            "There was a net config error ({}) but no handlers are available to respond.", e);
                 }
-                */
-            }
         }
         Ok(())
     }
 }
+
+pub trait NetConfigurator {
+    /// Handle any errors that resulted from a failure to apply requested netconfig
+    /// to response.
+    ///
+    /// `item` is the netconfig that could not be applied.
+    fn handle_netconfig_error(
+        &self,
+        _response: &mut StampMsg,
+        _socket: &UdpSocket,
+        _item: NetConfigurationItem,
+        _logger: Logger,
+    ) {
+    }
+}
+
+pub trait TlvNetConfigurators {
+    fn get_tlv_configurator(&self, tlv_id: u8) -> Option<&(dyn NetConfigurator + Send)>;
+}
+

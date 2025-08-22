@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
+use crate::handlers::{TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator, TlvSenderHandlerConfigurator};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -25,6 +25,7 @@ use slog::{info, Logger};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
+    netconf::NetConfigurator,
     netconf::{NetConfiguration, NetConfigurationItem},
     parameters::TestArguments,
     server::SessionData,
@@ -80,9 +81,9 @@ impl TlvReflectorHandler for PaddingTlv {
     }
 }
 
-impl TlvHandler for PaddingTlv {
+impl NetConfigurator for PaddingTlv {
     fn handle_netconfig_error(
-        &mut self,
+        &self,
         _response: &mut StampMsg,
         _socket: &UdpSocket,
         _item: NetConfigurationItem,
@@ -156,7 +157,10 @@ impl TlvHandlerGenerator for PaddingTlvReflectorConfig {
         "padding".into()
     }
 
-    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+    fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
         Box::new(PaddingTlv {})
     }
 }
+
+impl TlvSenderHandlerConfigurator for PaddingTlv {}
+impl TlvReflectorHandlerConfigurator for PaddingTlv {}
