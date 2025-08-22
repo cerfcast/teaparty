@@ -32,27 +32,43 @@ Because the Reflector listens on a privileged port by default, it requires root 
 $ sudo teaparty reflector
 ```
 
-is the fastest way to get started. After that, take a look at the following start options documented using the `--help` CLI flag:
+is the fastest way to get started. With the exception of specifying the debugging level and IP/port on which Teaparty should listen, all configuration is
+done using a YAML-based configuration file. To specify that Teaparty should read its Reflector configuration from a file, use the `--config` command-line option.
 
-```console
+**Configuration File Format**
 
-Usage: teaparty reflector [OPTIONS]
+The Reflector's configuration file is formatted according to the YAML specification and its contents must be a sequence of nodes, each of which is a mapping with
+exactly _one_ key/value pair. The key in each of the _single_ key/value pairs in each mapping defines the component configured by that value of that mapping. Components
+that can be configured: `general`.
 
-Options:
-      --stateless              Run teaparty in stateless mode.
-      --heartbeat <HEARTBEAT>  Specify hearbeat message target and interval (in seconds) as [IP]@[Seconds]
-      --link-layer             Run teaparty in link-layer mode.
-      --meta-addr <META_ADDR>  Specify the address (either as simply an IP or IP:PORT) on which the meta RESTful interface will listen (by default, meta interface will be on the same address as STAMP on port 8000)
-  -h, --help                   Print help
+Below is documentation on how to configure each of the components of the Reflector using the configuration file:
+
+| Component | Key | Description | Value |
+| -- | -- | -- | -- |
+| `general` | `stateless` | Controls whether the Reflector operates in stateful or stateless mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
+| | `heartbeat` | Controls list of hearbeat targets to which the Reflector will send messages. | A YAML sequence of nodes, each of which are YAML scalar values with string type that match the format `IP:PORT@S`, where the `IP:PORT` is an IP address (either v4 or v6) and a port and `S` is the interval (in seconds) at which to send heartbeats. The default is an empty list. |
+| | `link_layer` | Whether the Reflector should run in link-layer mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
+| | `meta_addr` | Specify the address  on which the meta RESTful interface will listen. | A YAML scalar with string type that matches the format `IP` or `IP:PORT`. By default, the meta interface will listen on the same address as the STAMP Reflector on port 8000. |
+
+As an example, here is a valid configuration file that configures the Reflector to 
+
+1. Not operate in stateful mode;
+2. Send heartbeat packets to 8.8.8.8 (port 863) and 1.1.1.1 (port 865) at intervals of 3 and 5 seconds, respectively; and
+3. Listen for meta RESTful connections on port 8001 of the local host.
+
+```YAML
+- general: {
+    stateless: true,
+    heartbeat: [8.8.8.8:863@3, 1.1.1.1:865@5],
+    meta_addr: 127.0.0.1:8001
+  }
 ```
-
 Some TLVs (see below) need access to link-layer information about the test packet. Capturing such information is not possible using traditional BSD-socket-like methods.
-When the Reflector runs in _link-layer mode_, it will listen for test packets by acting as a packet capturing system. While this feature will allow the Reflector to handle
-more TLVs, it may also cause additional overhead.
+When the Reflector runs in _link-layer mode_, it will listen for test packets by acting as a packet capturing system. While this feature will allow the Reflector to handle more TLVs, it may also cause additional overhead.
 
 **Monitoring**
 
-By default, the Reflector will launch a RESTful API on the localhost on port 8000 on the same IP address as the STAMP server is configured. Customization of that address is available with the `--meta-addr` argument. It supports the following endpoints:
+By default, the Reflector will launch a RESTful API on the localhost on port 8000 on the same IP address as the STAMP server is configured. Customization of that address is available with `meta_addr` in the configuration file (see above). It supports the following endpoints:
 
 `/heartbeats`
 
