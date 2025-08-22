@@ -18,10 +18,7 @@
 
 use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
 
-use std::{
-    net::{SocketAddr, UdpSocket},
-    sync::{Arc, Mutex},
-};
+use std::net::{SocketAddr, UdpSocket};
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand, ValueEnum};
 use slog::{info, Logger};
@@ -212,7 +209,7 @@ impl TlvHandlerGenerator for AccessReportTlvReflectorConfig {
         "access-report".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(AccessReportTlv {}))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(AccessReportTlv {})
     }
 }

@@ -19,7 +19,6 @@
 use crate::handlers::{TlvHandler, TlvHandlerGenerator, TlvReflectorHandler};
 
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::{Arc, Mutex};
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
 use slog::{info, Logger};
@@ -172,7 +171,7 @@ impl TlvHandlerGenerator for HistoryTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(HistoryTlv {}))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(HistoryTlv {})
     }
 }

@@ -21,8 +21,6 @@ use std::net::{SocketAddr, UdpSocket};
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
 use slog::{error, info, Logger};
 
-use std::sync::{Arc, Mutex};
-
 use crate::{
     handlers::{
         TlvHandler, TlvHandlerGenerator, TlvReflectorHandler, TlvRequestResult, TlvSenderHandler,
@@ -282,8 +280,8 @@ impl TlvHandlerGenerator for ClassOfServiceTlvReflectorConfig {
         "class-of-service".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(ClassOfServiceTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(ClassOfServiceTlv::default())
     }
 }
 

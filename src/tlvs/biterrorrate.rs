@@ -23,8 +23,6 @@ use std::{
     str::FromStr,
 };
 
-use std::sync::{Arc, Mutex};
-
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
 use serde::Serialize;
 use slog::{info, warn, Logger};
@@ -413,7 +411,7 @@ impl TlvHandlerGenerator for BitErrorRateTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(BitErrorRateTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(BitErrorRateTlv::default())
     }
 }

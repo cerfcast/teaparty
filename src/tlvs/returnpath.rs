@@ -32,7 +32,6 @@ use crate::{
     stamp::{StampError, StampMsg},
     tlv::{self, Error, Flags, Recognized, SubTlvInto, Tlv, Tlvs, Unrecognized},
 };
-use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
 pub struct ReturnPathTlv {
@@ -263,8 +262,8 @@ impl TlvHandlerGenerator for ReturnPathTlvReflectorConfig {
         "returnpath".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(ReturnPathTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(ReturnPathTlv::default())
     }
 }
 

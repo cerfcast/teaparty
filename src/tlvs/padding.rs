@@ -31,7 +31,6 @@ use crate::{
     stamp::{StampError, StampMsg},
     tlv::{self, Flags, Tlv},
 };
-use std::sync::{Arc, Mutex};
 
 pub struct PaddingTlv {}
 
@@ -157,7 +156,7 @@ impl TlvHandlerGenerator for PaddingTlvReflectorConfig {
         "padding".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(PaddingTlv {}))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(PaddingTlv {})
     }
 }

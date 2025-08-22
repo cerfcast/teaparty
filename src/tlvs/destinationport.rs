@@ -31,7 +31,6 @@ use crate::{
     stamp::{StampError, StampMsg},
     tlv::{self, Error, Flags, Tlv},
 };
-use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
 pub struct DestinationPortTlv {
@@ -176,7 +175,7 @@ impl TlvHandlerGenerator for DestinationPortTlvReflectorConfig {
         "destination-port".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(DestinationPortTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(DestinationPortTlv::default())
     }
 }

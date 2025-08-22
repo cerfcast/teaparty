@@ -169,7 +169,7 @@ impl Responder {
                 continue;
             }
 
-            let (mut stamp_msg, mut netconfig, src, dest, handlers) = r.unwrap();
+            let (mut stamp_msg, mut netconfig, src, dest, mut handlers) = r.unwrap();
 
             // Moved from handler
 
@@ -179,11 +179,11 @@ impl Responder {
             // Let each of the handlers have the chance to modify the socket from which the response will be sent.
             for response_tlv in stamp_msg.tlvs.tlvs.clone().iter() {
                 if let Some(response_tlv_handler) = handlers
-                    .as_ref()
+                    .as_mut()
                     .and_then(|handler| handler.get_handler(response_tlv.tpe))
                 {
-                    (modified_src, modified_destination) =
-                        response_tlv_handler.lock().unwrap().prepare_response_addrs(
+                    (modified_src, modified_destination) = response_tlv_handler
+                        .prepare_response_addrs(
                             &mut stamp_msg,
                             modified_src,
                             modified_destination,

@@ -31,7 +31,6 @@ use crate::{
     stamp::{StampError, StampMsg},
     tlv::{self, Flags, Tlv},
 };
-use std::sync::{Arc, Mutex};
 
 pub struct TimeTlv {}
 
@@ -135,7 +134,7 @@ impl TlvHandlerGenerator for TimeTlvReflectorConfig {
         "time".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(TimeTlv {}))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(TimeTlv {})
     }
 }

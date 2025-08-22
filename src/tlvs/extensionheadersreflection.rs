@@ -23,7 +23,6 @@ use std::net::{SocketAddr, UdpSocket};
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
 use nix::sys::socket::{Ipv6ExtHeader, Ipv6ExtHeaderType};
 use slog::{info, Logger};
-use std::sync::{Arc, Mutex};
 
 use crate::{
     handlers::{TlvRequestResult, TlvSenderHandler},
@@ -290,7 +289,7 @@ impl TlvHandlerGenerator for V6ExtensionHeadersReflectionTlvReflectorConfig {
         "extension-headers".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(V6ExtensionHeadersReflectionTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(V6ExtensionHeadersReflectionTlv::default())
     }
 }

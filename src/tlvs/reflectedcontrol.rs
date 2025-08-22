@@ -26,7 +26,6 @@ use std::{
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
 use slog::{info, Logger};
-use std::sync::Mutex;
 
 use crate::{
     asymmetry::{Asymmetry, TaskResult},
@@ -115,8 +114,12 @@ impl TlvHandlerGenerator for ReflectedControlTlvReflectorConfig {
         "reflected-control".into()
     }
 
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>> {
-        Arc::new(Mutex::new(ReflectedControlTlv::default()))
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send> {
+        Box::new(ReflectedControlTlv {
+            reflected_length: 0,
+            count: 0,
+            interval: 0,
+        })
     }
 }
 

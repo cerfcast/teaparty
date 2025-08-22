@@ -64,7 +64,7 @@ pub enum HandlerError {
 /// every time that a packet is received.
 pub trait TlvHandlerGenerator {
     fn tlv_reflector_name(&self) -> String;
-    fn generate(&self) -> Arc<Mutex<dyn TlvReflectorHandler + Send>>;
+    fn generate(&self) -> Box<dyn TlvReflectorHandler + Send>;
     fn configure(&self, _config: &Yaml, logger: Logger) -> Result<(), TeapartyError> {
         info!(
             logger,
@@ -285,11 +285,11 @@ impl SenderHandlers {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct ReflectorHandlers {
     // TODO: Remove the mutex here, if possible.
     // I THINK THAT IT SHOULD BE POSSIBLE TO SIMPLY REMOVE THIS.
-    handlers: Vec<Arc<Mutex<dyn TlvReflectorHandler + Send>>>,
+    handlers: Vec<Box<dyn TlvReflectorHandler + Send>>,
 }
 
 impl ReflectorHandlers {
@@ -300,24 +300,26 @@ impl ReflectorHandlers {
     }
 
     /// Add a Tlv handler to the list of available handlers.
-    pub fn add(&mut self, handler: Arc<Mutex<dyn TlvReflectorHandler + Send>>) {
+    //pub fn add(&mut self, handler: Arc<Mutex<dyn TlvReflectorHandler + Send>>) {
+    pub fn add(&mut self, handler: Box<dyn TlvReflectorHandler + Send>) {
         self.handlers.push(handler)
     }
 
     /// Given a Tlv type value, find a handler, if one is available.
-    pub fn get_handler(&self, tlv_id: u8) -> Option<Arc<Mutex<dyn TlvReflectorHandler + Send>>> {
-        self.handlers
-            .iter()
-            .find(|e| {
-                let handler_type = e.lock().unwrap().tlv_type();
-                handler_type
-                    .iter()
-                    .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
-            })
-            .cloned()
+    pub fn get_handler(&mut self, tlv_id: u8) -> Option<&mut (dyn TlvReflectorHandler + Send)> {
+        if let Some(pos) = self.handlers.iter().position(|e| {
+            let handler_type = e.tlv_type();
+            handler_type
+                .iter()
+                .any(|handler_type| *handler_type != 0 && *handler_type == tlv_id)
+        }) {
+            Some(self.handlers[pos].as_mut())
+        } else {
+            None
+        }
     }
 
-    pub fn get_handlers(&mut self) -> IterMut<'_, Arc<Mutex<dyn TlvReflectorHandler + Send>>> {
+    pub fn get_handlers(&mut self) -> IterMut<'_, Box<dyn TlvReflectorHandler + Send>> {
         self.handlers.iter_mut()
     }
 }
@@ -462,7 +464,6 @@ pub fn handler(
 
         // Let each of the handlers have a chance to do some pre processing on the incoming session-sender test packet.
         for handler in handlers.get_handlers() {
-            let mut handler = handler.lock().unwrap();
             if let Err(err) =
                 handler.request_fixup(&mut src_stamp_msg, &session_data, logger.clone())
             {
@@ -484,8 +485,7 @@ pub fn handler(
             }
 
             if let Some(handler) = handlers.get_handler(tlv.tpe) {
-                let mut locked_handler = handler.lock().unwrap();
-                let handler_result = locked_handler.handle(
+                let handler_result = handler.handle(
                     tlv,
                     &test_arguments,
                     &mut netconfig,
@@ -501,13 +501,13 @@ pub fn handler(
                     }
                     Err(StampError::MalformedTlv(e)) => {
                         // Leave the contents of the original tlv alone but mark as malformed.
-                        info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", locked_handler.tlv_name(), e);
+                        info!(logger, "{} set a TLV as malformed because {:?}; abandoning processing of further Tlvs", handler.tlv_name(), e);
                         tlv.flags.set_malformed(true);
                         break;
                     }
                     Err(e) => {
                         // TODO: Check
-                        error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", locked_handler.tlv_name(), e);
+                        error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", handler.tlv_name(), e);
                     }
                 }
             } else {
@@ -555,7 +555,6 @@ pub fn handler(
         {
             let server = server.socket.lock().unwrap();
             for handler in handlers.get_handlers() {
-                let mut handler = handler.lock().unwrap();
                 if response_stamp_msg.tlvs.contains_any(&handler.tlv_type()) {
                     if let Err(e) = handler.pre_send_fixup(
                         &mut response_stamp_msg,
@@ -589,7 +588,6 @@ pub fn handler(
     for response_tlv in response_stamp_msg.tlvs.tlvs.clone().iter() {
         if let Some(response_tlv_handler) = handlers.get_handler(response_tlv.tpe) {
             // Notice that the lock use is in a scope!
-            let mut response_tlv_handler = response_tlv_handler.lock().unwrap();
             let handler_name = { response_tlv_handler.tlv_name() };
             if let Err(e) = response_tlv_handler.handle_asymmetry(
                 response_stamp_msg.clone(),
