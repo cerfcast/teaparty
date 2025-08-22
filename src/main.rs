@@ -514,7 +514,7 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
                                 config_section_title.as_str().unwrap(),
                                 config_section,
                                 logger.clone(),
-                            );
+                            )?;
                         }
                     }
                 } else {
