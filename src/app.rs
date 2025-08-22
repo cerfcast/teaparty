@@ -184,7 +184,7 @@ pub fn parse_general_config(config: &Yaml) -> Result<ReflectorGeneralConfigurati
         };
 
         let link_layer = general_configuration_hash
-            .get(&Yaml::String("link-layer".to_string()))
+            .get(&Yaml::String("link_layer".to_string()))
             .unwrap_or(&Yaml::Boolean(false))
             .clone()
             .into_bool()
