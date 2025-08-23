@@ -299,11 +299,11 @@ local dscp1_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp1", "DSCP1
 	"DSCP1 Field")
 local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2", base.HEX, dscp_type_map, 0x03f0,
 	"DSCP2 Field")
-local ecn_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN", base.HEX, ecn_type_map, 0x000c,
+local ecn2_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN2", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
 local rpd_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpd", "RPD", base.HEX, rpd_type_map, 0x0003,
 	"Reverse Path (DSCP)")
-local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN2", base.HEX, ecn_type_map, 0xc000,
+local ecn1_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn2", "ECN1", base.HEX, ecn_type_map, 0xc000,
 	"ECN2 Field")
 local rpe_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpe", "RPE", base.HEX, rpe_type_map, 0x3000,
 	"RPE Field")
@@ -311,9 +311,9 @@ local rpe_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpe", "RPE", b
 stamp_protocol.fields          = { cos_tlv_protofield,
 	dscp1_cos_tlv_protofield,
 	dscp2_cos_tlv_protofield,
-	ecn_cos_tlv_protofield,
-	rpd_cos_tlv_protofield,
 	ecn2_cos_tlv_protofield,
+	rpd_cos_tlv_protofield,
+	ecn1_cos_tlv_protofield,
 	rpe_cos_tlv_protofield,
 }
 
@@ -332,9 +332,9 @@ local function tlv_cos_dissector(buffer, tree)
 	cos_tree.text = "Class of Service"
 	cos_tree:add(dscp1_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(dscp2_cos_tlv_protofield, buffer(0, 2))
-	cos_tree:add(ecn_cos_tlv_protofield, buffer(0, 2))
+	cos_tree:add(ecn2_cos_tlv_protofield, buffer(0, 2))
 	cos_tree:add(rpd_cos_tlv_protofield, buffer(0, 2))
-	cos_tree:add(ecn2_cos_tlv_protofield, buffer(2, 2))
+	cos_tree:add(ecn1_cos_tlv_protofield, buffer(2, 2))
 	cos_tree:add(rpe_cos_tlv_protofield, buffer(2, 2))
 	return true
 end
