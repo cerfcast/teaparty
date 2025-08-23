@@ -691,17 +691,25 @@ impl NetConfiguration {
             let mut configurator = configuration.lock().unwrap();
             let configuration_result = configurator.configure(response, socket, logger.clone());
             if let Err(e) = configuration_result {
-                if let Some(erring_handler) = handlers.get_tlv_configurator(setter) {
+                // First, check to see whether the entity doing the setting was the client ...
+                if setter == NetConfiguration::CLIENT_SETTER {
+                    error!(
+                            logger,
+                            "There was an error when the Session Sender attempted to modify a network configuration to send the test packet: {e}");
+                // Second, check to see whether the entity doing the setting is interested in doing something to respond to the failure ...
+                } else if let Some(erring_handler) = handlers.get_tlv_configurator(setter) {
                     erring_handler.handle_netconfig_error(
                         response,
                         socket,
                         configurator.get(),
                         logger.clone(),
                     );
+                // Otherwise, just post an alert.
                 } else {
                     error!(
-                            logger,
-                            "There was a net config error ({}) but no handlers are available to respond.", e);
+                        logger,
+                        "There was an error attempting to modify a network configuration: {e}"
+                    );
                 }
             }
         }

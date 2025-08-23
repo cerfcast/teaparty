@@ -132,8 +132,6 @@ impl TlvReflectorHandler for ClassOfServiceTlv {
         _session: &mut Option<SessionData>,
         logger: slog::Logger,
     ) -> Result<Tlv, StampError> {
-        info!(logger, "I am in the Class of Service TLV handler!");
-
         let mut cos_tlv: ClassOfServiceTlv = TryFrom::try_from(tlv)?;
 
         if cos_tlv.rpd != 0 {
@@ -209,11 +207,11 @@ impl NetConfigurator for ClassOfServiceTlv {
                 match item {
                     // An error setting the DSCP value means that we change the RPD!
                     NetConfigurationItem::Dscp(_) => {
-                        error!(logger, "There was an error doing DSCP net configuration on reflected packet. Updating RPD value. (Class of Service Handler)");
+                        error!(logger, "There was an error doing DSCP net configuration on reflected packet. Updating RPD value. (Class of Service)");
                         tlv.value[1] |= 0x1;
                     }
                     NetConfigurationItem::Ecn(_) => {
-                        error!(logger, "There was an error doing ECN net configuration on reflected packet. No semantics defined to update RPE. (Class of Service Handler)");
+                        error!(logger, "There was an error doing ECN net configuration on reflected packet. No semantics defined to update RPE. (Class of Service)");
                     }
                     _ => {}
                 };
