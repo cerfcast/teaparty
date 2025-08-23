@@ -48,21 +48,23 @@ Below is documentation on how to configure each of the components of the Reflect
 | `general` | `stateless` | Controls whether the Reflector operates in stateful or stateless mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
 | | `heartbeat` | Controls list of hearbeat targets to which the Reflector will send messages. | A YAML sequence of nodes, each of which are YAML scalar values with string type that match the format `IP:PORT@S`, where the `IP:PORT` is an IP address (either v4 or v6) and a port and `S` is the interval (in seconds) at which to send heartbeats. The default is an empty list. |
 | | `link_layer` | Whether the Reflector should run in link-layer mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
-| | `meta_addr` | Specify the address  on which the meta RESTful interface will listen. | A YAML scalar with string type that matches the format `IP` or `IP:PORT`. By default, the meta interface will listen on the same address as the STAMP Reflector on port 8000. |
+| | `meta_addr` | Specify the address  on which the meta RESTful interface will listen. | A YAML mapping with (optionally) `ip` and/or `port` keys (and string and i64 type, respectively) whose values set the IP address and port number on which the meta interface will listen. By default, the meta interface will listen on the same address as the STAMP Reflector on port 8000. Default values are used when `meta_addr` is not specified or it is specified but either/both `ip` and `port` keys are missing. |
 
 As an example, here is a valid configuration file that configures the Reflector to 
 
 1. Not operate in stateful mode;
 2. Send heartbeat packets to 8.8.8.8 (port 863) and 1.1.1.1 (port 865) at intervals of 3 and 5 seconds, respectively; and
-3. Listen for meta RESTful connections on port 8001 of the local host.
+3. Listen for meta RESTful connections on port 8765 of the IP address 127.1.1.1.
 
 ```YAML
-- general: {
-    stateless: true,
-    heartbeat: [8.8.8.8:863@3, 1.1.1.1:865@5],
-    meta_addr: 127.0.0.1:8001
-  }
+- general:
+    stateless: true
+    heartbeat: [8.8.8.8:863@3, 1.1.1.1:865@5]
+    meta_addr:
+      ip: 127.1.1.1
+      port: 8765
 ```
+
 Some TLVs (see below) need access to link-layer information about the test packet. Capturing such information is not possible using traditional BSD-socket-like methods.
 When the Reflector runs in _link-layer mode_, it will listen for test packets by acting as a packet capturing system. While this feature will allow the Reflector to handle more TLVs, it may also cause additional overhead.
 

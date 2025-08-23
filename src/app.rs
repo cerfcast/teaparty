@@ -1,6 +1,6 @@
 use std::{
     io::Read,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -190,15 +190,10 @@ pub fn parse_general_config(config: &Yaml) -> Result<ReflectorGeneralConfigurati
             .into_bool()
             .unwrap_or_default();
 
-        let meta_addr = if let Some(maybe_meta_addr) = general_configuration_hash
-            .get(&Yaml::String("meta_addr".to_string()))
-            .and_then(|m| m.as_str())
+        let meta_addr = if let Some(maybe_meta_addr) =
+            general_configuration_hash.get(&Yaml::String("meta_addr".to_string()))
         {
-            Some(maybe_meta_addr.parse::<MetaSocketAddr>().map_err(|e| {
-                TeapartyError::Server(ServerError::Config(format!(
-                    "Error parsing specified meta address: {e}"
-                )))
-            })?)
+            Some(TryInto::<SocketAddr>::try_into(FromYaml(maybe_meta_addr))?.into())
         } else {
             None
         };
@@ -213,6 +208,43 @@ pub fn parse_general_config(config: &Yaml) -> Result<ReflectorGeneralConfigurati
         Err(TeapartyError::Server(ServerError::Config(
             format!("Format of the configuration for the general reflector arguments is invalid: it is not a YAML hash {config:?}")
         )))
+    }
+}
+
+pub struct FromYaml<'a>(&'a Yaml);
+impl<'a> TryInto<SocketAddr> for FromYaml<'a> {
+    type Error = TeapartyError;
+
+    fn try_into(self) -> Result<SocketAddr, Self::Error> {
+        if let Some(yaml) = self.0.as_hash() {
+            let mut addr = Into::<SocketAddr>::into((Ipv4Addr::UNSPECIFIED, 0));
+
+            if let Some(value) = yaml
+                .get(&Yaml::String("ip".to_string()))
+                .and_then(|f| f.as_str())
+            {
+                addr.set_ip(value.parse::<IpAddr>().map_err(|e| {
+                    TeapartyError::Server(ServerError::Config(format!(
+                        "Could not parse IP address: {e}"
+                    )))
+                })?)
+            }
+            if let Some(value) = yaml
+                .get(&Yaml::String("port".to_string()))
+                .and_then(|f| f.as_i64())
+            {
+                addr.set_port(u16::try_from(value).map_err(|e| {
+                    TeapartyError::Server(ServerError::Config(format!(
+                        "Could not parse port number: {e}"
+                    )))
+                })?)
+            }
+            Ok(addr)
+        } else {
+            Err(TeapartyError::Server(ServerError::Config(
+                "Invalid configuration for socket address".to_string(),
+            )))
+        }
     }
 }
 

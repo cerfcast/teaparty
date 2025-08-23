@@ -39,6 +39,21 @@ impl MetaSocketAddr {
     pub const DEFAULT_PORT: u16 = 8000u16;
 }
 
+impl From<SocketAddr> for MetaSocketAddr {
+    fn from(value: SocketAddr) -> Self {
+        MetaSocketAddr {
+            addr: (
+                value.ip(),
+                if value.port() != 0 {
+                    value.port()
+                } else {
+                    MetaSocketAddr::DEFAULT_PORT
+                },
+            )
+                .into(),
+        }
+    }
+}
 impl FromStr for MetaSocketAddr {
     type Err = clap::Error;
 
