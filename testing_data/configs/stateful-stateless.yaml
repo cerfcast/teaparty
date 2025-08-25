@@ -1,0 +1,16 @@
+- 
+  - general:
+      name: "stateful"
+      meta_addr:
+        ip: 127.1.1.1
+        port: 8765
+-
+  - general:
+      name: "stateless"
+      stateless: true
+      listen:
+        ip: 0.0.0.0
+        port: 863
+      meta_addr:
+        ip: 127.1.1.1
+        port: 8766

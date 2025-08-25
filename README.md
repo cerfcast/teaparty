@@ -22,48 +22,87 @@ $ cargo build
 
 ### Running
 
-`teaparty` has both a _reflector_ and a _sender_ mode. The _sender_ mode is developed/maintained for the purposes of testing interoperability. 
+`teaparty` has both a Session _Reflector_ and a Session _Sender_ mode. The _sender_ mode was originally developed/maintained for the purposes of testing interoperability, but has since grown to become a full-fledged, useful STAMP Session Sender. 
 
 #### Reflector
 
-Because the Reflector listens on a privileged port by default, it requires root privileges to run (see below for ways to customize the `teaparty` startup).
+Teaparty supports the configuration/execution of multiple Session Reflectors (with individual configurations) at the same time. Configuration of teaparty in Session Reflector mode is done using a YAML-based configuration file. To specify that Teaparty should read its Reflector configuration from a file, use the `--config` command-line option. When using teaparty in Session Reflector mode, the only command-line configuration available is for the log level (`-d`).
+
+The IANA-registered port for a STAMP Session Reflector is a privileged port. Therefore, if you execute Teaparty in Session Reflector mode and configure it to listen on the IANA-registered port, you must run it ias a privileged user. See below for ways to customize the `teaparty` startup
 
 ```console
 $ sudo teaparty reflector
 ```
 
 is the fastest way to get started. With the exception of specifying the debugging level and IP/port on which Teaparty should listen, all configuration is
-done using a YAML-based configuration file. To specify that Teaparty should read its Reflector configuration from a file, use the `--config` command-line option.
+done using a YAML-based configuration file.
 
 **Configuration File Format**
 
-The Reflector's configuration file is formatted according to the YAML specification and its contents must be a sequence of nodes, each of which is a mapping with
-exactly _one_ key/value pair. The key in each of the _single_ key/value pairs in each mapping defines the component configured by that value of that mapping. Components
-that can be configured: `general`.
+The Reflector's configuration file is formatted according to the YAML specification and its contents must be a sequence of nodes, one for each Session Reflector instance to execute. 
+
+Each of the Session Reflector instances is, itself, configured with a sequence of nodes, each of which is a mapping with exactly _one_ key/value pair. The key in each of the _single_ key/value pairs in each mapping defines the component configured by that value of that mapping. 
+
+|Component | Description |
+| -- | -- |
+|`general` | Session Reflector's overall configuration |
 
 Below is documentation on how to configure each of the components of the Reflector using the configuration file:
 
-| Component | Key | Description | Value |
-| -- | -- | -- | -- |
-| `general` | `stateless` | Controls whether the Reflector operates in stateful or stateless mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
-| | `heartbeat` | Controls list of hearbeat targets to which the Reflector will send messages. | A YAML sequence of nodes, each of which are YAML scalar values with string type that match the format `IP:PORT@S`, where the `IP:PORT` is an IP address (either v4 or v6) and a port and `S` is the interval (in seconds) at which to send heartbeats. The default is an empty list. |
-| | `link_layer` | Whether the Reflector should run in link-layer mode. | A YAML scalar with boolean type (i.e., `true` or `false`) that defaults to `false`. |
-| | `meta_addr` | Specify the address  on which the meta RESTful interface will listen. | A YAML mapping with (optionally) `ip` and/or `port` keys (and string and i64 type, respectively) whose values set the IP address and port number on which the meta interface will listen. By default, the meta interface will listen on the same address as the STAMP Reflector on port 8000. Default values are used when `meta_addr` is not specified or it is specified but either/both `ip` and `port` keys are missing. |
+| Component | Key | Mandatory? | Description | Value | Default (if not mandatory) |
+| -- | -- | -- | -- | -- | -- |
+| `general` | `stateless` | | Controls whether the Reflector operates in stateful or stateless mode. | A YAML scalar with boolean type (i.e., `true` or `false`). | `false` |
+| | `heartbeat` |  | Controls list of hearbeat targets to which the Reflector will send messages. | A YAML sequence of nodes, each of which are YAML scalar values with string type that match the format `IP:PORT@S`, where the `IP:PORT` is an IP address (either v4 or v6) and a port and `S` is the interval (in seconds) at which to send heartbeats. | Empty list |
+| | `link_layer` |  | Whether the Reflector should run in link-layer mode. See below for additional information. | A YAML scalar with boolean type (i.e., `true` or `false`). | `false `|
+| | `meta_addr` | | Specify the address  on which the meta RESTful interface will listen. | A YAML mapping with (optionally) `ip` and/or `port` keys (and string and i64 type, respectively) whose values set the IP address and port number on which the meta interface will listen. By default, | IP: Same as the STAMP Session Reflector; Port: 8000. |
+| | `listen` | | Specify the address  on which this instance of the Session Reflector will listen. | A YAML mapping with (optionally) `ip` and/or `port` keys (and string and i64 type, respectively) whose values set the IP address and port number on which this instance of the Session Reflector will listen. **Note**: The default port on which the Session Reflector will listen is a privileged port. If you configure the Session Reflector to listen on that port, you must run it as a privileged user. | IP: 0.0.0.0; Port: 862 |
+| | `name` | | Specify a name for the instance of the Session Reflector. | A YAML scalar value with string type. | `instance_x`, where `x` is a unique value assigned at the time all Session Reflector instances are started. |
 
-As an example, here is a valid configuration file that configures the Reflector to 
+As an example, here is a valid configuration file that configures teaparty to run a single Session Reflector that 
 
-1. Not operate in stateful mode;
-2. Send heartbeat packets to 8.8.8.8 (port 863) and 1.1.1.1 (port 865) at intervals of 3 and 5 seconds, respectively; and
-3. Listen for meta RESTful connections on port 8765 of the IP address 127.1.1.1.
+1. Does not operate in stateful mode;
+2. Listens on 0.0.0.0 and port 862; 
+3. Sends heartbeat packets to 8.8.8.8 (port 863) and 1.1.1.1 (port 865) at intervals of 3 and 5 seconds, respectively;
+4. Does not operate in link-layer mode;
+5. Takes a default name; and
+6. Listens for meta RESTful connections on port 8765 of the IP address 127.1.1.1.
 
 ```YAML
-- general:
-    stateless: true
-    heartbeat: [8.8.8.8:863@3, 1.1.1.1:865@5]
-    meta_addr:
-      ip: 127.1.1.1
-      port: 8765
+-
+  - general:
+      stateless: true
+      heartbeat: [8.8.8.8:863@3, 1.1.1.1:865@5]
+      meta_addr:
+        ip: 127.1.1.1
+        port: 8765
 ```
+
+(available in [`testing_data/configs/readme.yaml`](./testing_data/configs/readme.yaml))
+
+Here is an example configuration to show how it is possible to run multiple Session Reflector instances with separate configurations:
+
+```YAML
+- 
+  - general:
+      name: "stateful"
+      meta_addr:
+        ip: 127.1.1.1
+        port: 8765
+-
+  - general:
+      name: "stateless"
+      stateless: true
+      listen:
+        ip: 0.0.0.0
+        port: 863
+      meta_addr:
+        ip: 127.1.1.1
+        port: 8766
+```
+
+(available in [`testing_data/configs/stateful-stateless.yaml`](./testing_data/configs/stateful-stateless.yaml))
+
+**Link-Layer Mode**
 
 Some TLVs (see below) need access to link-layer information about the test packet. Capturing such information is not possible using traditional BSD-socket-like methods.
 When the Reflector runs in _link-layer mode_, it will listen for test packets by acting as a packet capturing system. While this feature will allow the Reflector to handle more TLVs, it may also cause additional overhead.
