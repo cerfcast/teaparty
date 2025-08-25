@@ -245,29 +245,28 @@ impl SenderHandlers {
     pub fn get_requests(
         &mut self,
         args: Option<TestArguments>,
-        matches: &mut ArgMatches,
+        given_tlv_options: Option<ArgMatches>,
     ) -> Result<Option<Tlvs>, clap::Error> {
-        let mut remaining_matches = matches.subcommand_matches("tlvs").cloned();
-
+        let mut remaining_given_tlv_options = given_tlv_options.clone();
         let mut tlvs = Tlvs::new();
 
         let tlv_cli_commands = self.get_cli_commands();
 
-        while let Some(matches) = remaining_matches.as_mut() {
-            let mut remainder: Option<String> = None;
+        while let Some(mut tlv_options) = remaining_given_tlv_options {
+            let mut remaining_tlv_options_to_parse: Option<String> = None;
             for handler in self.handlers.iter_mut() {
-                let request_result = handler.request(args.clone(), matches)?;
+                let request_result = handler.request(args.clone(), &mut tlv_options)?;
 
                 if let Some((requested_tlvs, request_remainder)) = &request_result {
                     for tlv in requested_tlvs {
                         tlvs.add_tlv(tlv.clone())
                             .map_err(|_| clap::Error::new(clap::error::ErrorKind::InvalidValue))?;
                     }
-                    remainder = request_remainder.clone();
+                    remaining_tlv_options_to_parse = request_remainder.clone();
                     break;
                 }
             }
-            remaining_matches = remainder.map(|remainder| {
+            remaining_given_tlv_options = remaining_tlv_options_to_parse.map(|remainder| {
                 tlv_cli_commands
                     .clone()
                     .get_matches_from(remainder.split(" "))

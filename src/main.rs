@@ -18,6 +18,7 @@
 
 use asymmetry::Asymmetry;
 use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
+use clio::ClioPath;
 use connection_generator::{ConnectionGenerator, ConnectionGeneratorError};
 use core::fmt::Debug;
 use custom_handlers::CustomSenderHandlers;
@@ -30,7 +31,7 @@ use parameters::{TestArgument, TestArguments, TestParameters};
 use periodicity::Periodicity;
 use pnet::datalink::{self, Channel, Config, NetworkInterface};
 use server::{ServerCancellation, ServerSocket, SessionData, Sessions};
-use slog::{debug, error, info, trace, warn, Drain};
+use slog::{debug, error, info, o, trace, warn, Drain, Logger};
 use stamp::{StampError, StampMsg, StampMsgBody, StampResponseBodyType, MBZ_VALUE};
 use std::io::ErrorKind::{TimedOut, WriteZero};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
@@ -38,11 +39,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use yaml_rust2::yaml;
 
 use crate::app::{
-    extract_configuration, parse_general_config, Cli, ClientError, Commands, ReflectorArgs,
-    ReflectorGeneralConfiguration, SenderArgs, TeapartyError,
+    extract_configuration, Cli, ClientError, ReflectorArgs, ReflectorGeneralConfiguration,
+    SenderArgs, ServerError, TeapartyError, TeapartyModes,
 };
 use crate::custom_handlers::CustomReflectorHandlersGenerators;
 use crate::netconf::NetConfiguration;
@@ -153,47 +153,25 @@ impl FromStr for HeartbeatConfiguration {
 }
 
 fn client(
-    args: Cli,
-    command: Commands,
-    mut extra_args: ArgMatches,
+    args: SenderArgs,
+    tlv_args: Option<ArgMatches>,
     logger: slog::Logger,
 ) -> Result<(), TeapartyError> {
-    let server_addr = SocketAddr::new(args.ip_addr, args.port);
-    let (
-        maybe_ssid,
+    let SenderArgs {
+        ip_addr,
+        port,
+        ssid: maybe_ssid,
         malformed,
-        set_socket_ecn,
-        set_socket_dscp,
-        set_socket_ttl,
+        ecn: set_socket_ecn,
+        dscp: set_socket_dscp,
+        ttl: set_socket_ttl,
         src_port,
         authenticated,
-        destination_exts,
-        hbh_exts,
-    ) = match command {
-        Commands::Sender(SenderArgs {
-            ssid,
-            malformed,
-            ecn,
-            dscp,
-            ttl,
-            src_port,
-            authenticated,
-            destination_ext,
-            hbh_ext,
-        }) => (
-            ssid,
-            malformed,
-            ecn,
-            dscp,
-            ttl,
-            src_port,
-            authenticated,
-            destination_ext,
-            hbh_ext,
-        ),
-        _ => panic!("The source port is somehow missing a value."),
-    };
+        destination_ext,
+        hbh_ext,
+    } = args;
 
+    let server_addr = SocketAddr::new(ip_addr, port);
     info!(logger, "Connecting to the server at {}", server_addr);
 
     let server_socket = if server_addr.is_ipv4() {
@@ -241,7 +219,7 @@ fn client(
         test_arguments.add_argument(parameters::TestArgumentKind::Ttl, ttl_argument);
     }
 
-    let destination_ext_body = destination_exts.iter().fold(vec![], |acc, new| {
+    let destination_ext_body = destination_ext.iter().fold(vec![], |acc, new| {
         [
             acc.as_slice(),
             &[new.tipe, new.body.len() as u8],
@@ -267,7 +245,7 @@ fn client(
         );
     }
 
-    let hbh_ext_body = hbh_exts.iter().fold(vec![], |acc, new| {
+    let hbh_ext_body = hbh_ext.iter().fold(vec![], |acc, new| {
         [
             acc.as_slice(),
             &[new.tipe, new.body.len() as u8],
@@ -293,7 +271,7 @@ fn client(
     let mut handlers = CustomSenderHandlers::build();
 
     let mut tlvs = handlers
-        .get_requests(Some(test_arguments), &mut extra_args)
+        .get_requests(Some(test_arguments), tlv_args)
         .map_err(|e| TeapartyError::Client(ClientError::Cli(e)))?
         .unwrap_or_default();
 
@@ -471,7 +449,89 @@ fn client(
     Ok(())
 }
 
-fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), TeapartyError> {
+fn servers(config: &Option<ClioPath>, logger: Logger) -> Result<(), TeapartyError> {
+    if let Some(config_path) = config {
+        let valid_yaml = extract_configuration(config_path.clone())?;
+        let reflector_configurations: Vec<_> = if let Some(config_yaml) = valid_yaml.as_vec() {
+            config_yaml
+                .iter()
+                .map(
+                    |config_sequence_node| match TryInto::<ReflectorGeneralConfiguration>::try_into(
+                        config_sequence_node,
+                    ) {
+                        Ok(reflector_configuration) => Ok(reflector_configuration),
+                        Err(e) => Err(TeapartyError::Server(app::ServerError::Config(format!(
+                            "Could not parse reflector configuration: {e:?}"
+                        )))),
+                    },
+                )
+                .collect()
+        } else {
+            return Err(TeapartyError::Server(app::ServerError::Config("Every element in the top-level sequence of configuration items must be a YAML mapping".to_string())));
+        };
+
+        let valid_reflector_configurations: Vec<_> = reflector_configurations
+            .iter()
+            .filter_map(|f| match f {
+                Err(e) => {
+                    error!(logger, "Could not parse configuration section: {e:?}");
+                    None
+                }
+                Ok(c) => Some(c),
+            })
+            .cloned()
+            .collect();
+        let server_cancellation = ServerCancellation::new();
+
+        let mut ctrlc_server_cancellation = server_cancellation.clone();
+
+        ctrlc::set_handler(move || ctrlc_server_cancellation.cancel())
+            .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
+
+        let mut running_servers: Vec<JoinHandle<_>> = vec![];
+
+
+        let mut nameless_server_count = 0;
+
+        for configuration in valid_reflector_configurations {
+            let server_name = if let Some(configured_name) = &configuration.name {
+                configured_name.clone()
+            } else {
+                nameless_server_count += 1;
+                format!("reflector_instance_{nameless_server_count}")
+            };
+
+            let server_cancellation = server_cancellation.clone();
+            let logger = logger.new(o!("instance" => server_name));
+            running_servers.push(thread::spawn(move || {
+                server(
+                    configuration.clone(),
+                    server_cancellation.clone(),
+                    logger.clone(),
+                )
+            }));
+        }
+
+        for running_server in running_servers {
+            running_server
+                .join()
+                .map_err(|e| TeapartyError::Server(ServerError::Runtime(format!("{e:?}"))))??;
+        }
+
+        Ok(())
+    } else {
+        Err(TeapartyError::Server(app::ServerError::Config(
+            "Every element in the top-level sequence of configuration items must be a YAML mapping"
+                .to_string(),
+        )))
+    }
+}
+
+fn server(
+    reflector_config: ReflectorGeneralConfiguration,
+    server_cancellation: ServerCancellation,
+    logger: slog::Logger,
+) -> Result<(), TeapartyError> {
     // Make a runtime and then start it!
     let runtime = Arc::new(Asymmetry::new(Some(logger.clone())));
     {
@@ -481,50 +541,10 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
         });
     }
 
-    let mut reflector_handler_generator = CustomReflectorHandlersGenerators::new();
+    // TODO: Handle configurations for Tlv Handlers.
+    let reflector_handler_generator = CustomReflectorHandlersGenerators::new();
 
-    let config = match command {
-        Commands::Reflector(ReflectorArgs { config }) => config,
-        _ => {
-            return Err(StampError::Other(
-                "Somehow a non-server command was found during an invocation of the server.".into(),
-            )
-            .into())
-        }
-    };
-
-    let mut reflector_config = ReflectorGeneralConfiguration::default();
-
-    if let Some(config_path) = config {
-        let valid_yaml = extract_configuration(config_path)?;
-        if let Some(config_yaml) = valid_yaml.as_vec() {
-            for config_sequence_node in config_yaml.iter() {
-                if let Some(config_section) = config_sequence_node.as_hash() {
-                    for (config_section_title, config_section) in config_section {
-                        if *config_section_title == yaml::Yaml::String("general".to_string()) {
-                            info!(logger, "Handling general configuration of reflector.");
-                            reflector_config = parse_general_config(config_section)?;
-                        } else {
-                            reflector_handler_generator.config(
-                                config_section_title.as_str().unwrap(),
-                                config_section,
-                                logger.clone(),
-                            )?;
-                        }
-                    }
-                } else {
-                    return Err(TeapartyError::Server(app::ServerError::Config("Every element in the top-level sequence of configuration items must be a YAML mapping".to_string(),
-                    )));
-                }
-            }
-        } else {
-            return Err(TeapartyError::Server(app::ServerError::Config(
-                "Configuration file's top-level YAML format is not a sequence".into(),
-            )));
-        }
-    }
-
-    let server_socket_addr = SocketAddr::from((args.ip_addr, args.port));
+    let server_socket_addr = reflector_config.listen_addr.addr;
 
     let udp_socket = UdpSocket::bind(server_socket_addr)
         .map_err(|e| {
@@ -551,10 +571,13 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
         let listening_interfaces = datalink::interfaces()
             .into_iter()
             .filter(|iface| {
-                if args.ip_addr.is_unspecified() {
+                if reflector_config.listen_addr.addr.ip().is_unspecified() {
                     true
                 } else {
-                    iface.ips.iter().any(|ip| ip.contains(args.ip_addr))
+                    iface
+                        .ips
+                        .iter()
+                        .any(|ip| ip.contains(reflector_config.listen_addr.addr.ip()))
                 }
             })
             .collect::<Vec<_>>();
@@ -627,24 +650,6 @@ fn server(args: Cli, command: Commands, logger: slog::Logger) -> Result<(), Teap
     // Note: This signal handler is the first one that is registered. Rocket
     // will set another signal handler (for the meta thread), but it properly
     // dispatches to previously-registered signal handlers. Whew.
-    let server_cancellation = ServerCancellation::new();
-    {
-        let mut periodical = periodical.clone();
-        ctrlc::set_handler({
-            let mut server_cancellation = server_cancellation.clone();
-            let runtime = runtime.clone();
-            move || {
-                // It would be nice to log something here, but we have to be careful
-                // about what can and cannot be done in a signal handler.
-                server_cancellation.cancel();
-                periodical
-                    .stop()
-                    .expect("Should have been able to stop the periodical.");
-                runtime.cancel();
-            }
-        })
-        .map_err(|e| StampError::SignalHandlerFailure(e.to_string()))?;
-    }
 
     {
         let monitor = Monitor {
@@ -878,31 +883,26 @@ fn main() -> Result<(), TeapartyError> {
         slog::Logger::root(drain, slog::o!("version" => "0.5"))
     };
 
-    let given_command = Commands::from_arg_matches(&matches);
+    let teaparty_mode = TeapartyModes::from_arg_matches(&matches);
 
-    if let Err(parsing_error) = given_command {
-        println!("{parsing_error}\n");
-        println!("{}", basic_cli_parser.render_help().ansi());
-        return Err(StampError::Other(parsing_error.to_string()).into());
-    }
-
-    let given_command = given_command.unwrap();
-
-    match &given_command {
-        Commands::Reflector(ReflectorArgs { config: _ }) => server(args, given_command, logger),
-        Commands::Sender(SenderArgs {
-            ssid: _,
-            malformed: _,
-            ecn: _,
-            dscp: _,
-            ttl: _,
-            src_port: _,
-            authenticated: _,
-            destination_ext: _,
-            hbh_ext: _,
-        }) => {
-            let sender_args = matches.subcommand_matches("sender").unwrap();
-            client(args, given_command, sender_args.clone(), logger)
+    match teaparty_mode {
+        Err(e) => {
+            println!("{e}\n");
+            println!("{}", basic_cli_parser.render_help().ansi());
+            Err(StampError::Other(e.to_string()).into())
         }
+        Ok(teaparty_mode) => match &teaparty_mode {
+            TeapartyModes::Reflector(ReflectorArgs { config }) => servers(config, logger),
+            TeapartyModes::Sender(e) => {
+                // Dig down and get the (potentially present "tlvs").
+                let tlv_args = matches
+                    .subcommand_matches("sender")
+                    .and_then(|sender_matches| {
+                        sender_matches
+                            .subcommand_matches("tlvs").cloned()
+                    });
+                client(e.clone(), tlv_args, logger)
+            }
+        },
     }
 }

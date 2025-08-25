@@ -1,6 +1,6 @@
 use std::{
     io::Read,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -23,6 +23,7 @@ pub enum ClientError {
 pub enum ServerError {
     Cli(clap::Error),
     Config(String),
+    Runtime(String),
 }
 
 #[derive(Debug)]
@@ -38,15 +39,9 @@ impl From<StampError> for TeapartyError {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
-    #[arg(default_value_t=IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
-    pub ip_addr: IpAddr,
-
-    #[arg(default_value_t = 862)]
-    pub port: u16,
-
     /// Specify the verbosity of output. Repeat to increase loquaciousness
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub debug: u8,
@@ -56,8 +51,14 @@ pub struct Cli {
     pub log_output: Option<clio::ClioPath>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Clone, Args, Debug)]
 pub struct SenderArgs {
+    #[arg(default_value_t=IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
+    pub ip_addr: IpAddr,
+
+    #[arg(default_value_t = 862)]
+    pub port: u16,
+
     /// Specify a non-zero Ssid (in decimal or hexadecimal [by using the 0x prefix])
     #[arg(long)]
     pub ssid: Option<Ssid>,
@@ -101,6 +102,17 @@ pub struct ReflectorArgs {
     pub config: Option<clio::ClioPath>,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct ReflectorTlvConfiguration {
+    pub tlv: String,
+    pub configuration: Option<Yaml>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ReflectorTlvConfigurations {
+    configurations: Vec<ReflectorTlvConfiguration>,
+}
+
 #[derive(Default, Clone, Debug)]
 pub struct ReflectorGeneralConfiguration {
     pub stateless: bool,
@@ -109,7 +121,133 @@ pub struct ReflectorGeneralConfiguration {
 
     pub link_layer: bool,
 
-    pub meta_addr: Option<MetaSocketAddr>,
+    pub meta_addr: Option<MetaSocketAddr<8000>>,
+
+    pub listen_addr: MetaSocketAddr<862>,
+
+    pub reflector_tlv_configurations: ReflectorTlvConfigurations,
+
+    pub name: Option<String>,
+}
+
+impl TryFrom<&Yaml> for ReflectorGeneralConfiguration {
+    type Error = TeapartyError;
+
+    fn try_from(value: &Yaml) -> Result<Self, Self::Error> {
+        let mut reflector_configuration = ReflectorGeneralConfiguration::default();
+        // Each instance should be a hash with a single key/value pair ...
+        if let Some(config_yaml) = value.as_vec() {
+            for config_section in config_yaml {
+                if let Some(config_section) = config_section.as_hash() {
+                    for (config_section_title, config_section) in config_section {
+                        if *config_section_title == Yaml::String("general".to_string()) {
+                            if let Some(general_configuration_hash) = config_section.as_hash() {
+
+                                // If there is a name, try to use it.
+                                if let Some(maybe_name) = general_configuration_hash
+                                    .get(&Yaml::String("name".to_string()))
+                                {
+                                    if let Some(name) = maybe_name.as_str() {
+                                        reflector_configuration.name = Some(name.to_string());
+                                    } else {
+                                        return Err(TeapartyError::Server(
+                                                            ServerError::Config("Error parsing name configuration: value was not a string".to_string())));
+                                    }
+                                }
+
+
+                                // If there is a stateless, try to use it.
+                                if let Some(maybe_stateless) = general_configuration_hash
+                                    .get(&Yaml::String("stateless".to_string()))
+                                {
+                                    if let Some(stateless) = maybe_stateless.as_bool() {
+                                        reflector_configuration.stateless = stateless;
+                                    } else {
+                                        return Err(TeapartyError::Server(
+                                                            ServerError::Config("Error parsing stateless configuration: value was not a boolean".to_string())));
+                                    }
+                                }
+
+                                // If there is a heartbeat, try to use it.
+                                reflector_configuration.heartbeat =
+                                    if let Some(maybe_heartbeat_configurations) =
+                                        general_configuration_hash
+                                            .get(&Yaml::String("heartbeat".to_string()))
+                                    {
+                                        if let Some(maybe_heartbeat_configurations) =
+                                            maybe_heartbeat_configurations.as_vec()
+                                        {
+                                            let mut config: Vec<HeartbeatConfiguration> = vec![];
+
+                                            for maybe_heartbeat_configuration in
+                                                maybe_heartbeat_configurations
+                                            {
+                                                match maybe_heartbeat_configuration
+                                                    .as_str()
+                                                    .unwrap_or_default()
+                                                    .parse::<HeartbeatConfiguration>()
+                                                {
+                                                    Err(e) => {
+                                                        return Err(TeapartyError::Server(
+                                                            ServerError::Config(format!(
+                                                    "Error parsing heartbeat configuration: {e}"
+                                                )),
+                                                        ))
+                                                    }
+                                                    Ok(heartbeat_config) => {
+                                                        config.push(heartbeat_config)
+                                                    }
+                                                }
+                                            }
+
+                                            config
+                                        } else {
+                                            vec![]
+                                        }
+                                    } else {
+                                        vec![]
+                                    };
+
+                                reflector_configuration.link_layer = general_configuration_hash
+                                    .get(&Yaml::String("link_layer".to_string()))
+                                    .unwrap_or(&Yaml::Boolean(false))
+                                    .clone()
+                                    .into_bool()
+                                    .unwrap_or_default();
+
+                                reflector_configuration.meta_addr = if let Some(maybe_meta_addr) =
+                                    general_configuration_hash
+                                        .get(&Yaml::String("meta_addr".to_string()))
+                                {
+                                    Some(maybe_meta_addr.try_into()?)
+                                } else {
+                                    None
+                                };
+
+                                if let Some(maybe_listen_addr) = general_configuration_hash
+                                    .get(&Yaml::String("listen".to_string()))
+                                {
+                                    reflector_configuration.listen_addr =
+                                        maybe_listen_addr.try_into()?
+                                }
+                            }
+                        } else {
+                            // TLV
+                        }
+                    }
+                } else {
+                    return Err(TeapartyError::Server(ServerError::Config(
+                        "Section of a reflector configuration is not a hash".into(),
+                    )));
+                }
+            }
+            Ok(reflector_configuration)
+        } else {
+            Err(TeapartyError::Server(ServerError::Config(
+                "Configuration of reflector must be a sequence of hashes".into(),
+            )))
+        }
+    }
 }
 
 pub fn extract_configuration(config_path: ClioPath) -> Result<Yaml, TeapartyError> {
@@ -145,111 +283,8 @@ pub fn extract_configuration(config_path: ClioPath) -> Result<Yaml, TeapartyErro
     }
 }
 
-pub fn parse_general_config(config: &Yaml) -> Result<ReflectorGeneralConfiguration, TeapartyError> {
-    if let Some(general_configuration_hash) = config.as_hash() {
-        let stateless = general_configuration_hash
-            .get(&Yaml::String("stateless".to_string()))
-            .unwrap_or(&Yaml::Boolean(false))
-            .clone()
-            .into_bool()
-            .unwrap_or_default();
-
-        let heartbeat = if let Some(maybe_heartbeat_configurations) =
-            general_configuration_hash.get(&Yaml::String("heartbeat".to_string()))
-        {
-            if let Some(maybe_heartbeat_configurations) = maybe_heartbeat_configurations.as_vec() {
-                let mut config: Vec<HeartbeatConfiguration> = vec![];
-
-                for maybe_heartbeat_configuration in maybe_heartbeat_configurations {
-                    match maybe_heartbeat_configuration
-                        .as_str()
-                        .unwrap_or_default()
-                        .parse::<HeartbeatConfiguration>()
-                    {
-                        Err(e) => {
-                            return Err(TeapartyError::Server(ServerError::Config(format!(
-                                "Error parsing heartbeat configuration: {e}"
-                            ))))
-                        }
-                        Ok(heartbeat_config) => config.push(heartbeat_config),
-                    }
-                }
-
-                config
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-
-        let link_layer = general_configuration_hash
-            .get(&Yaml::String("link_layer".to_string()))
-            .unwrap_or(&Yaml::Boolean(false))
-            .clone()
-            .into_bool()
-            .unwrap_or_default();
-
-        let meta_addr = if let Some(maybe_meta_addr) =
-            general_configuration_hash.get(&Yaml::String("meta_addr".to_string()))
-        {
-            Some(TryInto::<SocketAddr>::try_into(FromYaml(maybe_meta_addr))?.into())
-        } else {
-            None
-        };
-
-        Ok(ReflectorGeneralConfiguration {
-            stateless,
-            heartbeat,
-            link_layer,
-            meta_addr,
-        })
-    } else {
-        Err(TeapartyError::Server(ServerError::Config(
-            format!("Format of the configuration for the general reflector arguments is invalid: it is not a YAML hash {config:?}")
-        )))
-    }
-}
-
-pub struct FromYaml<'a>(&'a Yaml);
-impl<'a> TryInto<SocketAddr> for FromYaml<'a> {
-    type Error = TeapartyError;
-
-    fn try_into(self) -> Result<SocketAddr, Self::Error> {
-        if let Some(yaml) = self.0.as_hash() {
-            let mut addr = Into::<SocketAddr>::into((Ipv4Addr::UNSPECIFIED, 0));
-
-            if let Some(value) = yaml
-                .get(&Yaml::String("ip".to_string()))
-                .and_then(|f| f.as_str())
-            {
-                addr.set_ip(value.parse::<IpAddr>().map_err(|e| {
-                    TeapartyError::Server(ServerError::Config(format!(
-                        "Could not parse IP address: {e}"
-                    )))
-                })?)
-            }
-            if let Some(value) = yaml
-                .get(&Yaml::String("port".to_string()))
-                .and_then(|f| f.as_i64())
-            {
-                addr.set_port(u16::try_from(value).map_err(|e| {
-                    TeapartyError::Server(ServerError::Config(format!(
-                        "Could not parse port number: {e}"
-                    )))
-                })?)
-            }
-            Ok(addr)
-        } else {
-            Err(TeapartyError::Server(ServerError::Config(
-                "Invalid configuration for socket address".to_string(),
-            )))
-        }
-    }
-}
-
 #[derive(Subcommand, Debug)]
-pub enum Commands {
+pub enum TeapartyModes {
     Sender(SenderArgs),
     Reflector(ReflectorArgs),
 }
