@@ -490,7 +490,6 @@ fn servers(config: &Option<ClioPath>, logger: Logger) -> Result<(), TeapartyErro
 
         let mut running_servers: Vec<JoinHandle<_>> = vec![];
 
-
         let mut nameless_server_count = 0;
 
         for configuration in valid_reflector_configurations {
@@ -897,10 +896,7 @@ fn main() -> Result<(), TeapartyError> {
                 // Dig down and get the (potentially present "tlvs").
                 let tlv_args = matches
                     .subcommand_matches("sender")
-                    .and_then(|sender_matches| {
-                        sender_matches
-                            .subcommand_matches("tlvs").cloned()
-                    });
+                    .and_then(|sender_matches| sender_matches.subcommand_matches("tlvs").cloned());
                 client(e.clone(), tlv_args, logger)
             }
         },

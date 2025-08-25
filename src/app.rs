@@ -142,7 +142,6 @@ impl TryFrom<&Yaml> for ReflectorGeneralConfiguration {
                     for (config_section_title, config_section) in config_section {
                         if *config_section_title == Yaml::String("general".to_string()) {
                             if let Some(general_configuration_hash) = config_section.as_hash() {
-
                                 // If there is a name, try to use it.
                                 if let Some(maybe_name) = general_configuration_hash
                                     .get(&Yaml::String("name".to_string()))
@@ -154,7 +153,6 @@ impl TryFrom<&Yaml> for ReflectorGeneralConfiguration {
                                                             ServerError::Config("Error parsing name configuration: value was not a string".to_string())));
                                     }
                                 }
-
 
                                 // If there is a stateless, try to use it.
                                 if let Some(maybe_stateless) = general_configuration_hash
