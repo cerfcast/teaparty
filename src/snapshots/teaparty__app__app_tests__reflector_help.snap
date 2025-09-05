@@ -1,0 +1,10 @@
+---
+source: src/app.rs
+expression: output_lines
+---
+- "Usage: teaparty reflector [OPTIONS]"
+- ""
+- "Options:"
+- "      --config <CONFIG>  Specify the file to which log information should be written (defaults to terminal)"
+- "  -h, --help             Print help"
+- ""

@@ -5,3 +5,6 @@
 	path = third_party/ipv6toolkit
 	url = https://github.com/cerfcast/ipv6toolkit.git
 	branch = stamp_extensions
+[submodule "third_party/insta-cmd"]
+	path = third_party/insta-cmd
+	url = https://github.com/mitsuhiko/insta-cmd.git

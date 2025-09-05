@@ -286,3 +286,46 @@ pub enum TeapartyModes {
     Sender(SenderArgs),
     Reflector(ReflectorArgs),
 }
+
+#[cfg(test)]
+mod app_tests {
+    use std::process::Command;
+    use insta_cmd::{get_cargo_bin};
+
+    #[test]
+    fn sender_tlvs_help() {
+        if cfg!(target_os = "linux") {
+            let output = Command::new(get_cargo_bin("teaparty"))
+                .arg("sender")
+                .arg("tlvs")
+                .arg("--help")
+                .output()
+                .expect("failed to execute process");
+            let output: String =
+                String::from_utf8(output.stdout).expect("Failed to convert output to strings");
+            let output_lines: Vec<_> = output.split('\n').collect();
+
+            insta::assert_yaml_snapshot!(output_lines);
+        } else {
+            todo!("Test not available for non-Linux systems")
+        }
+    }
+
+    #[test]
+    fn reflector_help() {
+        if cfg!(target_os = "linux") {
+            let output = Command::new(get_cargo_bin("teaparty"))
+                .arg("reflector")
+                .arg("--help")
+                .output()
+                .expect("failed to execute process");
+            let output: String =
+                String::from_utf8(output.stdout).expect("Failed to convert output to strings");
+            let output_lines: Vec<_> = output.split('\n').collect();
+
+            insta::assert_yaml_snapshot!(output_lines);
+        } else {
+            todo!("Test not available for non-Linux systems")
+        }
+    }
+}

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 nix = { path="nix", features = ["socket", "net", "uio", "ioctl"]}
+insta-cmd = { path="third_party/insta-cmd" }
 clap = { version = "4.5.4", features = ["derive"] }
 rand = "0.8.5"
 slog = "2.7.0"
@@ -32,3 +33,6 @@ proc-macro = true
 
 [lints.rust]
 dead_code = "allow"
+
+[dev-dependencies]
+insta = { version = "1.43.2", features = ["yaml"] }
