@@ -289,8 +289,8 @@ pub enum TeapartyModes {
 
 #[cfg(test)]
 mod app_tests {
+    use insta_cmd::get_cargo_bin;
     use std::process::Command;
-    use insta_cmd::{get_cargo_bin};
 
     #[test]
     fn sender_tlvs_help() {
