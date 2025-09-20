@@ -347,6 +347,7 @@ impl Debug for ErrorEstimate {
             .field("scale", &self.scale)
             .field("multiple", &self.multiple)
             .field("synchronized", &self.synchronized)
+            .field("protocol", &self.z)
             .field("estimate", &format_args!("{}ns", self.error()))
             .finish()
     }
