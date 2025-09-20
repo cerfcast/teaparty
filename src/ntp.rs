@@ -318,17 +318,47 @@ mod ntptime_tests {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum Z {
+    Ntp,
+    Ptp,
+}
+
+impl Display for Z {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Z::Ntp => write!(f, "Ntp"),
+            Z::Ptp => write!(f, "Ptp"),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct ErrorEstimate {
     pub scale: u8,
     pub multiple: u8,
     pub synchronized: bool,
-    // Note: Z is not tracked -- we only implement the NTP format at this time.
+    pub z: Z,
+}
+
+impl Debug for ErrorEstimate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErrorEstimate")
+            .field("scale", &self.scale)
+            .field("multiple", &self.multiple)
+            .field("synchronized", &self.synchronized)
+            .field("estimate", &format_args!("{}ns", self.error()))
+            .finish()
+    }
 }
 
 impl ErrorEstimate {
     #[allow(non_upper_case_globals)]
     pub const RawSize: usize = 2;
+
+    pub fn error(&self) -> u64 {
+        ((self.multiple as u64 * NANOSECONDS_PER_SECOND) << self.scale) >> 32
+    }
 }
 
 impl Default for ErrorEstimate {
@@ -337,6 +367,7 @@ impl Default for ErrorEstimate {
             scale: 0,
             multiple: 1,
             synchronized: false,
+            z: Z::Ntp,
         }
     }
 }
@@ -349,15 +380,12 @@ impl TryFrom<&[u8]> for ErrorEstimate {
             Err(NtpError::InvalidData(
                 "Cannot have zero multiplier in error-estimate field.".to_string(),
             ))
-        } else if value[0] & 0x40 != 0 {
-            Err(NtpError::InvalidData(
-                "Non NTP timestamps are not supported.".to_string(),
-            ))
         } else {
             Ok(Self {
                 synchronized: value[0] & 0x80 != 0,
                 scale: value[0] & 0x3f,
                 multiple: value[1],
+                z: if value[0] & 0x40 == 0 { Z::Ntp } else { Z::Ptp },
             })
         }
     }
@@ -367,6 +395,7 @@ impl From<&ErrorEstimate> for Vec<u8> {
     fn from(value: &ErrorEstimate) -> Self {
         let mut result = vec![0u8; 2];
         result[0] = if value.synchronized { 0x80 } else { 0x00 };
+        result[0] |= if value.z == Z::Ptp { 0x40 } else { 0x00 };
         result[0] |= value.scale & 0x3F;
         result[1] = value.multiple;
         result
@@ -399,14 +428,18 @@ impl From<TimeSource> for u8 {
 
 #[cfg(test)]
 mod error_estimate_test {
+    use std::time::Duration;
+
     use super::ErrorEstimate;
+    use super::Z;
 
     #[test]
-    pub fn test_serialization() {
+    pub fn test_serialization_ntp() {
         let ee = ErrorEstimate {
             synchronized: true,
             scale: 0x5,
             multiple: 0x12,
+            z: Z::Ntp,
         };
 
         let serialized_ee = Into::<Vec<u8>>::into(ee);
@@ -419,6 +452,34 @@ mod error_estimate_test {
         }
         if serialized_ee[1] != 0x12 {
             panic!("Did not serialize the scale value correctly");
+        }
+        if serialized_ee[0] & 0x40 != 0 {
+            panic!("Did not serialize the z value correctly");
+        }
+    }
+
+    #[test]
+    pub fn test_serialization_ptp() {
+        let ee = ErrorEstimate {
+            synchronized: true,
+            scale: 0x5,
+            multiple: 0x12,
+            z: Z::Ptp,
+        };
+
+        let serialized_ee = Into::<Vec<u8>>::into(ee);
+
+        if serialized_ee[0] & 0x80 == 0x0 {
+            panic!("Did not serialize the synchronized flag correctly");
+        }
+        if serialized_ee[0] & 0x3f != 0x5 {
+            panic!("Did not serialize the scale value correctly");
+        }
+        if serialized_ee[1] != 0x12 {
+            panic!("Did not serialize the multiply value correctly");
+        }
+        if serialized_ee[0] & 0x40 == 0 {
+            panic!("Did not serialize the z value correctly");
         }
     }
 
@@ -441,6 +502,32 @@ mod error_estimate_test {
         if parsed_ee.multiple != 0x12 {
             panic!("Did not serialize the multiple value correctly");
         }
+        assert_eq!(parsed_ee.z, Z::Ntp);
+    }
+
+    #[test]
+    pub fn test_deserialization_ntp() {
+        let raw_ee = [0x85u8, 0x12u8];
+        let parsed_ee = TryInto::<ErrorEstimate>::try_into(raw_ee.as_slice());
+
+        if parsed_ee.is_err() {
+            panic!("Should have been able to parse the raw bytes into a valid error estimate.")
+        }
+        let parsed_ee = parsed_ee.unwrap();
+        assert_eq!(parsed_ee.z, Z::Ntp);
+    }
+
+    #[test]
+    pub fn test_deserialization_ptp() {
+        let raw_ee = [0xC5u8, 0x12u8];
+        let parsed_ee = TryInto::<ErrorEstimate>::try_into(raw_ee.as_slice());
+
+        if parsed_ee.is_err() {
+            panic!("Should have been able to parse the raw bytes into a valid error estimate.")
+        }
+
+        let parsed_ee = parsed_ee.unwrap();
+        assert_eq!(parsed_ee.z, Z::Ptp);
     }
 
     #[test]
@@ -454,13 +541,53 @@ mod error_estimate_test {
     }
 
     #[test]
-    pub fn test_non_ntp_time() {
-        let raw_ee = [0xffu8, 0xffu8];
-
+    pub fn test_display_ptp() {
+        let raw_ee = [0xC5u8, 0x12u8];
         let parsed_ee = TryInto::<ErrorEstimate>::try_into(raw_ee.as_slice());
 
-        if parsed_ee.is_ok() {
-            panic!("Parsing raw error estimate bytes that indicate a non-NTP time format should not work, but did.")
+        if parsed_ee.is_err() {
+            panic!("Should have been able to parse the raw bytes into a valid error estimate.")
         }
+
+        let parsed_ee = parsed_ee.unwrap();
+
+        assert!(format!("{parsed_ee:?}").contains("Ptp"))
+    }
+
+    #[test]
+    pub fn test_display_ntp() {
+        let raw_ee = [0x85u8, 0x12u8];
+        let parsed_ee = TryInto::<ErrorEstimate>::try_into(raw_ee.as_slice());
+
+        if parsed_ee.is_err() {
+            panic!("Should have been able to parse the raw bytes into a valid error estimate.")
+        }
+
+        let parsed_ee = parsed_ee.unwrap();
+
+        assert!(format!("{parsed_ee:?}").contains("Ntp"))
+    }
+
+    #[test]
+    pub fn test_error_estimate_calculation() {
+        // Check: 1 second.
+        let ee = ErrorEstimate {
+            scale: 32,
+            multiple: 1,
+            synchronized: false,
+            z: Z::Ntp,
+        };
+        let ms = Duration::from_nanos(ee.error()).as_secs();
+        assert_eq!(ms, 1);
+
+        // Check: 1/2 second.
+        let ee = ErrorEstimate {
+            scale: 31,
+            multiple: 1,
+            synchronized: false,
+            z: Z::Ntp,
+        };
+        let ms = Duration::from_nanos(ee.error()).as_nanos();
+        assert_eq!(ms, 500000000);
     }
 }
