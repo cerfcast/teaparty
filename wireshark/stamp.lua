@@ -298,7 +298,7 @@ local dscp1_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp1", "DSCP1
 	"DSCP1 Field")
 local dscp2_cos_tlv_protofield = ProtoField.uint16("stamp.tlv.cos.dscp2", "DSCP2", base.HEX, dscp_type_map, 0x03f0,
 	"DSCP2 Field")
-local ecn2_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN2", base.HEX, ecn_type_map, 0x000c,
+local ecn2_cos_tlv_protofield  = ProtoField.uint16("stamp.tlv.cos.ecn", "ECN2", base.HEX, ecn_type_map, 0x000c,
 	"ECN Field")
 local rpd_cos_tlv_protofield   = ProtoField.uint16("stamp.tlv.cos.rpd", "RPD", base.HEX, rpd_type_map, 0x0003,
 	"Reverse Path (DSCP)")
@@ -414,7 +414,55 @@ local stamp_timestamping_methods =
 	[3] = "Control Plane",
 }
 
--- Followup Timestamp
+local stamp_timessync_sources =
+{
+	[0] = "Reserved",
+	[1] = "NTP",
+	[2] = "PTP",
+	[3] = "SSU/BITS",
+	[4] = "GPS/GLONASS/LORAN-C/BDS/Galileo",
+	[5] = "Local free-running",
+}
+
+-- TLV Dissectors: Timestamp Information
+local ts_timestamp_tlv_protofield = ProtoField.bytes("stamp.tlv.timestamp", "Timestamp TLV")
+local ts_timestamp_tlv_syncsrcin_protofield = ProtoField.uint8("stamp.tlv.timestamp.sync_src_in", "Sync Src In", base
+.HEX, stamp_timessync_sources)
+local ts_timestamp_tlv_in_protofield = ProtoField.uint8("stamp.tlv.timestamp.in", "In Method", base.HEX,
+	stamp_timestamping_methods)
+local ts_timestamp_tlv_syncsrcout_protofield = ProtoField.uint8("stamp.tlv.timestamp.sync_src_out", "Sync Src Out",
+	base.HEX, stamp_timessync_sources)
+local ts_timestamp_tlv_out_protofield = ProtoField.uint8("stamp.tlv.timestamp.out", "Out Method", base.HEX,
+	stamp_timestamping_methods)
+
+stamp_protocol.fields = { ts_timestamp_tlv_protofield, ts_timestamp_tlv_in_protofield, ts_timestamp_tlv_out_protofield,
+	ts_timestamp_tlv_syncsrcin_protofield, ts_timestamp_tlv_syncsrcout_protofield, }
+
+------
+--- Dissect the timestamp TLV.
+-- Dissect the contents of a [timestamp TLV](https://datatracker.ietf.org/doc/html/rfc8972#name-timestamp-information-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid timestamp TLV.
+local function tlv_timestamp_dissector(buffer, tree)
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local timestamp_tree = tree:add(ts_timestamp_tlv_in_protofield, buffer(0))
+	timestamp_tree.text = "Timestamp Information"
+
+	timestamp_tree:add(ts_timestamp_tlv_syncsrcin_protofield, buffer(0, 1))
+	timestamp_tree:add(ts_timestamp_tlv_in_protofield, buffer(1, 1))
+	timestamp_tree:add(ts_timestamp_tlv_syncsrcout_protofield, buffer(2, 1))
+	timestamp_tree:add(ts_timestamp_tlv_out_protofield, buffer(3, 1))
+
+	-- TODO: Handle any potential sub-TLVs
+
+	return true
+end
+
+-- TLV Dissectors: Followup Timestamp
 local ts_followup_tlv_protofield = ProtoField.none("stamp.tlv.followup.timestamp", "Timestamp", base.HEX)
 local ts_followup_tlv_seconds_protofield = ProtoField.uint32("stamp.tlv.followup.timestamp", "Seconds", base.DEC)
 local ts_followup_tlv_fractions_protofield = ProtoField.uint32("stamp.tlv.followup.fractions", "Fractions", base.DEC)
@@ -685,6 +733,7 @@ end
 
 local tlv_type_map = {
 	[0x1] = "Padding",
+	[0x3] = "Timestamp Information",
 	[0x4] = "Class of Service",
 	[0x7] = "Followup",
 	[0x6] =
@@ -699,6 +748,7 @@ local tlv_type_map = {
 }
 local tlv_dissector_map = {
 	[0x1] = tlv_padding_dissector,
+	[0x03] = tlv_timestamp_dissector,
 	[0x04] = tlv_cos_dissector,
 	[0x7] = tlv_followup_dissector,
 	[0x6] = tlv_access_report_dissector,
