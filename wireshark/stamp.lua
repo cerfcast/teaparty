@@ -108,7 +108,7 @@ local error_scale_protofield                 = ProtoField.uint8("stamp.timestamp
 	0x3f,
 	"Scale")
 local error_multiplier_protofield            = ProtoField.uint8("stamp.timestamp.error_estimate.multiplier", "Multiplier",
-	base.DEC,
+	base.UNIT_STRING,
 	{ "" }, 0xff, "Multiplier")
 
 timestamp_fields["stamp.timestamp"]          = {
@@ -152,10 +152,9 @@ local sender_error_s_protofield              = ProtoField.bool("stamp.sender_tim
 local sender_error_z_protofield              = ProtoField.bool("stamp.sender_timestamp.error_estimate.z", "Z", 8,
 	{ [1] = "Not Zero", [2] = "Zero" }, 0x40, "Must be zero.")
 local sender_error_scale_protofield          = ProtoField.uint8("stamp.sender_timestamp.error_estimate.scale", "Scale",
-	base.UNIT_STRING, { "" }, 0x3f,
-	"Scale")
+	base.UNIT_STRING, { "" }, 0x3f, "Scale")
 local sender_error_multiplier_protofield     = ProtoField.uint8("stamp.sender_timestamp.error_estimate.multiplier",
-	"Multiplier", base.DEC, { "" }, 0xff, "Multiplier")
+	"Multiplier", base.UNIT_STRING, { "" }, 0xff, "Multiplier")
 
 timestamp_fields["stamp.sender_timestamp"]   = {
 	[""] = ts_sender_protofield,
