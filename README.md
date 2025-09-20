@@ -218,27 +218,37 @@ Upon `POST`ing a JSON object with the fields above, the server will respond with
 The Sender has a variety of options that are useful for testing implementations of a STAMP-compliant Reflector:
 
 ```console
-Usage: teaparty sender [OPTIONS] [COMMAND]
+Usage: teaparty sender [OPTIONS] [IP_ADDR] [PORT] [COMMAND]
 
 Commands:
   tlvs  
   help  Print this message or the help of the given subcommand(s)
 
+Arguments:
+  [IP_ADDR]  [default: 0.0.0.0]
+  [PORT]     [default: 862]
+
 Options:
       --ssid <SSID>
           Specify a non-zero Ssid (in decimal or hexadecimal [by using the 0x prefix])
-      --malformed <MALFORMED>          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
-      --ecn <ECN>                      Enable a non-default ECN for testing [possible values: not-ect, ect1, ect0, ce]
-      --dscp <DSCP>                    Enable a non-default DSCP for testing [possible values: cs0, cs1, cs2, cs3, cs4, cs5, cs6, cs7, af11, af12, af13, af21, af22, af23, af31, af32, af33, af41, af42, af43, ef, voiceadmit]
-      --ttl <TTL>                      Enable a non-default TTL for testing
+      --malformed <MALFORMED>
+          Include a malformed Tlv in the test packet [possible values: bad-flags, bad-length]
+      --ecn <ECN>
+          Enable a non-default ECN for testing [possible values: not-ect, ect1, ect0, ce]
+      --dscp <DSCP>
+          Enable a non-default DSCP for testing [possible values: cs0, cs1, cs2, cs3, cs4, cs5, cs6, cs7, af11, af12, af13, af21, af22, af23, af31, af32, af33, af41, af42, af43, ef, voiceadmit]
+      --ttl <TTL>
+          Enable a non-default TTL for testing
       --src-port <SRC_PORT>
           Enable a non-operating-system chosen source port for the test packet
-      --authenticated <AUTHENTICATED>  
+      --authenticated <AUTHENTICATED>
+          
       --destination-ext <DESTINATION_EXT>
           Add an IPv6 Extension Header option to the Destination Extension Header (specified as T,L[,V])
       --hbh-ext <HBH_EXT>
           Add an IPv6 Extension Header option to the Hop-by-hop Extension Header (specified as T,L[,V])
-  -h, --help                           Print help
+  -h, --help
+          Print help
 ```
 
 The `--src-port` option is useful for testing the statefulness of the Reflector. The `--malformed` option is useful
@@ -251,7 +261,7 @@ will have neither DSCP nor ECN values set in the IP header. Setting the `--authe
 The `--destination-ext` and `--hbh-ext` options are useful for testing STAMP extensions that reflect [IPv6 Extension Headers](https://www.rfc-editor.org/rfc/rfc8200.html#section-4). The option is only valid when the STAMP test packet is being sent using IPv6. The options will add an IPv6 extension header option to the Destination/Hob-by-hop extension header of the STAMP test packet. These options can be given more than once. The contents of the option are specified as `T,L[,V]` (no spaces) where `T` is the option type, `L` is the option length and (optionally) `V` is a pattern for the bytes in the body. For example,
 
 ```console
-$ ./teaparty ::1 sender --destination-ext 3,4,7 --hbh-ext 3,4,9
+$ ./teaparty sender ::1 --destination-ext 3,4,7 --hbh-ext 3,4,9
 ```
 
 will generate a STAMP test packet with 
@@ -259,7 +269,9 @@ will generate a STAMP test packet with
 - a Hop-by-hop IPv6 extension header with a single TLV option of type `3` whose body is `0x090x090x090x09`;
 - a Destination IPv6 extension header with a single TLV option of type `3` whose body is `0x070x070x070x07`.
 
-The `tlvs` subcommand will put TLVs into the test packet.
+##### Adding TLVs To a STAMP Test Packet
+
+The `tlvs` subcommand of the `sender` subcommand will put TLVs into the test packet.
 
 ```console
 Usage: teaparty sender tlvs [COMMAND]
@@ -313,7 +325,7 @@ It is possible to put more than one TLV into a test packet by separating multipl
 
 _Example_:
 ```console
-$ 127.0.0.1 sender --ecn ect1 --dscp af11 tlvs time -- class-of-service --ecn ect0 --dscp af21
+$ teaparty sender 127.0.0.1 --ecn ect1 --dscp af11 tlvs time -- class-of-service --ecn ect0 --dscp af21
 ```
 
 will send a STAMP test packet to a Reflector running on localhost that contains a Timestamp TLV, a Class-of-Service TLV (requesting that the reflected IP packet's headers have DSCP and ECN fields set to `AF21` and `ECT0`, respectively), and with the test IP packet's ECN and DSCP values set to `ECT1` and `AF11`, respectively.
