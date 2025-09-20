@@ -485,6 +485,7 @@ fn basic_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     let mut printable = f.debug_struct("Tlv");
     printable.field("flags", &tlv.flags);
     printable.field("length", &tlv.length);
+    printable.field("type", &format_args!("{}", Tlv::type_to_string(tlv.tpe)));
     printable.finish()
 }
 
