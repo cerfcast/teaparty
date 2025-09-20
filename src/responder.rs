@@ -230,7 +230,7 @@ impl Responder {
                     continue;
                 }
 
-                info!(logger, "Responding with stamp msg: {:x?}", stamp_msg);
+                info!(logger, "Responding with stamp msg: {:?}", stamp_msg);
 
                 let write_result = {
                     Self::write(
