@@ -409,6 +409,14 @@ impl MalformedTlv {
     }
 }
 
+/// Create the must-be-zero of the associated type.
+///
+/// Customization is possible through `V` which determines
+/// the zero value (and defaults to 0).
+pub trait TlvMbz<const V: u8 = 0> {
+    fn mbz() -> Vec<u8>;
+}
+
 #[derive(Clone, PartialEq)]
 pub struct Tlv {
     pub flags: Flags,

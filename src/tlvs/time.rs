@@ -30,7 +30,7 @@ use crate::{
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},
-    tlv::{self, Error, Flags, Tlv},
+    tlv::{self, Error, Flags, Tlv, TlvMbz},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -142,6 +142,12 @@ impl From<TimeTlv> for Vec<u8> {
     }
 }
 
+impl TlvMbz for TimeTlv {
+    fn mbz() -> Vec<u8> {
+        vec![0, 0, 0, 0]
+    }
+}
+
 #[derive(Subcommand, Clone, Debug)]
 enum TimeTlvCommand {
     Time {
@@ -233,7 +239,7 @@ impl TlvSenderHandler for TimeTlv {
                 flags: Flags::new_request(),
                 tpe: Tlv::TIMESTAMP,
                 length: 4,
-                value: vec![0u8; 4],
+                value: TimeTlv::mbz(),
             }]
             .to_vec(),
             next_tlv_command,
