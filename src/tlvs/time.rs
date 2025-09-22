@@ -19,7 +19,7 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
-use slog::{info, Logger};
+use slog::Logger;
 
 use crate::{
     handlers::{
@@ -30,10 +30,117 @@ use crate::{
     parameters::TestArguments,
     server::SessionData,
     stamp::{StampError, StampMsg},
-    tlv::{self, Flags, Tlv},
+    tlv::{self, Error, Flags, Tlv},
 };
 
-pub struct TimeTlv {}
+#[derive(Debug, Clone, Default)]
+pub struct TimeTlv {
+    pub sync_src_in: TimeStampSyncSources,
+    pub method_in: TimeStampMethods,
+    pub sync_src_out: TimeStampSyncSources,
+    pub method_out: TimeStampMethods,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TimeStampMethods {
+    HWAssist,
+    SWLocal,
+    ControlPlane,
+    #[default]
+    Unknown,
+}
+
+impl From<u8> for TimeStampMethods {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => TimeStampMethods::HWAssist,
+            2 => TimeStampMethods::SWLocal,
+            3 => TimeStampMethods::ControlPlane,
+            _ => TimeStampMethods::Unknown,
+        }
+    }
+}
+
+impl From<TimeStampMethods> for u8 {
+    fn from(value: TimeStampMethods) -> Self {
+        match value {
+            TimeStampMethods::HWAssist => 1u8,
+            TimeStampMethods::SWLocal => 2u8,
+            TimeStampMethods::ControlPlane => 3u8,
+            TimeStampMethods::Unknown => 255u8,
+        }
+    }
+}
+
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TimeStampSyncSources {
+    Ntp,
+    Ptp,
+    SSUBITS,
+    GNSS,
+    LocalFree,
+    #[default]
+    Unknown,
+}
+
+impl From<u8> for TimeStampSyncSources {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => TimeStampSyncSources::Ntp,
+            2 => TimeStampSyncSources::Ptp,
+            3 => TimeStampSyncSources::SSUBITS,
+            4 => TimeStampSyncSources::GNSS,
+            5 => TimeStampSyncSources::LocalFree,
+            _ => TimeStampSyncSources::Unknown,
+        }
+    }
+}
+
+impl From<TimeStampSyncSources> for u8 {
+    fn from(value: TimeStampSyncSources) -> Self {
+        match value {
+            TimeStampSyncSources::Ntp => 1u8,
+            TimeStampSyncSources::Ptp => 2u8,
+            TimeStampSyncSources::SSUBITS => 3u8,
+            TimeStampSyncSources::GNSS => 4,
+            TimeStampSyncSources::LocalFree => 5,
+            TimeStampSyncSources::Unknown => 255u8,
+        }
+    }
+}
+
+impl TryFrom<&Tlv> for TimeTlv {
+    type Error = StampError;
+    fn try_from(value: &Tlv) -> Result<Self, Self::Error> {
+        if value.length < 4 {
+            return Err(StampError::MalformedTlv(Error::NotEnoughData));
+        }
+
+        let sync_src_in = Into::<TimeStampSyncSources>::into(value.value[0]);
+        let method_in = Into::<TimeStampMethods>::into(value.value[1]);
+        let sync_src_out = Into::<TimeStampSyncSources>::into(value.value[2]);
+        let method_out = Into::<TimeStampMethods>::into(value.value[3]);
+
+        Ok(Self {
+            sync_src_in,
+            method_in,
+            sync_src_out,
+            method_out,
+        })
+    }
+}
+
+impl From<TimeTlv> for Vec<u8> {
+    fn from(value: TimeTlv) -> Self {
+        vec![
+            value.sync_src_in.into(),
+            value.method_in.into(),
+            value.sync_src_out.into(),
+            value.method_out.into(),
+        ]
+    }
+}
 
 #[derive(Subcommand, Clone, Debug)]
 enum TimeTlvCommand {
@@ -54,24 +161,30 @@ impl TlvReflectorHandler for TimeTlv {
 
     fn handle(
         &mut self,
-        _tlv: &tlv::Tlv,
+        tlv: &tlv::Tlv,
         _parameters: &TestArguments,
         _netconfig: &mut NetConfiguration,
         _client: SocketAddr,
         _session: &mut Option<SessionData>,
-        logger: slog::Logger,
+        _logger: slog::Logger,
     ) -> Result<Tlv, StampError> {
-        info!(logger, "I am handling a timestamp Tlv.");
-        let mut response_data = [0u8; 4];
-        response_data[0] = 1; // NTP
-        response_data[1] = 2; // Software local
-        response_data[2] = 1; // NTP
-        response_data[3] = 2; // Software local
+        if !tlv.is_all_zeros() {
+            return Err(StampError::MalformedTlv(Error::FieldNotZerod(
+                "Timestamp Information".to_string(),
+            )));
+        }
+
+        let response = TimeTlv {
+            sync_src_in: TimeStampSyncSources::Ntp,
+            method_in: TimeStampMethods::SWLocal,
+            sync_src_out: TimeStampSyncSources::Ntp,
+            method_out: TimeStampMethods::SWLocal,
+        };
         let response = Tlv {
             flags: Flags::new_response(),
-            tpe: 0x3,
+            tpe: Tlv::TIMESTAMP,
             length: 4,
-            value: response_data.to_vec(),
+            value: response.into(),
         };
         Ok(response)
     }
@@ -118,7 +231,7 @@ impl TlvSenderHandler for TimeTlv {
         Ok(Some((
             [Tlv {
                 flags: Flags::new_request(),
-                tpe: 0x3,
+                tpe: Tlv::TIMESTAMP,
                 length: 4,
                 value: vec![0u8; 4],
             }]
@@ -139,6 +252,49 @@ impl TlvHandlerGenerator for TimeTlvReflectorConfig {
     }
 
     fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
-        Box::new(TimeTlv {})
+        Box::new(TimeTlv::default())
+    }
+}
+
+#[cfg(test)]
+mod time_tlv_tests {
+    use crate::{
+        tlv::{Flags, Tlv},
+        tlvs::time::{TimeStampMethods, TimeStampSyncSources, TimeTlv},
+    };
+
+    #[test]
+    fn parse_time_tlv_test() {
+        let raw_tlv = Tlv {
+            tpe: Tlv::TIMESTAMP,
+            flags: Flags::new_request(),
+            length: 4,
+            value: vec![1, 2, 2, 3],
+        };
+
+        let time_tlv = TryInto::<TimeTlv>::try_into(&raw_tlv)
+            .expect("Should be able to parse the raw tlv into a time tlv");
+
+        assert_eq!(time_tlv.method_in, TimeStampMethods::SWLocal);
+        assert_eq!(time_tlv.method_out, TimeStampMethods::ControlPlane);
+        assert_eq!(time_tlv.sync_src_in, TimeStampSyncSources::Ntp);
+        assert_eq!(time_tlv.sync_src_out, TimeStampSyncSources::Ptp);
+    }
+
+    #[test]
+    fn time_tlv_serialize_test() {
+        let time_tlv = TimeTlv {
+            sync_src_in: TimeStampSyncSources::Ntp,
+            method_in: TimeStampMethods::SWLocal,
+            sync_src_out: TimeStampSyncSources::Ntp,
+            method_out: TimeStampMethods::SWLocal,
+        };
+
+        let time_tlv_raw = Into::<Vec<u8>>::into(time_tlv);
+
+        assert_eq!(time_tlv_raw[0], 1);
+        assert_eq!(time_tlv_raw[1], 2);
+        assert_eq!(time_tlv_raw[2], 1);
+        assert_eq!(time_tlv_raw[3], 2);
     }
 }

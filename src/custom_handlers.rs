@@ -109,7 +109,7 @@ pub struct CustomSenderHandlers {}
 impl CustomSenderHandlers {
     pub fn build() -> handlers::SenderHandlers {
         let mut handlers = handlers::SenderHandlers::new();
-        handlers.add(Box::new(TimeTlv {}));
+        handlers.add(Box::new(TimeTlv::default()));
         let dst_port_tlv: DestinationPortTlv = Default::default();
         let destination_port_handler = Box::new(dst_port_tlv);
         handlers.add(destination_port_handler);

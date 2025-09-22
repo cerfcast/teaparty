@@ -31,7 +31,7 @@ use crate::{
     tlvs::{
         classofservice::ClassOfServiceTlv, destinationaddress::DestinationAddressTlv,
         destinationport::DestinationPortTlv, hmac::HmacTlv, reflectedcontrol::ReflectedControlTlv,
-        returnpath::ReturnPathTlv,
+        returnpath::ReturnPathTlv, time::TimeTlv,
     },
     util,
 };
@@ -547,6 +547,13 @@ fn return_path_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
         write!(f, " Return Path TLV (failed to parse): {:x?}", tlv.value)
     }
 }
+
+fn time_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let time_tlv = TimeTlv::try_from(tlv).unwrap();
+    write!(f, " body: {time_tlv:?}")
+}
+
 fn unrecognized_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     write!(f, " Unrecognized")
@@ -562,7 +569,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::HISTORY, default_tlv_display);
         m.insert(Tlv::PADDING, padding_tlv_display);
         m.insert(Tlv::LOCATION, default_tlv_display);
-        m.insert(Tlv::TIMESTAMP, default_tlv_display);
+        m.insert(Tlv::TIMESTAMP, time_tlv_display);
         m.insert(Tlv::COS, cos_tlv_display);
         m.insert(Tlv::ACCESSREPORT, default_tlv_display);
         m.insert(Tlv::FOLLOWUP, default_tlv_display);
