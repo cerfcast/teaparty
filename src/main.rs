@@ -231,6 +231,7 @@ fn client(
     if !destination_ext_body.is_empty() {
         let destination_ext_hdr = Ipv6ExtHeader {
             header_type: nix::sys::socket::Ipv6ExtHeaderType::Dst,
+            header_next: 0x0,
             header_body: destination_ext_body,
         };
         let destination_ext_argument = TestArgument::HeaderOption(destination_ext_hdr.clone());
@@ -257,6 +258,7 @@ fn client(
     if !hbh_ext_body.is_empty() {
         let hbh_ext_hdr = Ipv6ExtHeader {
             header_type: nix::sys::socket::Ipv6ExtHeaderType::HopByHop,
+            header_next: 0x0,
             header_body: hbh_ext_body,
         };
         let hbh_ext_argument = TestArgument::HeaderOption(hbh_ext_hdr.clone());

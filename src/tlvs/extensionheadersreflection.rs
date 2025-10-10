@@ -24,7 +24,7 @@ use crate::handlers::{
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
-use nix::sys::socket::{Ipv6ExtHeader, Ipv6ExtHeaderType};
+use nix::sys::socket::{Ipv6ExtHeader};
 use slog::{info, Logger};
 
 use crate::{
@@ -136,12 +136,7 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
                 }
             }
             // All good! Copy the data!
-            let mut header_raw = vec![
-                if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop {
-                    0xff
-                } else {
-                    0xfe
-                },
+            let mut header_raw = vec![ipv6_header.header_next,
                 (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8,
             ];
             ipv6_header
@@ -259,13 +254,8 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
                     continue;
                 }
             }
-            // All good! Copy the data!
-            let mut header_raw = vec![
-                if ipv6_header.header_type == Ipv6ExtHeaderType::HopByHop {
-                    0xff
-                } else {
-                    0xfe
-                },
+            // TODO: Determine how match configuration is positioned (i.e., does it include the next header type and the extension header length?)
+            let mut header_raw = vec![0,
                 (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8,
             ];
             ipv6_header
