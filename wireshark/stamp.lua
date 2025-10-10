@@ -560,16 +560,17 @@ end
 
 -- TLV Dissectors: Reflected IPv6 Extension Header TLV
 
-local ipv6_extension_header_type                          =
+local ipv6_extension_header_next_header_type                          =
 {
 	[0] = "Hop by Hop",
+	[0x11] = "UDP",
 	[0x3c] = "Destination",
 }
 
 local reflected_ipv6_ext_header_tlv_protofield            = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header",
 	"Reflected IPv6 Extension Header TLV")
-local reflected_ipv6_ext_header_tlv_header_protofield     = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.type",
-	"Extension Header Type", base.HEX, ipv6_extension_header_type)
+local reflected_ipv6_ext_header_tlv_header_next_header_protofield     = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.next_header_type",
+	"Extension Header Next Header Type", base.HEX, ipv6_extension_header_next_header_type)
 local reflected_ipv6_ext_header_tlv_header_len_protofield = ProtoField.uint8("stamp.tlv.reflected_ipv6_ext_header.len",
 	"Extension Header Length", base.HEX)
 local reflected_ipv6_ext_header_tlv_data_protofield       = ProtoField.bytes("stamp.tlv.reflected_ipv6_ext_header.data",
@@ -578,7 +579,7 @@ local reflected_ipv6_ext_header_tlv_allzeros_protofield   = ProtoField.bytes("st
 	"Reflected IPv6 Header Data (Unparsed, All Zeros)")
 
 stamp_protocol.fields                                     = { reflected_ipv6_ext_header_tlv_protofield,
-	reflected_ipv6_ext_header_tlv_header_protofield,
+	reflected_ipv6_ext_header_tlv_header_next_header_protofield,
 	reflected_ipv6_ext_header_tlv_header_len_protofield,
 	reflected_ipv6_ext_header_tlv_data_protofield,
 	reflected_ipv6_ext_header_tlv_allzeros_protofield,
@@ -604,7 +605,7 @@ local function tlv_reflected_ipv6_ext_header_dissector(buffer, tree)
 		return true
 	end
 
-	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_protofield, buffer(0, 1))
+	reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_next_header_protofield, buffer(0, 1))
 
 	local length = ((buffer(1, 1):uint() + 1) * 8)
 	local length_tree = reflected_ipv6_ext_header_tree:add(reflected_ipv6_ext_header_tlv_header_len_protofield,
