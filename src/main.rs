@@ -48,7 +48,6 @@ use crate::custom_handlers::CustomReflectorHandlersGenerators;
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
 
-#[macro_use]
 extern crate rocket;
 
 mod app;

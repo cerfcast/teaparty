@@ -26,7 +26,7 @@ use crate::stamp::Ssid;
 use crate::tlvs::biterrorrate::BitPattern;
 use rocket::http::Status;
 use rocket::serde::{json::Json, Deserialize};
-use rocket::{Config, State};
+use rocket::{get, post, routes, Config, State};
 use serde::Serialize;
 use slog::Logger;
 use slog::{error, info};
