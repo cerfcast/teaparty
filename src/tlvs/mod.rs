@@ -22,6 +22,7 @@ pub mod classofservice;
 pub mod destinationaddress;
 pub mod destinationport;
 pub mod extensionheadersreflection;
+pub mod fixedheadersreflection;
 pub mod followup;
 pub mod history;
 pub mod hmac;

@@ -31,6 +31,9 @@ use crate::{
         extensionheadersreflection::{
             V6ExtensionHeadersReflectionTlv, V6ExtensionHeadersReflectionTlvReflectorConfig,
         },
+        fixedheadersreflection::{
+            ReflectedFixedHeaderDataTlv, ReflectedFixedHeaderDataTlvReflectorConfig,
+        },
         followup::{FollowupTlv, FollowupTlvReflectorConfig},
         history::{HistoryTlv, HistoryTlvReflectorConfig},
         hmac::{HmacTlv, HmacTlvReflectorConfig},
@@ -63,6 +66,9 @@ impl CustomReflectorHandlersGenerators {
         generators.push(Arc::new(Mutex::new(DestinationPortTlvReflectorConfig {})));
         generators.push(Arc::new(Mutex::new(
             V6ExtensionHeadersReflectionTlvReflectorConfig {},
+        )));
+        generators.push(Arc::new(Mutex::new(
+            ReflectedFixedHeaderDataTlvReflectorConfig {},
         )));
         generators.push(Arc::new(Mutex::new(FollowupTlvReflectorConfig {})));
         generators.push(Arc::new(Mutex::new(HistoryTlvReflectorConfig {})));
@@ -143,6 +149,9 @@ impl CustomSenderHandlers {
         let header_options_tlv: V6ExtensionHeadersReflectionTlv = Default::default();
         let header_options_tlv_handler = Box::new(header_options_tlv);
         handlers.add(header_options_tlv_handler);
+        let fixed_header_reflection_tlv: ReflectedFixedHeaderDataTlv = Default::default();
+        let fixed_header_reflection_tlv_handler = Box::new(fixed_header_reflection_tlv);
+        handlers.add(fixed_header_reflection_tlv_handler);
         let return_path_tlv_handler = Box::new(ReturnPathTlv::default());
         handlers.add(return_path_tlv_handler);
         handlers

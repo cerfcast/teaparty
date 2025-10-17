@@ -30,8 +30,9 @@ use crate::{
     tlv,
     tlvs::{
         classofservice::ClassOfServiceTlv, destinationaddress::DestinationAddressTlv,
-        destinationport::DestinationPortTlv, hmac::HmacTlv, reflectedcontrol::ReflectedControlTlv,
-        returnpath::ReturnPathTlv, time::TimeTlv,
+        destinationport::DestinationPortTlv, fixedheadersreflection::ReflectedFixedHeaderDataTlv,
+        hmac::HmacTlv, reflectedcontrol::ReflectedControlTlv, returnpath::ReturnPathTlv,
+        time::TimeTlv,
     },
     util,
 };
@@ -543,6 +544,22 @@ fn ipv6_extension_header_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::
     basic_tlv_display(tlv, f)?;
     write!(f, " IPv6 Extension Header Reflection: {:2x?}", tlv.value)
 }
+fn reflected_fixed_header_data_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    if let Ok(return_path_tlv) = TryInto::<ReflectedFixedHeaderDataTlv>::try_into(tlv) {
+        write!(
+            f,
+            " Reflected Fixed Header Data: {}: {:2x?}",
+            return_path_tlv.tp, return_path_tlv.value
+        )
+    } else {
+        write!(
+            f,
+            " Reflected Fixed Header Data (failed to parse): {:x?}",
+            tlv.value
+        )
+    }
+}
 fn padding_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
     write!(f, " Padding: {:x?}", tlv.value)
@@ -589,6 +606,10 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(
             Tlv::V6_EXTENSION_HEADERS_REFLECTION,
             ipv6_extension_header_tlv_display,
+        );
+        m.insert(
+            Tlv::REFLECTED_FIXED_HEADER_DATA,
+            reflected_fixed_header_data_tlv_display,
         );
         m
     });
@@ -695,6 +716,7 @@ impl Tlv {
     pub const BER_COUNT: u8 = 181;
     pub const BER_PATTERN: u8 = 182;
     pub const V6_EXTENSION_HEADERS_REFLECTION: u8 = 183;
+    pub const REFLECTED_FIXED_HEADER_DATA: u8 = 184;
 
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
@@ -722,6 +744,7 @@ impl Tlv {
             Self::BER_COUNT => "BER Count".into(),
             Self::BER_PATTERN => "BER Pattern".into(),
             Self::V6_EXTENSION_HEADERS_REFLECTION => "Reflected IPv6 Extension Header Data".into(),
+            Self::REFLECTED_FIXED_HEADER_DATA => "Reflected Fixed Header Data".into(),
             Self::DESTINATION_ADDRESS => "Destination Address".into(),
             Self::RETURN_PATH => "Return Path".into(),
             _ => "Unrecognized".into(),
