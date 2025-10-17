@@ -16,9 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use crate::handlers::{
-    TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
-    TlvSenderHandlerConfigurator,
+use crate::{
+    handlers::{
+        TlvHandlerGenerator, TlvReflectorHandler, TlvReflectorHandlerConfigurator,
+        TlvSenderHandlerConfigurator,
+    },
+    ip::ExtensionHeader,
 };
 
 use std::net::{SocketAddr, UdpSocket};
@@ -41,7 +44,7 @@ use crate::{
 
 #[derive(Default, Debug)]
 pub struct V6ExtensionHeadersReflectionTlv {
-    headers: Vec<Ipv6ExtHeader>,
+    headers: Vec<ExtensionHeader>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -109,51 +112,57 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
             .iter_mut()
             .filter(|tlv| tlv.tpe == Tlv::V6_EXTENSION_HEADERS_REFLECTION);
 
-        for (ipv6_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
-            // Punt if the IPv6 header is not at least 4 bytes!
-            if ipv6_header.header_body.len() < 4 {
-                info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
-                continue;
-            }
-            if ipv6_header.header_body.len() + 2 != (tlv.length as usize) {
-                info!(
-                    logger,
-                    "IPv6 extension header size does not match TLV length."
-                );
-                continue;
-            }
-            if !tlv.is_all_zeros() {
-                if tlv.length < 4 {
-                    info!(
+        for (extension_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
+            match extension_header {
+                ExtensionHeader::Six(ipv6_header) => {
+                    // Punt if the IPv6 header is not at least 4 bytes!
+                    if ipv6_header.header_body.len() < 4 {
+                        info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
+                        continue;
+                    }
+                    if ipv6_header.header_body.len() + 2 != (tlv.length as usize) {
+                        info!(
+                            logger,
+                            "IPv6 extension header size does not match TLV length."
+                        );
+                        continue;
+                    }
+                    if !tlv.is_all_zeros() {
+                        if tlv.length < 4 {
+                            info!(
                         logger,
                         "Header Option TLV match contains a guard but is shorter than 4 bytes."
                     );
-                    continue;
+                            continue;
+                        }
+                        if ipv6_header.header_body[0..4] != tlv.value[0..4] {
+                            info!(logger, "Header Option TLV match guard is false.");
+                            continue;
+                        }
+                    }
+                    // All good! Copy the data!
+                    let mut header_raw = vec![
+                        ipv6_header.header_next,
+                        (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8,
+                    ];
+                    ipv6_header
+                        .header_body
+                        .iter()
+                        .for_each(|f| header_raw.push(*f));
+                    tlv.value.copy_from_slice(&header_raw);
+                    tlv.flags.set_unrecognized(false);
+
+                    _config.add_configuration(
+                        NetConfigurationItemKind::ExtensionHeader,
+                        NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
+                        Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                    );
                 }
-                if ipv6_header.header_body[0..4] != tlv.value[0..4] {
-                    info!(logger, "Header Option TLV match guard is false.");
-                    continue;
+                ExtensionHeader::Four => {
+                    // Nothing yet for extension headers for IPv4.
                 }
             }
-            // All good! Copy the data!
-            let mut header_raw = vec![
-                ipv6_header.header_next,
-                (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8,
-            ];
-            ipv6_header
-                .header_body
-                .iter()
-                .for_each(|f| header_raw.push(*f));
-            tlv.value.copy_from_slice(&header_raw);
-            tlv.flags.set_unrecognized(false);
-
-            _config.add_configuration(
-                NetConfigurationItemKind::ExtensionHeader,
-                NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
-                Tlv::V6_EXTENSION_HEADERS_REFLECTION,
-            );
         }
-
         Ok(())
     }
 }
@@ -229,48 +238,55 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
             .iter_mut()
             .filter(|tlv| tlv.tpe == Tlv::V6_EXTENSION_HEADERS_REFLECTION);
 
-        for (ipv6_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
-            // Punt if the IPv6 header is not at least 4 bytes!
-            if ipv6_header.header_body.len() < 4 {
-                info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
-                continue;
-            }
-            if ipv6_header.header_body.len() + 2 != (tlv.length as usize) {
-                info!(
-                    logger,
-                    "IPv6 extension header size does not match TLV length."
-                );
-                continue;
-            }
-            if !tlv.is_all_zeros() {
-                if tlv.length < 4 {
-                    info!(
+        for (extension_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
+            match extension_header {
+                ExtensionHeader::Six(ipv6_header) => {
+                    // Punt if the IPv6 header is not at least 4 bytes!
+                    if ipv6_header.header_body.len() < 4 {
+                        info!(logger, "Skipping IPv6 Header that is shorter than 4 bytes.");
+                        continue;
+                    }
+                    if ipv6_header.header_body.len() + 2 != (tlv.length as usize) {
+                        info!(
+                            logger,
+                            "IPv6 extension header size does not match TLV length."
+                        );
+                        continue;
+                    }
+                    if !tlv.is_all_zeros() {
+                        if tlv.length < 4 {
+                            info!(
                         logger,
                         "Header Option TLV match contains a guard but is shorter than 4 bytes."
                     );
-                    continue;
+                            continue;
+                        }
+                        if ipv6_header.header_body[0..4] != tlv.value[0..4] {
+                            info!(logger, "Header Option TLV match guard is false.");
+                            continue;
+                        }
+                    }
+                    // TODO: Determine how match configuration is positioned (i.e., does it include the next header type and the extension header length?)
+                    let mut header_raw =
+                        vec![0, (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8];
+                    ipv6_header
+                        .header_body
+                        .iter()
+                        .for_each(|f| header_raw.push(*f));
+                    tlv.value.copy_from_slice(&header_raw);
+                    tlv.flags.set_unrecognized(false);
+
+                    _config.add_configuration(
+                        NetConfigurationItemKind::ExtensionHeader,
+                        NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
+                        Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                    );
                 }
-                if ipv6_header.header_body[0..4] != tlv.value[0..4] {
-                    info!(logger, "Header Option TLV match guard is false.");
-                    continue;
+                ExtensionHeader::Four => {
+                    // Nothing yet for v4.
                 }
             }
-            // TODO: Determine how match configuration is positioned (i.e., does it include the next header type and the extension header length?)
-            let mut header_raw = vec![0, (((ipv6_header.header_body.len() + 2) / 8) - 1) as u8];
-            ipv6_header
-                .header_body
-                .iter()
-                .for_each(|f| header_raw.push(*f));
-            tlv.value.copy_from_slice(&header_raw);
-            tlv.flags.set_unrecognized(false);
-
-            _config.add_configuration(
-                NetConfigurationItemKind::ExtensionHeader,
-                NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
-                Tlv::V6_EXTENSION_HEADERS_REFLECTION,
-            );
         }
-
         Ok(())
     }
 }
