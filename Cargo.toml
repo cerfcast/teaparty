@@ -8,7 +8,7 @@ nix = { path="nix", features = ["socket", "net", "uio", "ioctl"]}
 insta-cmd = { path="third_party/insta-cmd" }
 clap = { version = "4.5.4", features = ["derive"] }
 rand = "0.8.5"
-slog = "2.7.0"
+slog = { version = "2.7.0", features = ["max_level_trace", "release_max_level_trace"] }
 slog-term = "2.9.1"
 chrono = "0.4.38"
 rocket = { version = "0.5.1", features = ["json"]}
