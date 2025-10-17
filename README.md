@@ -290,8 +290,8 @@ Commands:
   reflected-control  
   hmac
   bit-error-rate
-  v6-extension-header-reflection  
-  fixed-headers-reflection
+  reflected-v6-extension-header-data
+  reflected-fixed-header-data
   return-path
   help               Print this message or the help of the given subcommand(s)
 
@@ -312,8 +312,8 @@ Options:
 | reflected-control | Reflected Test Packet Control | Will include a TLV that manipulates the size, quantity and frequency of responses from the reflector (customize with `--reflected-length`, `--count` and `--interval`, respectively). |
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 | bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `-size`, respectively). |
-| v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `-size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
-| fixed-headers-reflection | Reflected IPv4/IPv6 Header Data | `-t` specifies which version of IP to reflect (default is IPv4). |
+|  reflected-v6-extension-header-data | Reflected IPv6 Extension Header Data | `-size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
+| reflected-fixed-header-data | Reflected IPv4/IPv6 Header Data | `-t` specifies which version of IP to reflect (default is IPv4). |
 | return-path | Return Path | `--address` the address the reflector will use as the destination of the reflected packet. |
 
 _Example_:
