@@ -743,7 +743,9 @@ impl Tlv {
             Self::HMAC_TLV => "HMAC".into(),
             Self::BER_COUNT => "BER Count".into(),
             Self::BER_PATTERN => "BER Pattern".into(),
-            Self::REFLECTED_IPV6_EXTENSION_HEADER_DATA => "Reflected IPv6 Extension Header Data".into(),
+            Self::REFLECTED_IPV6_EXTENSION_HEADER_DATA => {
+                "Reflected IPv6 Extension Header Data".into()
+            }
             Self::REFLECTED_FIXED_HEADER_DATA => "Reflected Fixed Header Data".into(),
             Self::DESTINATION_ADDRESS => "Destination Address".into(),
             Self::RETURN_PATH => "Return Path".into(),

@@ -104,7 +104,10 @@ impl TlvReflectorHandler for ReflectedV6ExtensionHeaderDataTlv {
         _session: &Option<SessionData>,
         logger: Logger,
     ) -> Result<(), StampError> {
-        info!(logger, "Reflected IPv6 Extension Header Data TLV is fixing up a response");
+        info!(
+            logger,
+            "Reflected IPv6 Extension Header Data TLV is fixing up a response"
+        );
 
         let header_options = response
             .tlvs
@@ -230,7 +233,10 @@ impl TlvSenderHandler for ReflectedV6ExtensionHeaderDataTlv {
         _session: &Option<SessionData>,
         logger: Logger,
     ) -> Result<(), StampError> {
-        info!(logger, "Reflected IPv6 Extension Header Data TLV is fixing up a response");
+        info!(
+            logger,
+            "Reflected IPv6 Extension Header Data TLV is fixing up a response"
+        );
 
         let header_options = response
             .tlvs
