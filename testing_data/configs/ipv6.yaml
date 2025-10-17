@@ -1,0 +1,6 @@
+- 
+  - general:
+      name: "stateful"
+      listen:
+        ip: 2001:db8:ca2:2::1
+        port: 862
