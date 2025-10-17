@@ -604,7 +604,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
         m.insert(Tlv::RETURN_PATH, return_path_tlv_display);
         m.insert(
-            Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+            Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA,
             ipv6_extension_header_tlv_display,
         );
         m.insert(
@@ -715,7 +715,7 @@ impl Tlv {
     pub const REFLECTED_CONTROL: u8 = 180;
     pub const BER_COUNT: u8 = 181;
     pub const BER_PATTERN: u8 = 182;
-    pub const V6_EXTENSION_HEADERS_REFLECTION: u8 = 183;
+    pub const REFLECTED_IPV6_EXTENSION_HEADER_DATA: u8 = 183;
     pub const REFLECTED_FIXED_HEADER_DATA: u8 = 184;
 
     pub const PADDING: u8 = 1;
@@ -743,7 +743,7 @@ impl Tlv {
             Self::HMAC_TLV => "HMAC".into(),
             Self::BER_COUNT => "BER Count".into(),
             Self::BER_PATTERN => "BER Pattern".into(),
-            Self::V6_EXTENSION_HEADERS_REFLECTION => "Reflected IPv6 Extension Header Data".into(),
+            Self::REFLECTED_IPV6_EXTENSION_HEADER_DATA => "Reflected IPv6 Extension Header Data".into(),
             Self::REFLECTED_FIXED_HEADER_DATA => "Reflected Fixed Header Data".into(),
             Self::DESTINATION_ADDRESS => "Destination Address".into(),
             Self::RETURN_PATH => "Return Path".into(),

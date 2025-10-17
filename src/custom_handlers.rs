@@ -29,7 +29,7 @@ use crate::{
         destinationaddress::{DestinationAddressTlv, DestinationAddressTlvReflectorConfig},
         destinationport::{DestinationPortTlv, DestinationPortTlvReflectorConfig},
         extensionheadersreflection::{
-            V6ExtensionHeadersReflectionTlv, V6ExtensionHeadersReflectionTlvReflectorConfig,
+            ReflectedV6ExtensionHeaderDataTlv, V6ExtensionHeadersReflectionTlvReflectorConfig,
         },
         fixedheadersreflection::{
             ReflectedFixedHeaderDataTlv, ReflectedFixedHeaderDataTlvReflectorConfig,
@@ -146,7 +146,7 @@ impl CustomSenderHandlers {
         let ber_tlv: BitErrorRateTlv = Default::default();
         let ber_tlv_handler = Box::new(ber_tlv);
         handlers.add(ber_tlv_handler);
-        let header_options_tlv: V6ExtensionHeadersReflectionTlv = Default::default();
+        let header_options_tlv: ReflectedV6ExtensionHeaderDataTlv = Default::default();
         let header_options_tlv_handler = Box::new(header_options_tlv);
         handlers.add(header_options_tlv_handler);
         let fixed_header_reflection_tlv: ReflectedFixedHeaderDataTlv = Default::default();

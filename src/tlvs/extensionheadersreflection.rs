@@ -42,13 +42,13 @@ use crate::{
 };
 
 #[derive(Default, Debug)]
-pub struct V6ExtensionHeadersReflectionTlv {
+pub struct ReflectedV6ExtensionHeaderDataTlv {
     headers: Vec<ExtensionHeader>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
-enum V6ExtensionHeadersTlvCommand {
-    V6ExtensionHeaderReflection {
+enum ReflectedV6ExtensionHeaderDataTlvCommand {
+    ReflectedV6ExtensionHeaderData {
         #[arg(short, default_value_t = 8)]
         size: u16,
 
@@ -57,13 +57,13 @@ enum V6ExtensionHeadersTlvCommand {
     },
 }
 
-impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
+impl TlvReflectorHandler for ReflectedV6ExtensionHeaderDataTlv {
     fn tlv_name(&self) -> String {
-        "IPv6 Extension Header Reflection".into()
+        "Reflected IPv6 Extension Header Data".into()
     }
 
     fn tlv_type(&self) -> Vec<u8> {
-        [Tlv::V6_EXTENSION_HEADERS_REFLECTION].to_vec()
+        [Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA].to_vec()
     }
 
     fn handle(
@@ -87,7 +87,7 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
         if !self.headers.is_empty() {
             info!(
                 logger,
-                "There are {} IPv6 headers for this request: {:x?}",
+                "There are {} headers for this request: {:x?}",
                 self.headers.len(),
                 self.headers
             );
@@ -104,12 +104,12 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
         _session: &Option<SessionData>,
         logger: Logger,
     ) -> Result<(), StampError> {
-        info!(logger, "IPv6 Header Option TLV is fixing up a response");
+        info!(logger, "Reflected IPv6 Extension Header Data TLV is fixing up a response");
 
         let header_options = response
             .tlvs
             .iter_mut()
-            .filter(|tlv| tlv.tpe == Tlv::V6_EXTENSION_HEADERS_REFLECTION);
+            .filter(|tlv| tlv.tpe == Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA);
 
         for (extension_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
             match extension_header {
@@ -154,7 +154,7 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
                     _config.add_configuration(
                         NetConfigurationItemKind::ExtensionHeader,
                         NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
-                        Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                        Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA,
                     );
                 }
                 ExtensionHeader::Four => {
@@ -166,7 +166,7 @@ impl TlvReflectorHandler for V6ExtensionHeadersReflectionTlv {
     }
 }
 
-impl NetConfigurator for V6ExtensionHeadersReflectionTlv {
+impl NetConfigurator for ReflectedV6ExtensionHeaderDataTlv {
     fn handle_netconfig_error(
         &self,
         _response: &mut StampMsg,
@@ -174,20 +174,20 @@ impl NetConfigurator for V6ExtensionHeadersReflectionTlv {
         _item: NetConfigurationItem,
         _logger: Logger,
     ) {
-        panic!("There was a net configuration error in a handler (IPv6 Header Options) that does not set net configuration items.");
+        panic!("There was a net configuration error in a handler (Reflected IPv6 Extension Header Data) that does not set net configuration items.");
     }
 }
-impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
+impl TlvSenderHandler for ReflectedV6ExtensionHeaderDataTlv {
     fn tlv_name(&self) -> String {
-        "IPv6 Extension Header Reflection".into()
+        "Reflected IPv6 Extension Header Data".into()
     }
 
     fn tlv_sender_command(&self, existing: Command) -> Command {
-        V6ExtensionHeadersTlvCommand::augment_subcommands(existing)
+        ReflectedV6ExtensionHeaderDataTlvCommand::augment_subcommands(existing)
     }
 
     fn tlv_sender_type(&self) -> Vec<u8> {
-        [Tlv::V6_EXTENSION_HEADERS_REFLECTION].to_vec()
+        [Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA].to_vec()
     }
 
     fn request(
@@ -195,12 +195,12 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
         _args: Option<TestArguments>,
         matches: &mut ArgMatches,
     ) -> TlvRequestResult {
-        let maybe_our_command = V6ExtensionHeadersTlvCommand::from_arg_matches(matches);
+        let maybe_our_command = ReflectedV6ExtensionHeaderDataTlvCommand::from_arg_matches(matches);
         if maybe_our_command.is_err() {
             return Ok(None);
         }
         let our_command = maybe_our_command.unwrap();
-        let V6ExtensionHeadersTlvCommand::V6ExtensionHeaderReflection {
+        let ReflectedV6ExtensionHeaderDataTlvCommand::ReflectedV6ExtensionHeaderData {
             size,
             next_tlv_command,
         } = our_command;
@@ -214,7 +214,7 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
         Ok(Some((
             vec![Tlv {
                 flags: Flags::new_request(),
-                tpe: Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                tpe: Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA,
                 length: size,
                 value: vec![0u8; size as usize],
             }],
@@ -230,12 +230,12 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
         _session: &Option<SessionData>,
         logger: Logger,
     ) -> Result<(), StampError> {
-        info!(logger, "IPv6 Header Option TLV is fixing up a response");
+        info!(logger, "Reflected IPv6 Extension Header Data TLV is fixing up a response");
 
         let header_options = response
             .tlvs
             .iter_mut()
-            .filter(|tlv| tlv.tpe == Tlv::V6_EXTENSION_HEADERS_REFLECTION);
+            .filter(|tlv| tlv.tpe == Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA);
 
         for (extension_header, tlv) in self.headers.iter().as_slice().iter().zip(header_options) {
             match extension_header {
@@ -278,7 +278,7 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
                     _config.add_configuration(
                         NetConfigurationItemKind::ExtensionHeader,
                         NetConfigurationArgument::ExtensionHeader(ipv6_header.clone()),
-                        Tlv::V6_EXTENSION_HEADERS_REFLECTION,
+                        Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA,
                     );
                 }
                 ExtensionHeader::Four => {
@@ -290,8 +290,8 @@ impl TlvSenderHandler for V6ExtensionHeadersReflectionTlv {
     }
 }
 
-impl TlvSenderHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}
-impl TlvReflectorHandlerConfigurator for V6ExtensionHeadersReflectionTlv {}
+impl TlvSenderHandlerConfigurator for ReflectedV6ExtensionHeaderDataTlv {}
+impl TlvReflectorHandlerConfigurator for ReflectedV6ExtensionHeaderDataTlv {}
 
 pub struct V6ExtensionHeadersReflectionTlvReflectorConfig {}
 
@@ -301,6 +301,6 @@ impl TlvHandlerGenerator for V6ExtensionHeadersReflectionTlvReflectorConfig {
     }
 
     fn generate(&self) -> Box<dyn TlvReflectorHandlerConfigurator + Send> {
-        Box::new(V6ExtensionHeadersReflectionTlv::default())
+        Box::new(ReflectedV6ExtensionHeaderDataTlv::default())
     }
 }
