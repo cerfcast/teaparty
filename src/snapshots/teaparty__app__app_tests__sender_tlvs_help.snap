@@ -19,7 +19,7 @@ expression: output_lines
 - "  hmac                                "
 - "  bit-error-rate                      "
 - "  reflected-v6-extension-header-data  "
-- "  fixed-headers-reflection            "
+- "  reflected-fixed-header-data         "
 - "  return-path                         "
 - "  help                                Print this message or the help of the given subcommand(s)"
 - ""

@@ -83,7 +83,7 @@ impl Display for ReflectedFixedHeaderDataType {
 
 #[derive(Subcommand, Clone, Debug)]
 enum ReflectedFixedHeaderDataTlvCommand {
-    FixedHeadersReflection {
+    ReflectedFixedHeaderData {
         #[arg(short, default_value_t = ReflectedFixedHeaderDataType::Ipv4)]
         tpe: ReflectedFixedHeaderDataType,
 
@@ -186,7 +186,7 @@ impl TlvSenderHandler for ReflectedFixedHeaderDataTlv {
             return Ok(None);
         }
         let our_command = maybe_our_command.unwrap();
-        let ReflectedFixedHeaderDataTlvCommand::FixedHeadersReflection {
+        let ReflectedFixedHeaderDataTlvCommand::ReflectedFixedHeaderData {
             tpe,
             next_tlv_command,
         } = our_command;
