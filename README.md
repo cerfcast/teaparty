@@ -291,6 +291,7 @@ Commands:
   hmac
   bit-error-rate
   v6-extension-header-reflection  
+  fixed-headers-reflection
   return-path
   help               Print this message or the help of the given subcommand(s)
 
@@ -312,6 +313,7 @@ Options:
 | hmac | HMAC TLV | Will include a TLV that contains a HMAC (calculated using the key for authenticating the base STAMP packet [see `--authenticated`, above]) to verify integrity of TLV data. |
 | bit-error-rate | Bit Error Rate and Bit Error Detection | Will include a TLV that can be used to (detect and) measure a path's bit error rate using a pattern of bytes spread over a given size (customize with `--pattern` and `-size`, respectively). |
 | v6-extension-header-reflection | Reflected IPv6 Extension Header Data | `-size` specifies the size of the TLV which, in turn, will be used by the reflector to select the IPv6 extension header to reflect. |
+| fixed-headers-reflection | Reflected IPv4/IPv6 Header Data | `-t` specifies which version of IP to reflect (default is IPv4). |
 | return-path | Return Path | `--address` the address the reflector will use as the destination of the reflected packet. |
 
 _Example_:
@@ -393,7 +395,8 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Simple Two-Way Active Measurement Protocol (STAMP) Extensions for Reflecting STAMP Packet IP Headers ([RFC](https://www.ietf.org/archive/id/draft-ietf-ippm-stamp-ext-hdr-04.html)) | &#9989; (more work required for complete implementation, but support starting in [aa7cdb7](https://github.com/cerfcast/teaparty/commit/aa7cdb755da7d38213f2153f1a0859de5b8aa48a))[^headerreflect] |
 
 [^bertlv]: Note: The BER TLV has been temporarily assigned `181` and `182` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
-[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `183` for TLV Type. The implementation will be updated as the Draft changes.
+[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `183` for TLV Type. The Reflected Fixed Header Data TLV has been temporarily assigned `184` for TLV Type. The implementation will be updated as the Draft changes.
+
 ### Testing
 
 In addition to unit tests, there are tools for end-to-end tests in the `testing_data` directory. See [`testing_data/README.md`](./testing_data/README.md)
