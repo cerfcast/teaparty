@@ -44,7 +44,9 @@ use crate::app::{
     extract_configuration, Cli, ClientError, ReflectorArgs, ReflectorGeneralConfiguration,
     SenderArgs, ServerError, TeapartyError, TeapartyModes,
 };
+use crate::connection_generator::{Connection, ConnectionInformation};
 use crate::custom_handlers::CustomReflectorHandlersGenerators;
+use crate::ip::ExtensionHeader;
 use crate::netconf::NetConfiguration;
 use crate::responder::Responder;
 
@@ -233,7 +235,8 @@ fn client(
             header_next: 0x0,
             header_body: destination_ext_body,
         };
-        let destination_ext_argument = TestArgument::HeaderOption(destination_ext_hdr.clone());
+        let destination_ext_argument =
+            TestArgument::HeaderOption(ExtensionHeader::Six(destination_ext_hdr.clone()));
         configurator.add_configuration(
             netconf::NetConfigurationItemKind::ExtensionHeader,
             netconf::NetConfigurationArgument::ExtensionHeader(destination_ext_hdr),
@@ -260,7 +263,8 @@ fn client(
             header_next: 0x0,
             header_body: hbh_ext_body,
         };
-        let hbh_ext_argument = TestArgument::HeaderOption(hbh_ext_hdr.clone());
+        let hbh_ext_argument =
+            TestArgument::HeaderOption(ExtensionHeader::Six(hbh_ext_hdr.clone()));
         configurator.add_configuration(
             netconf::NetConfigurationItemKind::ExtensionHeader,
             netconf::NetConfigurationArgument::ExtensionHeader(hbh_ext_hdr),
@@ -739,16 +743,20 @@ fn server(
                         break;
                     }
                     match generator.next(logger.clone(), server_socket_addr) {
-                        Ok((maybe_ethernet_hdr, ip_hdr, recv_data, client_address)) => {
+                        Ok(Connection{information: ConnectionInformation{ethernet: maybe_ethernet_hdr, raw_network: maybe_raw_ip_hdr, network: ip_hdr}, body: recv_data, addr: client_address}) => {
+
+
                                     let parameters = TestParameters::new();
 
                                     // If the generator was not kind enough to supply an ethernet header, we will just use an empty
                                     // one to determine the arguments for the test.
                                     let ethernet_header = maybe_ethernet_hdr.unwrap_or(Ethernet2Header::from_bytes([0u8;14]));
 
+                                    let raw_ip_hdr = maybe_raw_ip_hdr.unwrap_or_default();
+
                                     let arguments =
                                         parameters
-                                        .get_arguments(&ethernet_header, &ip_hdr, logger.clone())
+                                        .get_arguments(raw_ip_hdr, &ethernet_header, &ip_hdr, logger.clone())
                                         .expect("Could not get the arguments from the ip header");
 
                                     let received_time = chrono::Utc::now();

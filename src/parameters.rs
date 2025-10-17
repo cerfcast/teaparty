@@ -20,22 +20,22 @@ use std::fmt::{Debug, Display};
 use std::vec;
 
 use etherparse::Ethernet2Header;
-use nix::sys::socket::Ipv6ExtHeader;
 use slog::Logger;
 
-use crate::connection_generator::IpHeaders;
+use crate::connection_generator::{IpVersion, NetworkOptions};
 use crate::os::MacAddr;
 use crate::stamp::StampError;
 
-use crate::ip::{DscpValue, EcnValue};
+use crate::ip::{DscpValue, EcnValue, ExtensionHeader};
 
 #[derive(Clone)]
 pub enum TestArgument {
     Ttl(u8),
+    RawIpHdr(Vec<u8>),
     Ecn(EcnValue),
     Dscp(DscpValue),
     PeerMacAddress(MacAddr),
-    HeaderOption(Ipv6ExtHeader),
+    HeaderOption(ExtensionHeader),
     Invalid,
 }
 
@@ -45,12 +45,12 @@ impl Default for TestArgument {
     }
 }
 
-impl From<TestArgument> for Ipv6ExtHeader {
-    fn from(value: TestArgument) -> Ipv6ExtHeader {
+impl From<TestArgument> for ExtensionHeader {
+    fn from(value: TestArgument) -> ExtensionHeader {
         match value {
             TestArgument::HeaderOption(header) => header,
             _ => {
-                panic!("Should not ask to convert a TTL, ECN or DSCP Test Argument into an IPv6ExtHeader.")
+                panic!("Should not ask to convert a TTL, RawIPHdr, ECN or DSCP Test Argument into an IPv6ExtHeader.")
             }
         }
     }
@@ -63,7 +63,8 @@ impl From<TestArgument> for Vec<u8> {
                 panic!("Should not ask to convert a TTL, ECN or DSCP Test Argument into a vector of bytes.")
             }
             TestArgument::PeerMacAddress(v) => v.mac.to_vec(),
-            TestArgument::HeaderOption(header) => header.header_body,
+            TestArgument::HeaderOption(header) => header.into(),
+            TestArgument::RawIpHdr(bytes) => bytes,
             TestArgument::Invalid => vec![],
         }
     }
@@ -75,8 +76,10 @@ impl From<TestArgument> for u8 {
             TestArgument::Ttl(ttl) => ttl,
             TestArgument::Ecn(ecn) => Into::<u8>::into(ecn),
             TestArgument::Dscp(value) => Into::<u8>::into(value),
-            TestArgument::PeerMacAddress(_) | TestArgument::HeaderOption(_) => {
-                panic!("Should not ask to convert a Peer MAC Address or Header Option Argument into a byte.")
+            TestArgument::PeerMacAddress(_)
+            | TestArgument::RawIpHdr(_)
+            | TestArgument::HeaderOption(_) => {
+                panic!("Should not ask to convert a Peer MAC Address, Raw IP Hdr or Header Option Argument into a byte.")
             }
             TestArgument::Invalid => -1i32 as u8,
         }
@@ -91,6 +94,7 @@ impl Display for TestArgument {
             TestArgument::Dscp(value) => write!(f, "Dscp = {value:?}"),
             TestArgument::PeerMacAddress(value) => write!(f, "Peer Mac Address = {value:?}"),
             TestArgument::HeaderOption(header) => write!(f, "Header option = {header:x?}"),
+            TestArgument::RawIpHdr(header) => write!(f, "Raw IP Header = {header:x?}"),
             TestArgument::Invalid => write!(f, "Invalid."),
         }
     }
@@ -106,11 +110,12 @@ impl Debug for TestArgument {
 #[repr(usize)]
 pub enum TestArgumentKind {
     Ttl = 0,
-    Ecn = 1,
-    Dscp = 2,
-    PeerMacAddress = 3,
-    HeaderOption = 4,
-    MaxParameterKind = 5,
+    RawIpHdr = 1,
+    Ecn = 2,
+    Dscp = 3,
+    PeerMacAddress = 4,
+    HeaderOption = 5,
+    MaxParameterKind = 6,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -154,6 +159,7 @@ pub struct TestParameters {
 }
 
 static TTL_TEST_PARAMETER: TtlTestParameter = TtlTestParameter {};
+static RAW_IPHDR_TEST_PARAMETER: RawIpHdrTestParameter = RawIpHdrTestParameter {};
 static ECN_TEST_PARAMETER: EcnTestParameter = EcnTestParameter {};
 static DSCP_TEST_PARAMETER: DscpTestParameter = DscpTestParameter {};
 static PEER_MAC_ADDRESS_TEST_PARAMETER: PeerMACAddressTestParameter =
@@ -165,6 +171,7 @@ impl TestParameters {
         Self {
             parameters: vec![
                 &TTL_TEST_PARAMETER,
+                &RAW_IPHDR_TEST_PARAMETER,
                 &ECN_TEST_PARAMETER,
                 &DSCP_TEST_PARAMETER,
                 &PEER_MAC_ADDRESS_TEST_PARAMETER,
@@ -175,8 +182,9 @@ impl TestParameters {
 
     pub fn get_arguments(
         &self,
+        raw_ip_hdr: Vec<u8>,
         ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        network_options: &NetworkOptions,
         logger: Logger,
     ) -> Result<TestArguments, StampError> {
         let mut arguments: Vec<(TestArgumentKind, TestArgument)> = vec![];
@@ -185,7 +193,7 @@ impl TestParameters {
             .iter()
             .filter_map(|param| {
                 param
-                    .argument_from(ethernet_hdr, ip_hdr, logger.clone())
+                    .argument_from(&raw_ip_hdr, ethernet_hdr, network_options, logger.clone())
                     .map(|argument| (param.argument_kind(), argument))
             })
             .for_each(|(kind, value)| {
@@ -201,8 +209,9 @@ trait TestParameter {
     fn argument_kind(&self) -> TestArgumentKind;
     fn argument_from(
         &self,
+        raw_ip_hdr: &[u8],
         ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        network_options: &NetworkOptions,
         logger: Logger,
     ) -> Option<Vec<TestArgument>>;
 }
@@ -216,8 +225,9 @@ impl TestParameter for PeerMACAddressTestParameter {
 
     fn argument_from(
         &self,
+        _raw_ip_hdr: &[u8],
         ethernet_hdr: &Ethernet2Header,
-        _ip_hdr: &IpHeaders,
+        _network_options: &NetworkOptions,
         _logger: Logger,
     ) -> Option<Vec<TestArgument>> {
         Some(vec![TestArgument::PeerMacAddress(MacAddr {
@@ -235,13 +245,33 @@ impl TestParameter for TtlTestParameter {
 
     fn argument_from(
         &self,
+        _raw_ip_hdr: &[u8],
         _ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        network_options: &NetworkOptions,
         _logger: Logger,
     ) -> Option<Vec<TestArgument>> {
-        match ip_hdr {
-            IpHeaders::Left(ipv4) => Some(vec![TestArgument::Ttl(ipv4.time_to_live)]),
-            IpHeaders::Right(ipv6) => Some(vec![TestArgument::Ttl(ipv6.0.hop_limit)]),
+        Some(vec![TestArgument::Ttl(network_options.ttl)])
+    }
+}
+
+pub struct RawIpHdrTestParameter {}
+
+impl TestParameter for RawIpHdrTestParameter {
+    fn argument_kind(&self) -> TestArgumentKind {
+        TestArgumentKind::RawIpHdr
+    }
+
+    fn argument_from(
+        &self,
+        raw_ip_hdr: &[u8],
+        _ethernet_hdr: &Ethernet2Header,
+        _network_options: &NetworkOptions,
+        _logger: Logger,
+    ) -> Option<Vec<TestArgument>> {
+        if !raw_ip_hdr.is_empty() {
+            Some(vec![TestArgument::RawIpHdr(raw_ip_hdr.to_vec())])
+        } else {
+            None
         }
     }
 }
@@ -255,16 +285,12 @@ impl TestParameter for EcnTestParameter {
 
     fn argument_from(
         &self,
+        _raw_ip_hdr: &[u8],
         _ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        ip_hdr: &NetworkOptions,
         _logger: Logger,
     ) -> Option<Vec<TestArgument>> {
-        match ip_hdr {
-            IpHeaders::Left(ipv4) => Some(vec![TestArgument::Ecn(ipv4.ecn.into())]),
-            IpHeaders::Right(ipv6) => {
-                Some(vec![TestArgument::Ecn((ipv6.0.traffic_class & 0x3).into())])
-            }
-        }
+        Some(vec![TestArgument::Ecn(ip_hdr.ecn)])
     }
 }
 
@@ -277,23 +303,12 @@ impl TestParameter for DscpTestParameter {
 
     fn argument_from(
         &self,
+        _raw_ip_hdr: &[u8],
         _ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        network_options: &NetworkOptions,
         _logger: Logger,
     ) -> Option<Vec<TestArgument>> {
-        //Some(TestArgument::Dscp(ip_hdr.dscp))
-        match ip_hdr {
-            // No need to shift right here because ipv4.dscp is _not_ a raw value (See TryInto<DscpValue> for Ipv4Dscp)
-            IpHeaders::Left(ipv4) => TryInto::<DscpValue>::try_into(ipv4.dscp)
-                .map(TestArgument::Dscp)
-                .map(|v| Some(vec![v]))
-                .unwrap_or(None),
-            // Need to shift right here because the value extracted from traffic class is raw (and try_into expects shifting!)
-            IpHeaders::Right(ipv6) => TryInto::<DscpValue>::try_into(ipv6.0.traffic_class >> 2)
-                .map(TestArgument::Dscp)
-                .map(|v| Some(vec![v]))
-                .unwrap_or(None),
-        }
+        Some(vec![TestArgument::Dscp(network_options.dscp)])
     }
 }
 
@@ -306,15 +321,17 @@ impl TestParameter for HeaderOptionTestParameter {
 
     fn argument_from(
         &self,
+        _raw_ip_hdr: &[u8],
         _ethernet_hdr: &Ethernet2Header,
-        ip_hdr: &IpHeaders,
+        network_options: &NetworkOptions,
         _logger: Logger,
     ) -> Option<Vec<TestArgument>> {
-        //Some(TestArgument::Dscp(ip_hdr.dscp))
-        match ip_hdr {
-            IpHeaders::Left(_) => None,
-            IpHeaders::Right(ipv6) => Some(
-                ipv6.1
+        match network_options.mode {
+            IpVersion::Four => None,
+            IpVersion::Six => Some(
+                network_options
+                    .extension_headers
+                    .as_ref()?
                     .iter()
                     .map(|v| TestArgument::HeaderOption(v.clone()))
                     .collect(),

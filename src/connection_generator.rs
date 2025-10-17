@@ -18,16 +18,15 @@
 
 use std::{
     fmt::Debug,
-    io::{Error, IoSliceMut},
+    io::{ErrorKind, IoSliceMut},
     net::{IpAddr, SocketAddr},
     os::fd::AsRawFd,
     time,
 };
 
-use either::Either::{Left, Right};
 use etherparse::{
-    ip_number::UDP, Ethernet2Header, IpNumber, Ipv4Dscp, Ipv4Ecn, Ipv4Header, Ipv6Header,
-    LinkSlice, NetSlice, SlicedPacket, TransportSlice, UdpHeader,
+    Ethernet2Header, Ipv4Header, Ipv6Header,
+    LinkSlice, NetSlice, SlicedPacket, TransportSlice,
 };
 use mio::{Events, Interest};
 use nix::{
@@ -37,7 +36,11 @@ use nix::{
 use pnet::datalink::DataLinkReceiver;
 use slog::{error, info, trace, warn};
 
-use crate::{server::ServerSocket, util::to_socketaddr};
+use crate::{
+    ip::{DscpValue, EcnValue, ExtensionHeader},
+    server::ServerSocket,
+    util::to_socketaddr,
+};
 
 #[derive(Debug)]
 pub enum ConnectionGeneratorError {
@@ -101,11 +104,39 @@ impl From<ServerSocket> for ConnectionGenerator {
 }
 
 pub type ExtendedIpv6Header = (Ipv6Header, Vec<Ipv6ExtHeader>);
-pub type Connection = (Option<Ethernet2Header>, IpHeaders, Vec<u8>, SocketAddr);
 pub type IpHeaders = either::Either<Ipv4Header, ExtendedIpv6Header>;
 
+#[derive(Debug, Clone)]
+pub enum IpVersion {
+    Four,
+    Six,
+}
+
+#[derive(Debug, Clone)]
+pub struct NetworkOptions {
+    pub mode: IpVersion,
+    pub ttl: u8,
+    pub dscp: DscpValue,
+    pub ecn: EcnValue,
+    pub extension_headers: Option<Vec<ExtensionHeader>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionInformation {
+    pub ethernet: Option<Ethernet2Header>,
+    pub raw_network: Option<Vec<u8>>,
+    pub network: NetworkOptions,
+}
+
+#[derive(Debug, Clone)]
+pub struct Connection {
+    pub information: ConnectionInformation,
+    pub body: Vec<u8>,
+    pub addr: SocketAddr,
+}
+
 impl ConnectionGenerator {
-    fn extract_packets(pkt: &[u8]) -> Option<(Ethernet2Header, IpHeaders, UdpHeader, Vec<u8>)> {
+    fn extract_packets(pkt: &[u8]) -> Option<(Connection, SocketAddr)> {
         match SlicedPacket::from_ethernet(pkt) {
             Ok(pieces) => {
                 let link_header = if let Some(LinkSlice::Ethernet2(ether)) = pieces.link {
@@ -114,48 +145,66 @@ impl ConnectionGenerator {
                     return None;
                 };
 
-                let net_header = match pieces.net {
-                    Some(NetSlice::Ipv4(ipv4)) => either::Left(ipv4.header().to_header().clone()),
-                    Some(NetSlice::Ipv6(ipv6)) => {
-                        either::Right((ipv6.header().to_header().clone(), vec![]))
+                match (pieces.net, pieces.transport) {
+                    (Some(NetSlice::Ipv4(ipv4)), Some(TransportSlice::Udp(udp))) => {
+                        let ipv4 = ipv4.header();
+                        let client_address: SocketAddr = (ipv4.source_addr(), udp.source_port()).into();
+                        let target_address: SocketAddr = (ipv4.destination_addr(), udp.destination_port()).into();
+                        let raw_net_header = ipv4.slice().to_vec();
+                        let ttl = ipv4.ttl();
+                        let dscp: DscpValue = ipv4.dcp().try_into().unwrap();
+                        let ecn: EcnValue = ipv4.ecn().into();
+                        let mode = IpVersion::Four;
+                        Some((
+                            Connection {
+                                information: ConnectionInformation {
+                                    ethernet: Some(link_header),
+                                    raw_network: Some(raw_net_header),
+                                    network: NetworkOptions {
+                                        mode,
+                                        ttl,
+                                        dscp,
+                                        ecn,
+                                        extension_headers: None,
+                                    },
+                                },
+                                body: udp.payload().to_vec(),
+                                addr: client_address,
+                            },
+                            target_address,
+                        ))
                     }
                     _ => {
-                        return None;
+                        // Todo: Handle IPv6
+                        None
                     }
-                };
-                let (transport_header, transport_bytes) =
-                    if let Some(TransportSlice::Udp(udp)) = pieces.transport {
-                        (udp.to_header(), udp.payload().to_vec())
-                    } else {
-                        return None;
-                    };
-                Some((link_header, net_header, transport_header, transport_bytes))
+                }
             }
-            Err(_) => None,
+            _ => None
         }
     }
 
     fn packet_filter(
-        ip_pkt_hdr: &IpHeaders,
-        udp_pkt_hdr: &UdpHeader,
-        address: SocketAddr,
+        mode: IpVersion,
+        target_address: SocketAddr,
+        server_address: SocketAddr,
         logger: slog::Logger,
     ) -> bool {
-        match ip_pkt_hdr {
-            IpHeaders::Left(ipv4) => {
-                if !address.ip().is_unspecified()
-                    && Into::<IpAddr>::into(ipv4.destination) != address.ip()
+        match mode {
+            IpVersion::Four => {
+                if !server_address.ip().is_unspecified()
+                    && target_address.ip() != server_address.ip()
                 {
                     trace!(
                         logger,
                         "Got a udp packet that was not for our IP (expected {}, got {}). Skipping",
-                        Into::<IpAddr>::into(ipv4.destination),
-                        address.ip()
+                        target_address.ip(),
+                        server_address.ip()
                     );
                     return false;
                 }
             }
-            IpHeaders::Right(_) => {
+            IpVersion::Six => {
                 trace!(
                     logger,
                     "Packet filtering for Ipv6 is not yet implemented. Skipping."
@@ -163,11 +212,12 @@ impl ConnectionGenerator {
                 return false;
             }
         }
-        if udp_pkt_hdr.destination_port != address.port() {
+
+        if target_address.port() != server_address.port() {
             trace!(
                 logger,
                 "Got a udp packet that was not for our port ({}). Skipping",
-                udp_pkt_hdr.destination_port
+                target_address.port()
             );
             return false;
         }
@@ -182,12 +232,10 @@ impl ConnectionGenerator {
         match &mut self.connection {
             ConnectionGeneratorSource::LinkLayer(interface) => match interface.next() {
                 Ok(pkt) => {
-                    if let Some((ethernet_pkt, ip_pkt_hdr, udp_header, udp_bytes)) =
-                        Self::extract_packets(pkt)
-                    {
+                    if let Some((connection, target_addr)) = Self::extract_packets(pkt) {
                         if !Self::packet_filter(
-                            &ip_pkt_hdr,
-                            &udp_header,
+                            connection.information.network.mode.clone(),
+                            target_addr,
                             server_socket_addr,
                             logger.clone(),
                         ) {
@@ -197,19 +245,7 @@ impl ConnectionGenerator {
                             );
                             return Err(ConnectionGeneratorError::Filtered);
                         }
-
-                        let client_address: SocketAddr = match &ip_pkt_hdr {
-                            IpHeaders::Left(ipv4) => {
-                                (Into::<IpAddr>::into(ipv4.source), udp_header.source_port).into()
-                            }
-                            IpHeaders::Right(_) => {
-                                todo!(
-                                    "Implement Ipv6 support for calculating the client IP address"
-                                )
-                            }
-                        };
-
-                        Ok((Some(ethernet_pkt), ip_pkt_hdr, udp_bytes, client_address))
+                        Ok(connection)
                     } else {
                         Err(ConnectionGeneratorError::ExtractionError)
                     }
@@ -266,7 +302,7 @@ impl ConnectionGenerator {
                         let mut dscp_recv: Option<u8> = None;
                         let mut ttl_recv: Option<i32> = None;
                         let mut traffic_class: Option<i32> = None;
-                        let mut ext_headers: Vec<Ipv6ExtHeader> = vec![];
+                        let mut ext_headers: Vec<ExtensionHeader> = vec![];
 
                         match result.cmsgs() {
                             Ok(cmsgs) => {
@@ -286,7 +322,7 @@ impl ConnectionGenerator {
                                             ttl_recv = Some(val)
                                         }
                                         ControlMessageOwned::Ipv6ExtHeader(header) => {
-                                            ext_headers.push(header)
+                                            ext_headers.push(ExtensionHeader::Six(header))
                                         }
                                         _ => {
                                             unreachable!()
@@ -316,56 +352,39 @@ impl ConnectionGenerator {
                             );
                                 ConnectionGeneratorError::ExtractionError
                             })?;
-                        let dscp_recv = dscp_recv.unwrap_or(0x0);
-                        let ip_hdr = match (client_ip.ip(), server_socket_addr.ip()) {
-                            (IpAddr::V4(cv4), IpAddr::V4(sv4)) => either::Left(
-                                Ipv4Header::new(
-                                    500,
-                                    ttl_recv,
-                                    IpNumber::UDP,
-                                    cv4.octets(),
-                                    sv4.octets(),
-                                )
-                                .unwrap(),
-                            ),
-                            (IpAddr::V6(cv6), IpAddr::V6(sv6)) => either::Right(Ipv6Header {
-                                payload_length: 500,
-                                hop_limit: ttl_recv,
-                                traffic_class: traffic_class.unwrap_or(dscp_recv as i32) as u8, // It's possible that we have ecn and dscp even though we are v6. Handle that case.
-                                flow_label: Default::default(),
-                                next_header: UDP,
-                                source: cv6.octets(),
-                                destination: sv6.octets(),
-                            }),
+                        let dscp_recv =
+                            traffic_class.unwrap_or(dscp_recv.unwrap_or_default().into()) as u8;
+                        let dscp_value = TryInto::<DscpValue>::try_into(dscp_recv >> 2).unwrap();
+                        let ecn_value = Into::<EcnValue>::into(dscp_recv & 0x3);
+                        let mode = match (client_ip.ip(), server_socket_addr.ip()) {
+                            (IpAddr::V4(_), IpAddr::V4(_)) => IpVersion::Four,
+                            (IpAddr::V6(_), IpAddr::V6(_)) => IpVersion::Six,
                             _ => {
                                 error!(
-                                    logger,
-                                    "There was an unrecognized client/server protocol combination."
-                                );
-                                return Err(ConnectionGeneratorError::IoError(Error::other(
-                                    "Unrecognized client/server protocol combination.",
-                                )));
+                                logger,
+                                "There was an invalid IP version combination on the client connection.");
+                                return Err(ConnectionGeneratorError::IoError(
+                                    ErrorKind::AddrNotAvailable.into(),
+                                ));
                             }
                         };
 
-                        match ip_hdr {
-                            Left(mut ip_hdr) => {
-                                ip_hdr.dscp = Ipv4Dscp::try_new(dscp_recv >> 2).unwrap();
-                                ip_hdr.ecn = Ipv4Ecn::try_new(dscp_recv & 0x3).unwrap();
-                                Ok((
-                                    None,
-                                    either::Left(ip_hdr),
-                                    result.iovs().nth(0).unwrap().to_vec(),
-                                    client_ip,
-                                ))
-                            }
-                            Right(ip6_hdr) => Ok((
-                                None,
-                                either::Right((ip6_hdr, ext_headers)),
-                                result.iovs().nth(0).unwrap().to_vec(),
-                                client_ip,
-                            )),
-                        }
+                        let ci = NetworkOptions {
+                            mode,
+                            ttl: ttl_recv,
+                            dscp: dscp_value,
+                            ecn: ecn_value,
+                            extension_headers: Some(ext_headers),
+                        };
+                        Ok(Connection {
+                            information: ConnectionInformation {
+                                ethernet: None,
+                                raw_network: None,
+                                network: ci,
+                            },
+                            body: result.iovs().nth(0).unwrap().to_vec(),
+                            addr: client_ip,
+                        })
                     }
                     Err(Errno::EWOULDBLOCK) => Err(ConnectionGeneratorError::WouldBlock),
                     Err(e) => Err(ConnectionGeneratorError::IoError(e.into())),

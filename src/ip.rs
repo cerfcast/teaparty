@@ -19,6 +19,7 @@
 use std::{fmt::Debug, io};
 
 use clap::ValueEnum;
+use nix::sys::socket::Ipv6ExtHeader;
 
 #[repr(u8)]
 #[derive(Default, Clone, Copy, Debug, ValueEnum, PartialEq, Eq, PartialOrd)]
@@ -270,3 +271,18 @@ pub struct Srv6SegmentList {}
 
 #[derive(Debug, Clone)]
 pub struct MplsSegmentList {}
+
+#[derive(Debug, Clone)]
+pub enum ExtensionHeader {
+    Four,
+    Six(Ipv6ExtHeader)
+}
+
+impl From<ExtensionHeader> for Vec<u8> {
+    fn from(value: ExtensionHeader) -> Self {
+        match value {
+            ExtensionHeader::Four => vec![],
+            ExtensionHeader::Six(header) => header.header_body
+        }
+    }
+}
