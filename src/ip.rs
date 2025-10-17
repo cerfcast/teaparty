@@ -275,14 +275,14 @@ pub struct MplsSegmentList {}
 #[derive(Debug, Clone)]
 pub enum ExtensionHeader {
     Four,
-    Six(Ipv6ExtHeader)
+    Six(Ipv6ExtHeader),
 }
 
 impl From<ExtensionHeader> for Vec<u8> {
     fn from(value: ExtensionHeader) -> Self {
         match value {
             ExtensionHeader::Four => vec![],
-            ExtensionHeader::Six(header) => header.header_body
+            ExtensionHeader::Six(header) => header.header_body,
         }
     }
 }

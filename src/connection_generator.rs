@@ -25,8 +25,7 @@ use std::{
 };
 
 use etherparse::{
-    Ethernet2Header, Ipv4Header, Ipv6Header,
-    LinkSlice, NetSlice, SlicedPacket, TransportSlice,
+    Ethernet2Header, Ipv4Header, Ipv6Header, LinkSlice, NetSlice, SlicedPacket, TransportSlice,
 };
 use mio::{Events, Interest};
 use nix::{
@@ -148,8 +147,10 @@ impl ConnectionGenerator {
                 match (pieces.net, pieces.transport) {
                     (Some(NetSlice::Ipv4(ipv4)), Some(TransportSlice::Udp(udp))) => {
                         let ipv4 = ipv4.header();
-                        let client_address: SocketAddr = (ipv4.source_addr(), udp.source_port()).into();
-                        let target_address: SocketAddr = (ipv4.destination_addr(), udp.destination_port()).into();
+                        let client_address: SocketAddr =
+                            (ipv4.source_addr(), udp.source_port()).into();
+                        let target_address: SocketAddr =
+                            (ipv4.destination_addr(), udp.destination_port()).into();
                         let raw_net_header = ipv4.slice().to_vec();
                         let ttl = ipv4.ttl();
                         let dscp: DscpValue = ipv4.dcp().try_into().unwrap();
@@ -180,7 +181,7 @@ impl ConnectionGenerator {
                     }
                 }
             }
-            _ => None
+            _ => None,
         }
     }
 
