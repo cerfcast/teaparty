@@ -27,7 +27,6 @@ use crate::{
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::{ArgMatches, Command, FromArgMatches, Subcommand};
-use nix::sys::socket::Ipv6ExtHeader;
 use slog::{info, Logger};
 
 use crate::{
