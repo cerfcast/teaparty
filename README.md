@@ -20,6 +20,8 @@ After that, it _should_ be as easy as
 $ cargo build
 ```
 
+> Note: We have vendored [`nix`](https://docs.rs/nix/0.30.1/nix/) (and its [`libc`](https://docs.rs/libc/0.2.175/libc/) dependency) in order to add support for accessing IPv6 Extension Headers. `nix` is vendored at 0.30.1 and `libc` is vendored at 0.2.175. Work on upstreaming the changes is ongoing.
+
 ### Running
 
 `teaparty` has both a Session _Reflector_ and a Session _Sender_ mode. The _sender_ mode was originally developed/maintained for the purposes of testing interoperability, but has since grown to become a full-fledged, useful STAMP Session Sender. 
