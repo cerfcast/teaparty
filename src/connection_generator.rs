@@ -30,7 +30,9 @@ use etherparse::{
 use mio::{Events, Interest};
 use nix::{
     errno::Errno,
-    sys::socket::{recvmsg, ControlMessageOwned, Ipv6ExtHeader, MsgFlags, SockaddrStorage},
+    sys::socket::{
+        recvmsg, ControlMessageOwned, Ipv6ExtHeader, Ipv6ExtHeaderType, MsgFlags, SockaddrStorage,
+    },
 };
 use pnet::datalink::DataLinkReceiver;
 use slog::{error, info, trace, warn};
@@ -177,17 +179,42 @@ impl ConnectionGenerator {
                         ))
                     }
                     (Some(NetSlice::Ipv6(ipv6)), Some(TransportSlice::Udp(udp))) => {
-                        let ipv6 = ipv6.header();
+                        let ipv6h = ipv6.header();
                         let client_address: SocketAddr =
-                            (ipv6.source_addr(), udp.source_port()).into();
+                            (ipv6h.source_addr(), udp.source_port()).into();
                         let target_address: SocketAddr =
-                            (ipv6.destination_addr(), udp.destination_port()).into();
-                        let raw_net_header = ipv6.slice().to_vec();
-                        let hop_limit = ipv6.hop_limit();
+                            (ipv6h.destination_addr(), udp.destination_port()).into();
+                        let raw_net_header = ipv6h.slice().to_vec();
+                        let hop_limit = ipv6h.hop_limit();
                         let dscp: DscpValue =
-                            TryInto::<DscpValue>::try_into(ipv6.traffic_class() >> 2).ok()?;
-                        let ecn: EcnValue = (0x03 & ipv6.traffic_class()).into();
+                            TryInto::<DscpValue>::try_into(ipv6h.traffic_class() >> 2).ok()?;
+                        let ecn: EcnValue = (0x03 & ipv6h.traffic_class()).into();
                         let mode = IpVersion::Six;
+
+                        // Now, what if there are options!
+                        let extension_headers: Vec<_> = ipv6
+                            .extensions()
+                            .clone()
+                            .into_iter()
+                            .filter_map(|ehs| match ehs {
+                                etherparse::Ipv6ExtensionSlice::HopByHop(
+                                    ipv6_raw_ext_header_slice,
+                                ) => Some(ExtensionHeader::Six(Ipv6ExtHeader {
+                                    header_type: Ipv6ExtHeaderType::HopByHop,
+                                    header_next: ipv6_raw_ext_header_slice.next_header().into(),
+                                    header_body: ipv6_raw_ext_header_slice.payload().to_vec(),
+                                })),
+                                etherparse::Ipv6ExtensionSlice::DestinationOptions(
+                                    ipv6_raw_ext_header_slice,
+                                ) => Some(ExtensionHeader::Six(Ipv6ExtHeader {
+                                    header_type: Ipv6ExtHeaderType::Dst,
+                                    header_next: ipv6_raw_ext_header_slice.next_header().into(),
+                                    header_body: ipv6_raw_ext_header_slice.payload().to_vec(),
+                                })),
+                                _ => None,
+                            })
+                            .collect();
+
                         Some((
                             Connection {
                                 information: ConnectionInformation {
@@ -198,7 +225,7 @@ impl ConnectionGenerator {
                                         ttl: hop_limit,
                                         dscp,
                                         ecn,
-                                        extension_headers: None,
+                                        extension_headers: Some(extension_headers),
                                     },
                                 },
                                 body: udp.payload().to_vec(),
