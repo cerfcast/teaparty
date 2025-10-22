@@ -527,9 +527,15 @@ pub fn handler(
                         tlv.flags.set_malformed(true);
                         break;
                     }
+                    Err(StampError::UnrecognizedTlv(e)) => {
+                        // Leave the contents of the original tlv alone but mark as malformed.
+                        info!(logger, "{} set a TLV as unrecognized because {:?}; further TLV processing will continue", handler.tlv_name(), e);
+                        tlv.flags.set_unrecognized(true);
+                        break;
+                    }
                     Err(e) => {
                         // TODO: Check
-                        error!(logger, "There was an unrecognized error from the Tlv-specific handler {}: {}. No response will be generated.", handler.tlv_name(), e);
+                        error!(logger, "There was a general error from the Tlv-specific handler {}: {}. No response will be generated.", handler.tlv_name(), e);
                     }
                 }
             } else {

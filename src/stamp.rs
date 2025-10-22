@@ -73,6 +73,7 @@ pub enum StampError {
     Ntp(NtpError),
     Io(std::io::Error),
     MalformedTlv(tlv::Error),
+    UnrecognizedTlv(tlv::Error),
     InvalidSignature,
     Malformed(StampParseAttemptType, String),
     SignalHandlerFailure(String),
@@ -98,6 +99,7 @@ impl Display for StampError {
                 write!(f, "An argument for a test was missing: {arg:?}")
             }
             StampError::MalformedTlv(e) => write!(f, "Malformed TLV error: {e:?}"),
+            StampError::UnrecognizedTlv(e) => write!(f, "Unrecognized TLV: {e:?}"),
             StampError::InvalidSignature => write!(f, "Stamp message had an invalid signature"),
             StampError::Malformed(tpe, message) => {
                 write!(f, "Error parsing {tpe:?}: {message}")
