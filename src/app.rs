@@ -9,8 +9,8 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{
     ip::{DscpValue, EcnValue},
-    tpyaml::YamlSocketAddr,
     stamp::{Ssid, StampError},
+    tpyaml::YamlSocketAddr,
     HeartbeatConfiguration, Ipv6ExtensionHeaderArg, MalformedWhy,
 };
 

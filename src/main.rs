@@ -58,7 +58,6 @@ mod connection_generator;
 mod custom_handlers;
 mod handlers;
 mod ip;
-mod tpyaml;
 mod meta;
 mod monitor;
 mod netconf;
@@ -72,6 +71,7 @@ mod server;
 mod stamp;
 mod test;
 mod tlv;
+mod tpyaml;
 mod util;
 
 mod tlvs;
@@ -681,13 +681,23 @@ fn server(
                 if iface.ips.is_empty() {
                     None
                 } else {
-                    let address = iface.ips.iter().map(|ip| match ip.ip() {
-                        IpAddr::V4(v4) => Into::<SocketAddr>::into((v4, server_socket_addr.port())),
-                        IpAddr::V6(v6) => Into::<SocketAddr>::into((v6, server_socket_addr.port())),
-                    }).collect();
+                    let address = iface
+                        .ips
+                        .iter()
+                        .map(|ip| match ip.ip() {
+                            IpAddr::V4(v4) => {
+                                Into::<SocketAddr>::into((v4, server_socket_addr.port()))
+                            }
+                            IpAddr::V6(v6) => {
+                                Into::<SocketAddr>::into((v6, server_socket_addr.port()))
+                            }
+                        })
+                        .collect();
                     info!(
                         logger,
-                        "Started server to listen on interface {} with IP(s) {:?}.", iface.name, address
+                        "Started server to listen on interface {} with IP(s) {:?}.",
+                        iface.name,
+                        address
                     );
 
                     let (_, pkt_receiver) = match datalink::channel(
