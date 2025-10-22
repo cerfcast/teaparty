@@ -9,7 +9,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{
     ip::{DscpValue, EcnValue},
-    meta::MetaSocketAddr,
+    tpyaml::YamlSocketAddr,
     stamp::{Ssid, StampError},
     HeartbeatConfiguration, Ipv6ExtensionHeaderArg, MalformedWhy,
 };
@@ -121,9 +121,9 @@ pub struct ReflectorGeneralConfiguration {
 
     pub link_layer: bool,
 
-    pub meta_addr: Option<MetaSocketAddr<8000>>,
+    pub meta_addr: Option<YamlSocketAddr<8000>>,
 
-    pub listen_addr: MetaSocketAddr<862>,
+    pub listen_addr: YamlSocketAddr<862>,
 
     pub reflector_tlv_configurations: ReflectorTlvConfigurations,
 

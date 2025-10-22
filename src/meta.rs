@@ -16,10 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::str::FromStr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use crate::app::{ServerError, TeapartyError};
 use crate::monitor::Monitor;
 use crate::server::{ServerCancellation, Session, SessionData, SessionError};
 use crate::stamp::Ssid;
@@ -30,104 +28,6 @@ use rocket::{get, post, routes, Config, State};
 use serde::Serialize;
 use slog::Logger;
 use slog::{error, info};
-use yaml_rust2::Yaml;
-
-#[derive(Clone, Debug)]
-pub struct MetaSocketAddr<const T: u16> {
-    pub addr: SocketAddr,
-}
-
-impl<const T: u16> Default for MetaSocketAddr<T> {
-    fn default() -> Self {
-        Self {
-            addr: (Ipv4Addr::UNSPECIFIED, T).into(),
-        }
-    }
-}
-impl<const T: u16> MetaSocketAddr<T> {
-    pub const DEFAULT_PORT: u16 = T;
-}
-
-impl<const T: u16> From<SocketAddr> for MetaSocketAddr<T> {
-    fn from(value: SocketAddr) -> Self {
-        MetaSocketAddr {
-            addr: (
-                value.ip(),
-                if value.port() != 0 {
-                    value.port()
-                } else {
-                    MetaSocketAddr::<T>::DEFAULT_PORT
-                },
-            )
-                .into(),
-        }
-    }
-}
-impl<const T: u16> FromStr for MetaSocketAddr<T> {
-    type Err = clap::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // First, split at last :
-        let splits: Vec<_> = s.split(':').collect();
-
-        // We'll try to consider that a port.
-        if let Some(maybe_port) = splits.last() {
-            // That means that all the values before it are part of an IP address.
-            let ip = splits[0..splits.len() - 1].join(":");
-
-            // If that worked, then we're in business.
-            if let (Ok(ip), Ok(port)) = (ip.parse::<IpAddr>(), maybe_port.parse::<u16>()) {
-                return Ok(MetaSocketAddr {
-                    addr: (ip, port).into(),
-                });
-            }
-        }
-
-        // Otherwise, it _seems_ like everything that was given by the user is an IP!
-        let ip = s
-            .parse::<IpAddr>()
-            .map_err(|_| clap::error::Error::new(clap::error::ErrorKind::InvalidValue))?;
-        Ok(MetaSocketAddr {
-            addr: (ip, Self::DEFAULT_PORT).into(),
-        })
-    }
-}
-
-impl<const T: u16> TryInto<MetaSocketAddr<T>> for &Yaml {
-    type Error = TeapartyError;
-
-    fn try_into(self) -> Result<MetaSocketAddr<T>, Self::Error> {
-        if let Some(yaml) = self.as_hash() {
-            let mut addr = Into::<SocketAddr>::into((Ipv4Addr::UNSPECIFIED, 0));
-
-            if let Some(value) = yaml
-                .get(&Yaml::String("ip".to_string()))
-                .and_then(|f| f.as_str())
-            {
-                addr.set_ip(value.parse::<IpAddr>().map_err(|e| {
-                    TeapartyError::Server(ServerError::Config(format!(
-                        "Could not parse IP address: {e}"
-                    )))
-                })?)
-            }
-            if let Some(value) = yaml
-                .get(&Yaml::String("port".to_string()))
-                .and_then(|f| f.as_i64())
-            {
-                addr.set_port(u16::try_from(value).map_err(|e| {
-                    TeapartyError::Server(ServerError::Config(format!(
-                        "Could not parse port number: {e}"
-                    )))
-                })?)
-            }
-            Ok(MetaSocketAddr { addr })
-        } else {
-            Err(TeapartyError::Server(ServerError::Config(
-                "Invalid configuration for socket address".to_string(),
-            )))
-        }
-    }
-}
 
 #[get("/sessions")]
 fn index(monitor: &State<Monitor>) -> String {
