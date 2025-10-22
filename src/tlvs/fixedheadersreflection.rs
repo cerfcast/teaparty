@@ -42,15 +42,20 @@ pub struct ReflectedFixedHeaderDataTlv {
     pub value: Vec<u8>,
 }
 
+impl ReflectedFixedHeaderDataTlv {
+    pub const IPV4_LEN: u16 = 20;
+    pub const IPV6_LEN: u16 = 40;
+}
+
 impl TryFrom<&Tlv> for ReflectedFixedHeaderDataTlv {
     type Error = StampError;
     fn try_from(value: &Tlv) -> Result<Self, Self::Error> {
-        if value.length == 20 {
+        if value.length == Self::IPV4_LEN {
             Ok(ReflectedFixedHeaderDataTlv {
                 tp: ReflectedFixedHeaderDataType::Ipv4,
                 value: value.value.clone(),
             })
-        } else if value.length == 60 {
+        } else if value.length == Self::IPV6_LEN {
             Ok(ReflectedFixedHeaderDataTlv {
                 tp: ReflectedFixedHeaderDataType::Ipv6,
                 value: value.value.clone(),
@@ -58,7 +63,7 @@ impl TryFrom<&Tlv> for ReflectedFixedHeaderDataTlv {
         } else {
             Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
                 "Fixed Headers Reflection Length".to_string(),
-                20,
+                Self::IPV4_LEN as usize,
                 value.length as usize,
             )))
         }
@@ -113,10 +118,8 @@ impl TlvReflectorHandler for ReflectedFixedHeaderDataTlv {
         let mut response_tlv = tlv.clone();
         response_tlv.flags = Flags::new_response();
 
-        // By default, assume that this TLV is unrecognized. When
-        // data is actually put in it (pre_send_fixup), the value
-        // will be changed!
-        response_tlv.flags.set_unrecognized(true);
+        // Returning an UnrecognizedTlv error will handle the alternate case!
+        response_tlv.flags.set_unrecognized(false);
 
         let parameter_value =
             &parameters.get_parameter_value::<Vec<u8>>(TestArgumentKind::RawIpHdr)?[0];
@@ -132,10 +135,10 @@ impl TlvReflectorHandler for ReflectedFixedHeaderDataTlv {
 
             match fixed_header_tlv.tp {
                 ReflectedFixedHeaderDataType::Ipv4 => {
-                    if parameter_value.len() != 20 {
-                        return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                    if parameter_value.len() != (Self::IPV4_LEN as usize) {
+                        return Err(StampError::UnrecognizedTlv(tlv::Error::FieldWrongSized(
                             "Reflected Fixed Header Data".to_string(),
-                            20,
+                            Self::IPV4_LEN as usize,
                             parameter_value.len(),
                         )));
                     }
@@ -144,10 +147,10 @@ impl TlvReflectorHandler for ReflectedFixedHeaderDataTlv {
                     response_tlv.value = parameter_value.clone();
                 }
                 ReflectedFixedHeaderDataType::Ipv6 => {
-                    if parameter_value.len() != 60 {
-                        return Err(StampError::MalformedTlv(tlv::Error::FieldWrongSized(
+                    if parameter_value.len() != (Self::IPV6_LEN as usize) {
+                        return Err(StampError::UnrecognizedTlv(tlv::Error::FieldWrongSized(
                             "Reflected Fixed Header Data".to_string(),
-                            60,
+                            Self::IPV6_LEN as usize,
                             parameter_value.len(),
                         )));
                     }
@@ -197,8 +200,8 @@ impl TlvSenderHandler for ReflectedFixedHeaderDataTlv {
             None
         };
         let length = match tpe {
-            ReflectedFixedHeaderDataType::Ipv4 => 20,
-            ReflectedFixedHeaderDataType::Ipv6 => 60,
+            ReflectedFixedHeaderDataType::Ipv4 => Self::IPV4_LEN,
+            ReflectedFixedHeaderDataType::Ipv6 => Self::IPV6_LEN,
         };
         Ok(Some((
             vec![Tlv {
