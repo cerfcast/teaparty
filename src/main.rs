@@ -676,36 +676,50 @@ fn server(
 
     for listener in listeners {
         // Depending on the listener, the generator will need to get constructed differently.
-        let mut generator = match listener {
+        let generator = match listener {
             either::Left(iface) => {
-                info!(
-                    logger,
-                    "Started server to listen on interface {}.", iface.name
-                );
+                if iface.ips.is_empty() {
+                    None
+                } else {
+                    let address = iface.ips.iter().map(|ip| match ip.ip() {
+                        IpAddr::V4(v4) => Into::<SocketAddr>::into((v4, server_socket_addr.port())),
+                        IpAddr::V6(v6) => Into::<SocketAddr>::into((v6, server_socket_addr.port())),
+                    }).collect();
+                    info!(
+                        logger,
+                        "Started server to listen on interface {} with IP(s) {:?}.", iface.name, address
+                    );
 
-                let (_, pkt_receiver) = match datalink::channel(
-                    &iface,
-                    Config {
-                        read_timeout: Some(Duration::from_micros(3)),
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-                {
-                    Channel::Ethernet(sender, receiver) => (sender, receiver),
-                    _ => panic!("Bad channel received!"),
-                };
+                    let (_, pkt_receiver) = match datalink::channel(
+                        &iface,
+                        Config {
+                            read_timeout: Some(Duration::from_micros(3)),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap()
+                    {
+                        Channel::Ethernet(sender, receiver) => (sender, receiver),
+                        _ => panic!("Bad channel received!"),
+                    };
 
-                ConnectionGenerator::from(pkt_receiver)
+                    Some(ConnectionGenerator::from((pkt_receiver, address)))
+                }
             }
             either::Right(sock) => {
                 let mut connection_generator = ConnectionGenerator::from(sock);
                 connection_generator
                     .configure_polling()
                     .map_err(StampError::Io)?;
-                connection_generator
+                Some(connection_generator)
             }
         };
+
+        if generator.is_none() {
+            continue;
+        }
+
+        let mut generator = generator.unwrap();
 
         // No matter what is the type of the listener, now that there is a generator it can be
         // used to get packets sent by clients. We create a new thread to service each generator.

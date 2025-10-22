@@ -50,7 +50,7 @@ pub enum ConnectionGeneratorError {
 }
 
 pub enum ConnectionGeneratorSource {
-    LinkLayer(Box<dyn DataLinkReceiver>),
+    LinkLayer(Box<dyn DataLinkReceiver>, Vec<SocketAddr>),
     InternetLayer(ServerSocket),
 }
 
@@ -64,7 +64,7 @@ impl ConnectionGenerator {
 
     pub fn configure_polling(&mut self) -> Result<(), std::io::Error> {
         match &self.connection {
-            ConnectionGeneratorSource::LinkLayer(_) => Ok(()),
+            ConnectionGeneratorSource::LinkLayer(_, _) => Ok(()),
             ConnectionGeneratorSource::InternetLayer(socket) => {
                 let socket_raw_fd = {
                     let socket = socket.socket.lock().unwrap();
@@ -84,10 +84,11 @@ impl ConnectionGenerator {
     }
 }
 
-impl From<Box<dyn DataLinkReceiver>> for ConnectionGenerator {
-    fn from(value: Box<dyn DataLinkReceiver>) -> Self {
+impl From<(Box<dyn DataLinkReceiver>, Vec<SocketAddr>)> for ConnectionGenerator {
+    fn from(value: (Box<dyn DataLinkReceiver>, Vec<SocketAddr>)) -> Self {
+        let (dlr, sa) = value;
         Self {
-            connection: ConnectionGeneratorSource::LinkLayer(value),
+            connection: ConnectionGeneratorSource::LinkLayer(dlr, sa),
             poller: None,
         }
     }
@@ -135,7 +136,7 @@ pub struct Connection {
 }
 
 impl ConnectionGenerator {
-    fn extract_packets(pkt: &[u8]) -> Option<(Connection, SocketAddr)> {
+    fn extract_packets(pkt: &[u8], logger: slog::Logger) -> Option<(Connection, SocketAddr)> {
         match SlicedPacket::from_ethernet(pkt) {
             Ok(pieces) => {
                 let link_header = if let Some(LinkSlice::Ethernet2(ether)) = pieces.link {
@@ -175,8 +176,39 @@ impl ConnectionGenerator {
                             target_address,
                         ))
                     }
+                    (Some(NetSlice::Ipv6(ipv6)), Some(TransportSlice::Udp(udp))) => {
+                        let ipv6 = ipv6.header();
+                        let client_address: SocketAddr =
+                            (ipv6.source_addr(), udp.source_port()).into();
+                        let target_address: SocketAddr =
+                            (ipv6.destination_addr(), udp.destination_port()).into();
+                        let raw_net_header = ipv6.slice().to_vec();
+                        let hop_limit = ipv6.hop_limit();
+                        let dscp: DscpValue =
+                            TryInto::<DscpValue>::try_into(ipv6.traffic_class() >> 2).ok()?;
+                        let ecn: EcnValue = (0x03 & ipv6.traffic_class()).into();
+                        let mode = IpVersion::Six;
+                        Some((
+                            Connection {
+                                information: ConnectionInformation {
+                                    ethernet: Some(link_header),
+                                    raw_network: Some(raw_net_header),
+                                    network: NetworkOptions {
+                                        mode,
+                                        ttl: hop_limit,
+                                        dscp,
+                                        ecn,
+                                        extension_headers: None,
+                                    },
+                                },
+                                body: udp.payload().to_vec(),
+                                addr: client_address,
+                            },
+                            target_address,
+                        ))
+                    }
                     _ => {
-                        // Todo: Handle IPv6
+                        trace!(logger, "Packet received with a non-valid combination of network and transport headers.");
                         None
                     }
                 }
@@ -186,43 +218,33 @@ impl ConnectionGenerator {
     }
 
     fn packet_filter(
-        mode: IpVersion,
+        _mode: IpVersion,
         target_address: SocketAddr,
-        server_address: SocketAddr,
+        server_addresses: &[SocketAddr],
         logger: slog::Logger,
     ) -> bool {
-        match mode {
-            IpVersion::Four => {
-                if !server_address.ip().is_unspecified()
-                    && target_address.ip() != server_address.ip()
-                {
-                    trace!(
-                        logger,
-                        "Got a udp packet that was not for our IP (expected {}, got {}). Skipping",
-                        target_address.ip(),
-                        server_address.ip()
-                    );
-                    return false;
-                }
-            }
-            IpVersion::Six => {
+        server_addresses.iter().any(|server_address| {
+            if !server_address.ip().is_unspecified() && server_address.ip() != target_address.ip() {
                 trace!(
                     logger,
-                    "Packet filtering for Ipv6 is not yet implemented. Skipping."
+                    "Got a udp packet that was not for our IP (expected {}, got {}). Skipping",
+                    target_address.ip(),
+                    server_address.ip()
                 );
                 return false;
             }
-        }
 
-        if target_address.port() != server_address.port() {
-            trace!(
-                logger,
-                "Got a udp packet that was not for our port ({}). Skipping",
-                target_address.port()
-            );
-            return false;
-        }
-        true
+            if target_address.port() != server_address.port() {
+                trace!(
+                    logger,
+                    "Got a udp packet that was not for our port ({}). Skipping",
+                    target_address.port()
+                );
+                return false;
+            }
+
+            true
+        })
     }
 
     pub fn next(
@@ -231,28 +253,32 @@ impl ConnectionGenerator {
         server_socket_addr: SocketAddr,
     ) -> Result<Connection, ConnectionGeneratorError> {
         match &mut self.connection {
-            ConnectionGeneratorSource::LinkLayer(interface) => match interface.next() {
-                Ok(pkt) => {
-                    if let Some((connection, target_addr)) = Self::extract_packets(pkt) {
-                        if !Self::packet_filter(
-                            connection.information.network.mode.clone(),
-                            target_addr,
-                            server_socket_addr,
-                            logger.clone(),
-                        ) {
-                            trace!(
-                                logger,
-                                "Skipping a received packet because it was filtered."
-                            );
-                            return Err(ConnectionGeneratorError::Filtered);
+            ConnectionGeneratorSource::LinkLayer(interface, server_addr) => {
+                match interface.next() {
+                    Ok(pkt) => {
+                        if let Some((connection, target_addr)) =
+                            Self::extract_packets(pkt, logger.clone())
+                        {
+                            if !Self::packet_filter(
+                                connection.information.network.mode.clone(),
+                                target_addr,
+                                server_addr,
+                                logger.clone(),
+                            ) {
+                                trace!(
+                                    logger,
+                                    "Skipping a received packet because it was filtered."
+                                );
+                                return Err(ConnectionGeneratorError::Filtered);
+                            }
+                            Ok(connection)
+                        } else {
+                            Err(ConnectionGeneratorError::ExtractionError)
                         }
-                        Ok(connection)
-                    } else {
-                        Err(ConnectionGeneratorError::ExtractionError)
                     }
+                    Err(e) => Err(ConnectionGeneratorError::IoError(e)),
                 }
-                Err(e) => Err(ConnectionGeneratorError::IoError(e)),
-            },
+            }
             ConnectionGeneratorSource::InternetLayer(server) => {
                 let mut events = Events::with_capacity(128);
                 if let Some(poller) = &mut self.poller {
