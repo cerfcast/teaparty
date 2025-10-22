@@ -19,6 +19,7 @@
 use std::{fmt::Debug, io};
 
 use clap::ValueEnum;
+use etherparse::{IpDscp, IpEcn};
 use nix::sys::socket::Ipv6ExtHeader;
 
 #[repr(u8)]
@@ -49,14 +50,13 @@ impl From<u8> for EcnValue {
     }
 }
 
-impl From<etherparse::Ipv4Ecn> for EcnValue {
-    fn from(value: etherparse::Ipv4Ecn) -> Self {
+impl From<IpEcn> for EcnValue {
+    fn from(value: IpEcn) -> Self {
         match value {
-            etherparse::Ipv4Ecn::ZERO => Self::NotEct,
-            etherparse::Ipv4Ecn::ONE => Self::Ect1,
-            etherparse::Ipv4Ecn::TWO => Self::Ect0,
-            etherparse::Ipv4Ecn::TRHEE => Self::Ce,
-            _ => unreachable!(),
+            IpEcn::ZERO => Self::NotEct,
+            IpEcn::ONE => Self::Ect1,
+            IpEcn::TWO => Self::Ect0,
+            IpEcn::THREE => Self::Ce,
         }
     }
 }
@@ -135,16 +135,16 @@ impl TryFrom<u8> for DscpValue {
     }
 }
 
-impl TryFrom<etherparse::Ipv4Dscp> for DscpValue {
+impl TryFrom<IpDscp> for DscpValue {
     type Error = io::Error;
-    fn try_from(value: etherparse::Ipv4Dscp) -> Result<Self, Self::Error> {
+    fn try_from(value: IpDscp) -> Result<Self, Self::Error> {
         TryInto::<Self>::try_into(value.value())
     }
 }
 
 #[cfg(test)]
 mod test_dscp_conversions {
-    use etherparse::Ipv4Dscp;
+    use etherparse::IpDscp;
 
     use crate::ip::DscpValue;
 
@@ -188,13 +188,13 @@ mod test_dscp_conversions {
 
     #[test]
     fn test_dscp_from_etherparse_to_raw() {
-        let value = unsafe { Ipv4Dscp::new_unchecked(36) };
+        let value = unsafe { IpDscp::new_unchecked(36) };
         assert!(value.value() == 36)
     }
 
     #[test]
     fn test_dscp_from_etherparse_to_dscp_value() {
-        let value = unsafe { Ipv4Dscp::new_unchecked(28) };
+        let value = unsafe { IpDscp::new_unchecked(28) };
         assert!(matches!(
             TryInto::<DscpValue>::try_into(value),
             Ok(DscpValue::AF32)
@@ -210,7 +210,7 @@ mod test_dscp_conversions {
 
 #[cfg(test)]
 mod test_ecn_conversions {
-    use etherparse::Ipv4Ecn;
+    use etherparse::IpEcn;
 
     use crate::ip::EcnValue;
 
@@ -234,33 +234,33 @@ mod test_ecn_conversions {
 
     #[test]
     fn test_ecn_from_etherparse_to_ecn_value() {
-        let value = Ipv4Ecn::ONE;
+        let value = IpEcn::ONE;
         assert!(matches!(Into::<EcnValue>::into(value), EcnValue::Ect1));
     }
 
     #[test]
     fn test_ecn_from_etherparse_to_ecn_value2() {
-        let value = Ipv4Ecn::TWO;
+        let value = IpEcn::TWO;
         assert!(matches!(Into::<EcnValue>::into(value), EcnValue::Ect0));
     }
 
     #[test]
     fn test_ecn_from_etherparse_to_raw() {
-        let value = Ipv4Ecn::ONE;
+        let value = IpEcn::ONE;
         assert!(value.value() == 1);
         assert!(Into::<u8>::into(value) == 1);
     }
 
     #[test]
     fn test_ecn_from_etherparse_to_raw2() {
-        let value = Ipv4Ecn::TWO;
+        let value = IpEcn::TWO;
         assert!(value.value() == 2);
         assert!(Into::<u8>::into(value) == 2);
     }
 
     #[test]
     fn test_ecn_from_etherparse_to_raw3() {
-        let value = Ipv4Ecn::TRHEE;
+        let value = IpEcn::THREE;
         assert!(value.value() == 3);
         assert!(Into::<u8>::into(value) == 3);
     }
