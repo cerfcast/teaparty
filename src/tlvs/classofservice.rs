@@ -294,6 +294,7 @@ mod class_of_service_tlv_tests {
 
     use crate::{
         handlers::TlvReflectorHandler,
+        ip::{DscpValue, EcnValue},
         netconf::NetConfiguration,
         parameters::{TestArgument, TestArguments},
         server::SessionData,
@@ -303,6 +304,39 @@ mod class_of_service_tlv_tests {
     use crate::test::stamp_handler_test_support::create_test_logger;
 
     use super::ClassOfServiceTlv;
+
+    #[test]
+    fn simple_cos_from_test() {
+        let tlv = Tlv {
+            flags: Flags::new_request(),
+            tpe: Tlv::COS,
+            length: 4,
+            value: [0xc3, 0x8d, 0xb0, 0x00].to_vec(),
+        };
+        let cos_tlv: ClassOfServiceTlv =
+            TryFrom::try_from(&tlv).expect("Should be able to parse TLV into COS TLV");
+
+        assert!(cos_tlv.dscp1 == DscpValue::CS6);
+        assert!(cos_tlv.dscp2 == DscpValue::CS7);
+        assert!(cos_tlv.ecn2 == EcnValue::Ce);
+        assert!(cos_tlv.ecn1 == EcnValue::Ect0);
+        assert!(cos_tlv.rpe == 0x3);
+        assert!(cos_tlv.rpd == 0x1);
+    }
+
+    #[test]
+    fn simple_cos_into_test() {
+        let cos_tlv = ClassOfServiceTlv {
+            dscp1: DscpValue::CS6,
+            dscp2: DscpValue::CS7,
+            rpe: 0x3,
+            rpd: 0x1,
+            ecn1: EcnValue::Ect0,
+            ecn2: EcnValue::Ce,
+        };
+        let bytes = Into::<Vec<u8>>::into(cos_tlv);
+        assert!(bytes == [0xc3, 0x8d, 0xb0, 0x00].to_vec());
+    }
 
     #[test]
     fn simple_cos_handler_extract_pack_test() {

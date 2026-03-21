@@ -62,7 +62,7 @@ impl From<IpEcn> for EcnValue {
 }
 
 #[repr(u8)]
-#[derive(Default, Clone, Copy, Debug, ValueEnum)]
+#[derive(Default, Clone, Copy, Debug, ValueEnum, PartialEq)]
 pub enum DscpValue {
     #[default]
     CS0 = 0,
