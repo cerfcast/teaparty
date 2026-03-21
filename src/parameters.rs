@@ -28,7 +28,7 @@ use crate::stamp::StampError;
 
 use crate::ip::{DscpValue, EcnValue, ExtensionHeader};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum TestArgument {
     Ttl(u8),
     RawIpHdr(Vec<u8>),
@@ -36,13 +36,8 @@ pub enum TestArgument {
     Dscp(DscpValue),
     PeerMacAddress(MacAddr),
     HeaderOption(ExtensionHeader),
+    #[default]
     Invalid,
-}
-
-impl Default for TestArgument {
-    fn default() -> Self {
-        Self::Invalid
-    }
 }
 
 impl From<TestArgument> for ExtensionHeader {

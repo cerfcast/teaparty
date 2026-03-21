@@ -250,12 +250,8 @@ impl Responder {
                 write_result
             };
 
-            if response_result.is_err() {
-                error!(
-                    logger,
-                    "An error occurred sending the response: {}",
-                    response_result.unwrap_err()
-                );
+            if let Err(err) = response_result {
+                error!(logger, "An error occurred sending the response: {}", err);
                 continue;
             }
 

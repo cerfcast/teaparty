@@ -73,19 +73,14 @@ pub trait NetConfigurationItemT: Display {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum NetConfigurationItem {
     Ttl(u8),
     Ecn(EcnValue),
     Dscp(DscpValue),
     ExtensionHeader(Vec<Ipv6ExtHeader>),
+    #[default]
     Invalid,
-}
-
-impl Default for NetConfigurationItem {
-    fn default() -> Self {
-        Self::Invalid
-    }
 }
 
 pub struct ExtensionHeaderNetConfigurationItem {
