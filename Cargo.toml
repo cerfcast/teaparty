@@ -10,7 +10,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 rand = "0.8.5"
 slog = { version = "2.7.0", features = ["max_level_trace", "release_max_level_trace"] }
 slog-term = "2.9.1"
-chrono = "0.4.38"
+chrono = "0.4.44"
 rocket = { version = "0.5.1", features = ["json"]}
 serde = "1.0.215"
 serde_json = "1.0.133"
@@ -24,9 +24,9 @@ clio = {version="0.3.5", features=["clap-parse"]}
 mio = "1.0.3"
 syn = "2.0.100"
 quote = "1.0.40"
-owning_ref = "0.4.1"
 yaml-rust2 = "0.10.3"
 hashlink = "0.10.0"
+owning_ref = "0.4.1"
 
 [lib]
 proc-macro = true
