@@ -24,6 +24,8 @@ use std::{
     sync::LazyLock,
 };
 
+use teaparty::display_parsed_tlv;
+
 use crate::{
     os::MacAddr,
     stamp::StampError,
@@ -505,31 +507,26 @@ fn default_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
 
 fn cos_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let cos_tlv = ClassOfServiceTlv::try_from(tlv).unwrap();
-    write!(f, " body: {cos_tlv:?}")
+    display_parsed_tlv!(ClassOfServiceTlv, "Class of Service", tlv, f)
 }
 
 fn destination_port_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let dst_port_tlv = DestinationPortTlv::try_from(tlv).unwrap();
-    write!(f, " body: {dst_port_tlv:?}")
+    display_parsed_tlv!(DestinationPortTlv, "Destination Port", tlv, f)
 }
 
 fn destination_address_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let dst_address_tlv = DestinationAddressTlv::try_from(tlv).unwrap();
-    write!(f, " body: {dst_address_tlv:?}")
+    display_parsed_tlv!(DestinationAddressTlv, "Destination Address", tlv, f)
 }
 
 fn reflected_test_control_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let reflected_control_tlv = ReflectedControlTlv::try_from(tlv).unwrap();
-    write!(f, " body: {reflected_control_tlv:?}")
+    display_parsed_tlv!(ReflectedControlTlv, "Reflected Control", tlv, f)
 }
 fn hmac_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let hmac_tlv = HmacTlv::try_from(tlv).unwrap();
-    write!(f, " body: {hmac_tlv:x?}")
+    display_parsed_tlv!(HmacTlv, "HMAC", tlv, f)
 }
 fn ber_pattern_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
@@ -546,19 +543,12 @@ fn ipv6_extension_header_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::
 }
 fn reflected_fixed_header_data_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    if let Ok(return_path_tlv) = TryInto::<ReflectedFixedHeaderDataTlv>::try_into(tlv) {
-        write!(
-            f,
-            " Reflected Fixed Header Data: {}: {:2x?}",
-            return_path_tlv.tp, return_path_tlv.value
-        )
-    } else {
-        write!(
-            f,
-            " Reflected Fixed Header Data (failed to parse): {:x?}",
-            tlv.value
-        )
-    }
+    display_parsed_tlv!(
+        ReflectedFixedHeaderDataTlv,
+        "Reflected Fixed Header Data",
+        tlv,
+        f
+    )
 }
 fn padding_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
@@ -566,22 +556,17 @@ fn padding_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
 }
 fn return_path_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    if let Ok(return_path_tlv) = TryInto::<ReturnPathTlv>::try_into(tlv) {
-        write!(f, " Return Path TLV: {return_path_tlv:x?}")
-    } else {
-        write!(f, " Return Path TLV (failed to parse): {:x?}", tlv.value)
-    }
+    display_parsed_tlv!(ReturnPathTlv, "Return Path", tlv, f)
 }
+
 fn cosv2_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let cosv2_tlv = ClassOfServiceV2Tlv::try_from(tlv).unwrap();
-    write!(f, " body: {cosv2_tlv:?}")
+    display_parsed_tlv!(ClassOfServiceV2Tlv, "Class of Service (V2)", tlv, f)
 }
 
 fn time_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
-    let time_tlv = TimeTlv::try_from(tlv).unwrap();
-    write!(f, " body: {time_tlv:?}")
+    display_parsed_tlv!(TimeTlv, "Time", tlv, f)
 }
 
 fn unrecognized_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
