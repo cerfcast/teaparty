@@ -29,10 +29,10 @@ use crate::{
     stamp::StampError,
     tlv,
     tlvs::{
-        classofservice::ClassOfServiceTlv, destinationaddress::DestinationAddressTlv,
-        destinationport::DestinationPortTlv, fixedheadersreflection::ReflectedFixedHeaderDataTlv,
-        hmac::HmacTlv, reflectedcontrol::ReflectedControlTlv, returnpath::ReturnPathTlv,
-        time::TimeTlv,
+        classofservice::ClassOfServiceTlv, classofservicev2::ClassOfServiceV2Tlv,
+        destinationaddress::DestinationAddressTlv, destinationport::DestinationPortTlv,
+        fixedheadersreflection::ReflectedFixedHeaderDataTlv, hmac::HmacTlv,
+        reflectedcontrol::ReflectedControlTlv, returnpath::ReturnPathTlv, time::TimeTlv,
     },
     util,
 };
@@ -572,6 +572,11 @@ fn return_path_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
         write!(f, " Return Path TLV (failed to parse): {:x?}", tlv.value)
     }
 }
+fn cosv2_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
+    basic_tlv_display(tlv, f)?;
+    let cosv2_tlv = ClassOfServiceV2Tlv::try_from(tlv).unwrap();
+    write!(f, " body: {cosv2_tlv:?}")
+}
 
 fn time_tlv_display(tlv: &Tlv, f: &mut Formatter) -> std::fmt::Result {
     basic_tlv_display(tlv, f)?;
@@ -603,6 +608,7 @@ static TLV_DISPLAY: LazyLock<HashMap<u8, fn(&Tlv, f: &mut Formatter) -> std::fmt
         m.insert(Tlv::BER_PATTERN, ber_pattern_tlv_display);
         m.insert(Tlv::BER_COUNT, ber_count_tlv_display);
         m.insert(Tlv::RETURN_PATH, return_path_tlv_display);
+        m.insert(Tlv::COSV2, cosv2_tlv_display);
         m.insert(
             Tlv::REFLECTED_IPV6_EXTENSION_HEADER_DATA,
             ipv6_extension_header_tlv_display,
@@ -717,6 +723,7 @@ impl Tlv {
     pub const BER_PATTERN: u8 = 182;
     pub const REFLECTED_IPV6_EXTENSION_HEADER_DATA: u8 = 183;
     pub const REFLECTED_FIXED_HEADER_DATA: u8 = 184;
+    pub const COSV2: u8 = 185;
 
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
@@ -749,6 +756,7 @@ impl Tlv {
             Self::REFLECTED_FIXED_HEADER_DATA => "Reflected Fixed Header Data".into(),
             Self::DESTINATION_ADDRESS => "Destination Address".into(),
             Self::RETURN_PATH => "Return Path".into(),
+            Self::COSV2 => "Class of Service (v2)".into(),
             _ => "Unrecognized".into(),
         }
     }

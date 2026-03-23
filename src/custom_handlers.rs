@@ -26,6 +26,7 @@ use crate::{
         accessreport::{AccessReportTlv, AccessReportTlvReflectorConfig},
         biterrorrate::{BitErrorRateTlv, BitErrorRateTlvReflectorConfig},
         classofservice::{ClassOfServiceTlv, ClassOfServiceTlvReflectorConfig},
+        classofservicev2::{ClassOfServiceV2Tlv, ClassOfServiceV2TlvReflectorConfig},
         destinationaddress::{DestinationAddressTlv, DestinationAddressTlvReflectorConfig},
         destinationport::{DestinationPortTlv, DestinationPortTlvReflectorConfig},
         extensionheadersreflection::{
@@ -60,6 +61,7 @@ impl CustomReflectorHandlersGenerators {
         generators.push(Arc::new(Mutex::new(AccessReportTlvReflectorConfig {})));
         generators.push(Arc::new(Mutex::new(BitErrorRateTlvReflectorConfig {})));
         generators.push(Arc::new(Mutex::new(ClassOfServiceTlvReflectorConfig {})));
+        generators.push(Arc::new(Mutex::new(ClassOfServiceV2TlvReflectorConfig {})));
         generators.push(Arc::new(Mutex::new(
             DestinationAddressTlvReflectorConfig {},
         )));
@@ -125,6 +127,8 @@ impl CustomSenderHandlers {
         let cos_tlv: ClassOfServiceTlv = Default::default();
         let cos_handler = Box::new(cos_tlv);
         handlers.add(cos_handler);
+        let cosv2_handler = Box::new(ClassOfServiceV2Tlv::default());
+        handlers.add(cosv2_handler);
         let location_handler = Box::new(LocationTlv {});
         handlers.add(location_handler);
         let unrecognized_handler = Box::new(UnrecognizedTlv {});

@@ -9,6 +9,7 @@ expression: output_lines
 - "  destination-port                    "
 - "  destination-address                 "
 - "  class-of-service                    "
+- "  class-of-service-v2                 "
 - "  location                            "
 - "  unrecognized                        "
 - "  padding                             "

@@ -283,6 +283,7 @@ Commands:
   destination-port   
   destination-address
   class-of-service   
+  class-of-service-v2
   location           
   unrecognized       
   padding            
@@ -304,6 +305,7 @@ Options:
 | Name | TLV | Defaults/Notes |
 | -- | -- | -- | 
 | class-of-service | Class of Service | The DSCP value requested to be set in the reflected IP packet can be specified with the `--dscp` option. By default, the requested value is `CS1`. The ECN value requested to be set in the reflected IP packet can be specified with the `--ecn` option. By default, the requested value is `not-ect`. |
+| class-of-service-v2 | Class of Service (V2) | The DSCP value requested to be set in the reflected IP packet can be specified with the `--dscp` option. By default, the requested value is `CS1`. The ECN value requested to be set in the reflected IP packet can be specified with the `--ecn` option. By default, the requested value is `not-ect`. |
 | time | Timestamp | All fields empty (see [RFC 8972](https://datatracker.ietf.org/doc/html/rfc8972))
 | destination-port | Destination Port| To request the reflector send the reflected packet to a port different than the one on which the test packet is received, set `--port`. By default, the value is `983`. |
 | destination-address | Destination Address | The IP Address used as the value of the TLV can be specified using the `--address` parameter. |
@@ -395,9 +397,11 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Reflected Test Packet Control ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/))| &#9989; (more testing required, but support starting in [48c274b](https://github.com/cerfcast/teaparty/commit/48c274ba935a00f4652aead5accd6156def3d6cb))|
 | Bit Error Detection and Bit Error Rate ([RFC](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/)) | &#9989; (more work required for complete implementation, but support starting in [592558a](https://github.com/cerfcast/teaparty/commit/592558a38dbcf9b273acb2a2fe8ab0d8f16d0709))[^bertlv] |
 | Simple Two-Way Active Measurement Protocol (STAMP) Extensions for Reflecting STAMP Packet IP Headers ([RFC](https://www.ietf.org/archive/id/draft-ietf-ippm-stamp-ext-hdr-04.html)) | &#9989; (more work required for complete implementation, but support starting in [aa7cdb7](https://github.com/cerfcast/teaparty/commit/aa7cdb755da7d38213f2153f1a0859de5b8aa48a))[^headerreflect] |
+| Class of service (V2)[^cosv2] | &#9989; |
 
 [^bertlv]: Note: The BER TLV has been temporarily assigned `181` and `182` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
 [^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `183` for TLV Type. The Reflected Fixed Header Data TLV has been temporarily assigned `184` for TLV Type. The implementation will be updated as the Draft changes.
+[^cosv2]: Note: There is no draft specifying this TLV -- it is implemented here as a proof-of-concept. The CoSV2 TLV has been temporarily assigned `185`. The implementation will be updated if/when/as needed.
 
 ### Testing
 

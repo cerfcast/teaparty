@@ -19,6 +19,7 @@
 pub mod accessreport;
 pub mod biterrorrate;
 pub mod classofservice;
+pub mod classofservicev2;
 pub mod destinationaddress;
 pub mod destinationport;
 pub mod extensionheadersreflection;

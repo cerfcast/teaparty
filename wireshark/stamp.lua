@@ -338,6 +338,61 @@ local function tlv_cos_dissector(buffer, tree)
 	return true
 end
 
+-- TLV Dissectors: COSV2
+
+local cosv2_tlv_protofield       = ProtoField.bytes("stamp.tlv.cosv2", "Class of Service (V2) TLV")
+local dscpa_cosv2_tlv_protofield = ProtoField.uint8("stamp.tlv.cosv2.dscpa", "DSCPA", base.HEX, dscp_type_map, 0xfc,
+	"DSCPA Field")
+local dscpb_cosv2_tlv_protofield = ProtoField.uint8("stamp.tlv.cosv2.dscpb", "DSCPB", base.HEX, dscp_type_map, 0xfc,
+	"DSCPB Field")
+local dscpc_cosv2_tlv_protofield = ProtoField.uint8("stamp.tlv.cosv2.dscpc", "DSCPC", base.HEX, dscp_type_map, 0xfc,
+	"DSCPC Field")
+local dscpd_cosv2_tlv_protofield = ProtoField.uint8("stamp.tlv.cosv2.dscpd", "DSCPD", base.HEX, dscp_type_map, 0xfc,
+	"DSCPD Field")
+local ecna_cosv2_tlv_protofield  = ProtoField.uint8("stamp.tlv.cosv2.ecna", "ECNA", base.HEX, ecn_type_map, 0x03,
+	"ECNA Field")
+local ecnb_cosv2_tlv_protofield  = ProtoField.uint8("stamp.tlv.cosv2.ecnb", "ECNB", base.HEX, ecn_type_map, 0x03,
+	"ECNB Field")
+local ecnc_cosv2_tlv_protofield  = ProtoField.uint8("stamp.tlv.cosv2.ecnc", "ECNC", base.HEX, ecn_type_map, 0x03,
+	"ECNC Field")
+local ecnd_cosv2_tlv_protofield  = ProtoField.uint8("stamp.tlv.cosv2.ecnd", "ECND", base.HEX, ecn_type_map, 0x03,
+	"ECND Field")
+
+stamp_protocol.fields            = { cosv2_tlv_protofield,
+	dscpa_cosv2_tlv_protofield,
+	dscpb_cosv2_tlv_protofield,
+	dscpc_cosv2_tlv_protofield,
+	dscpd_cosv2_tlv_protofield,
+	ecna_cosv2_tlv_protofield,
+	ecnb_cosv2_tlv_protofield,
+	ecnc_cosv2_tlv_protofield,
+	ecnd_cosv2_tlv_protofield,
+}
+
+------
+--- Dissect the Class Of Service (V2) TLV.
+-- Dissect the contents of a [Class of Service V2 TLV](https://datatracker.ietf.org/doc/html/rfc8972#name-class-of-service-tlv).
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Class of Service TLV.
+local function tlv_cosv2_dissector(buffer, tree)
+	if buffer:len() < 4 then
+		return false
+	end
+
+	local cosv2_tree = tree:add(cosv2_tlv_protofield, buffer(0))
+	cosv2_tree.text = "Class of Service (V2)"
+	cosv2_tree:add(dscpa_cosv2_tlv_protofield, buffer(0, 1))
+	cosv2_tree:add(dscpb_cosv2_tlv_protofield, buffer(1, 1))
+	cosv2_tree:add(dscpc_cosv2_tlv_protofield, buffer(2, 1))
+	cosv2_tree:add(dscpd_cosv2_tlv_protofield, buffer(3, 1))
+	cosv2_tree:add(ecna_cosv2_tlv_protofield, buffer(0, 1))
+	cosv2_tree:add(ecnb_cosv2_tlv_protofield, buffer(1, 1))
+	cosv2_tree:add(ecnc_cosv2_tlv_protofield, buffer(2, 1))
+	cosv2_tree:add(ecnd_cosv2_tlv_protofield, buffer(3, 1))
+	return true
+end
+
 -- TLV Dissectors: Access Report
 
 local access_network_map =
@@ -745,7 +800,8 @@ local tlv_type_map = {
 	[177] = "Destination Port",
 	[181] = "Bit Error Count",
 	[182] = "Bit Error Pattern",
-	[183] = "Reflected IPv6 Extension Header"
+	[183] = "Reflected IPv6 Extension Header",
+	[185] = "Class of Service (V2)"
 }
 local tlv_dissector_map = {
 	[0x1] = tlv_padding_dissector,
@@ -759,7 +815,8 @@ local tlv_dissector_map = {
 	[177] = tlv_destination_port_dissector,
 	[181] = tlv_bercount_dissector,
 	[182] = tlv_berpattern_dissector,
-	[183] = tlv_reflected_ipv6_ext_header_dissector
+	[183] = tlv_reflected_ipv6_ext_header_dissector,
+	[185] = tlv_cosv2_dissector
 }
 
 -- TLV General
