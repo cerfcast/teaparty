@@ -28,6 +28,7 @@ pub enum ServerError {
 
 #[derive(Debug)]
 pub enum TeapartyError {
+    OtherCli(clap::Error),
     Client(ClientError),
     Server(ServerError),
     Stamp(StampError),

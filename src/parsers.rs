@@ -13,7 +13,6 @@ where
             u8::from_str_radix(&s[start..end], 16).map_err(|_| error_generator(s.clone()))?;
         result.push(value);
     }
-    println!("Bytes parser success!");
     Ok(result)
 }
 

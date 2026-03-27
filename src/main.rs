@@ -853,7 +853,7 @@ fn server(
     Ok(())
 }
 
-fn main() -> Result<(), TeapartyError> {
+fn main() {
     // These handlers are used only for generating command-line parameters.
     let tlv_handlers = CustomSenderHandlers::build();
     let tlvs_command = tlv_handlers.get_cli_commands();
@@ -871,6 +871,8 @@ fn main() -> Result<(), TeapartyError> {
 
     let mut basic_cli_parser = Cli::augment_args(command);
 
+    // Note: If there is an error, an error message will be printed
+    // and the application will exit.
     let matches = basic_cli_parser.clone().get_matches();
     let args = Cli::from_arg_matches(&matches).unwrap();
 
@@ -884,7 +886,7 @@ fn main() -> Result<(), TeapartyError> {
         slog::Level::Error
     };
 
-    let logger = if let Some(output_path) = &args.log_output {
+    let result = if let Some(output_path) = &args.log_output {
         let log_output_open_result = std::fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -892,20 +894,20 @@ fn main() -> Result<(), TeapartyError> {
             .open(output_path.path());
 
         if let Err(log_output_file_open_error) = log_output_open_result {
-            let error_description = format!(
-                "Could not open the given log file '{output_path}': {log_output_file_open_error:?}"
+            let e = basic_cli_parser.error(
+                clap::error::ErrorKind::InvalidValue,
+                format!("Error setting log file to {output_path}: {log_output_file_open_error}"),
             );
-            println!("{error_description}\n");
-            println!("{}", basic_cli_parser.render_help().ansi());
-            return Err(StampError::Other(error_description).into());
-        }
-        let decorator = slog_term::PlainSyncDecorator::new(log_output_open_result.unwrap());
+            Err(TeapartyError::Client(ClientError::Cli(e)))
+        } else {
+            let decorator = slog_term::PlainSyncDecorator::new(log_output_open_result.unwrap());
 
-        let drain = slog_term::FullFormat::new(decorator)
-            .build()
-            .filter_level(log_level)
-            .fuse();
-        slog::Logger::root(drain, slog::o!("version" => "0.5"))
+            let drain = slog_term::FullFormat::new(decorator)
+                .build()
+                .filter_level(log_level)
+                .fuse();
+            Ok(slog::Logger::root(drain, slog::o!("version" => "0.5")))
+        }
     } else {
         let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
 
@@ -913,26 +915,40 @@ fn main() -> Result<(), TeapartyError> {
             .build()
             .filter_level(log_level)
             .fuse();
-        slog::Logger::root(drain, slog::o!("version" => "0.5"))
-    };
-
-    let teaparty_mode = TeapartyModes::from_arg_matches(&matches);
-
-    match teaparty_mode {
-        Err(e) => {
-            println!("{e}\n");
-            println!("{}", basic_cli_parser.render_help().ansi());
-            Err(StampError::Other(e.to_string()).into())
-        }
-        Ok(teaparty_mode) => match &teaparty_mode {
-            TeapartyModes::Reflector(ReflectorArgs { config }) => servers(config, logger),
-            TeapartyModes::Sender(e) => {
-                // Dig down and get the (potentially present "tlvs").
-                let tlv_args = matches
-                    .subcommand_matches("sender")
-                    .and_then(|sender_matches| sender_matches.subcommand_matches("tlvs").cloned());
-                client(e.clone(), tlv_args, logger)
-            }
-        },
+        Ok(slog::Logger::root(drain, slog::o!("version" => "0.5")))
     }
+    .and_then(|logger| {
+        match TeapartyModes::from_arg_matches(&matches) {
+            Err(e) => Err(TeapartyError::OtherCli(e)),
+            Ok(teaparty_mode) => match &teaparty_mode {
+                TeapartyModes::Reflector(ReflectorArgs { config }) => servers(config, logger),
+                TeapartyModes::Sender(e) => {
+                    // Dig down and get the (potentially present "tlvs").
+                    let tlv_args =
+                        matches
+                            .subcommand_matches("sender")
+                            .and_then(|sender_matches| {
+                                sender_matches.subcommand_matches("tlvs").cloned()
+                            });
+                    client(e.clone(), tlv_args, logger)
+                }
+            },
+        }
+    });
+
+    if let Err(e) = result {
+        match e {
+            TeapartyError::OtherCli(e) | TeapartyError::Client(ClientError::Cli(e)) => {
+                // Add the basic_cli_parser command to the error so that there is nice error output.
+                let e = e.with_cmd(&basic_cli_parser);
+                let rendered_err = e.render();
+                let rendered_err_ansi = rendered_err.ansi();
+                println!("{rendered_err_ansi}");
+            }
+            e => {
+                println!("{:?}", e);
+            }
+        }
+        println!("{}", basic_cli_parser.render_help().ansi());
+    };
 }
