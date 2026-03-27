@@ -711,6 +711,42 @@ local function tlv_destination_address_dissector(buffer, tree)
 	return false
 end
 
+-- TLV Dissectors: Reflected Control
+
+local return_path_tlv_protofield = ProtoField.bytes("stamp.tlv.reflected_control",
+	"Reflected Control TLV")
+
+local reflected_control_protofield       = ProtoField.bytes("stamp.tlv.reflected_control", "Reflected Control TLV")
+local length_of_reflected_packet_reflected_control_tlv_protofield = ProtoField.uint16("stamp.tlv.reflected_control.length", "length", base.DEC)
+local number_of_reflected_packet_reflected_control_tlv_protofield = ProtoField.uint16("stamp.tlv.reflected_control.number", "number", base.DEC)
+local interval_of_reflected_packet_reflected_control_tlv_protofield = ProtoField.uint32("stamp.tlv.reflected_control.interval", "interval", base.UNIT_STRING, {"nanoseconds"})
+
+stamp_protocol.fields            = { reflected_control_protofield,
+	length_of_reflected_packet_reflected_control_tlv_protofield,
+	number_of_reflected_packet_reflected_control_tlv_protofield,
+	interval_of_reflected_packet_reflected_control_tlv_protofield,
+}
+
+------
+--- Dissect the Reflected Control TLV
+-- Dissect the contents of a [Reflected Control TLV](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/)
+-- @tparam Tvb buffer Bytes that constitute the TLV to be dissected
+-- @tparam TreeItem tree The tree under which to append this dissected TLV
+-- @treturn bool true or false depending upon whether the bytes given in `buffer` are a valid Return Path TLV
+local function tlv_reflected_control_dissector(buffer, tree)
+	-- Note: Make sure that there are at least 4 bytes
+	if buffer:len() < 8 then
+		return false
+	end
+
+	local reflected_control_tree = tree:add(reflected_control_protofield, buffer(0))
+	reflected_control_tree.text = "Reflected Control"
+	reflected_control_tree:add(length_of_reflected_packet_reflected_control_tlv_protofield, buffer(0, 2))
+	reflected_control_tree:add(number_of_reflected_packet_reflected_control_tlv_protofield, buffer(2, 2))
+	reflected_control_tree:add(interval_of_reflected_packet_reflected_control_tlv_protofield, buffer(4, 4))
+	return true
+end
+
 -- TLV Dissectors: Return Path TLV
 
 local return_path_tlv_protofield = ProtoField.bytes("stamp.tlv.return_path",
@@ -797,6 +833,7 @@ local tlv_type_map = {
 	[0x8] = "HMAC",
 	[0x9] = "Destination Address",
 	[0xa] = "Return Path",
+	[0xc] = "Reflected Control",
 	[177] = "Destination Port",
 	[181] = "Bit Error Count",
 	[182] = "Bit Error Pattern",
@@ -812,6 +849,7 @@ local tlv_dissector_map = {
 	[0x08] = tlv_hmac_dissector,
 	[0x09] = tlv_destination_address_dissector,
 	[0x0a] = tlv_return_path_dissector,
+	[0x0c] = tlv_reflected_control_dissector,
 	[177] = tlv_destination_port_dissector,
 	[181] = tlv_bercount_dissector,
 	[182] = tlv_berpattern_dissector,
