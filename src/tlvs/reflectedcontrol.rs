@@ -366,6 +366,19 @@ impl TlvSenderHandler for ReflectedControlTlv {
             None
         };
 
+        let interval: u32 = user_interval.as_nanos().try_into().map_err(|_| {
+            let mut e = clap::Error::new(clap::error::ErrorKind::ValueValidation {});
+            e.insert(
+                clap::error::ContextKind::InvalidArg,
+                clap::error::ContextValue::String("--interval".to_owned()),
+            );
+            e.insert(
+                clap::error::ContextKind::InvalidValue,
+                clap::error::ContextValue::String(format!("{}", user_interval.as_secs())),
+            );
+            e
+        })?;
+
         Ok(Some((
             [Tlv {
                 flags: Flags::new_request(),
@@ -374,7 +387,7 @@ impl TlvSenderHandler for ReflectedControlTlv {
                 value: ReflectedControlTlv {
                     reflected_length: user_reflected_length,
                     count: user_count,
-                    interval: user_interval.as_nanos().try_into().unwrap(),
+                    interval,
                 }
                 .into(),
             }]
