@@ -384,27 +384,35 @@ We would _love_ to have you contribute. We love contributors, big and small and 
 | Return Path TLV (sender - return path control code and segment list sub-TLVs) | &#10060; |
 | Return Path TLV (sender - return path control code and segment list sub-TLVs) | &#10060; |
 
+#### Other Standardized TLVs
+
+| TLV | Supported |
+| -- | -- |
+| Reflected Test Packet Control ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/))| &#9989; (more testing required, but support starting in [48c274b](https://github.com/cerfcast/teaparty/commit/48c274ba935a00f4652aead5accd6156def3d6cb))|
+
 #### Yet-to-be-standardized TLVs
 
 | TLV | Supported |
 | -- | -- |
-| Heartbeat (reflector) | &#9989; |
-| Heartbeat (sender) | &#10060; |
-| Destination port (reflector) | &#9989; |
-| Destination port (sender) | &#9989; |
-| History (reflector) | &#9989; |
-| History (sender) | &#9989; |
-| Reflected Test Packet Control ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-asymmetrical-pkts/))| &#9989; (more testing required, but support starting in [48c274b](https://github.com/cerfcast/teaparty/commit/48c274ba935a00f4652aead5accd6156def3d6cb))|
+| Heartbeat (reflector) | &#9989;[^heartbeat] |
+| Heartbeat (sender) | &#10060;[^heartbeat] |
+| Destination port (reflector) | &#9989;[^destport] |
+| Destination port (sender) | &#9989;[^destport] |
+| History (reflector) | &#9989;[^history] |
+| History (sender) | &#9989;[^history] |
 | Bit Error Detection and Bit Error Rate ([RFC](https://datatracker.ietf.org/doc/draft-gandhi-ippm-stamp-ber/)) | &#9989; (more work required for complete implementation, but support starting in [592558a](https://github.com/cerfcast/teaparty/commit/592558a38dbcf9b273acb2a2fe8ab0d8f16d0709))[^bertlv] |
 | Simple Two-Way Active Measurement Protocol (STAMP) Extensions for Reflecting STAMP Packet IP Headers ([RFC](https://www.ietf.org/archive/id/draft-ietf-ippm-stamp-ext-hdr-04.html)) | &#9989; (more work required for complete implementation, but support starting in [aa7cdb7](https://github.com/cerfcast/teaparty/commit/aa7cdb755da7d38213f2153f1a0859de5b8aa48a))[^headerreflect] |
 | Class of Service (Backwards-Compatible Update) ([RFC](https://datatracker.ietf.org/doc/draft-ietf-ippm-stamp-cos-ecn/)) [^cos-update] | &#9989; |
 | Class of Service (V2)[^cosv2][^cosv22] | &#9989; |
 
-[^bertlv]: Note: The BER TLV has been temporarily assigned `181` and `182` for TLV Type for the Count and Pattern, respectively. The implementation will be updated as the Draft changes.
-[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `183` for TLV Type. The Reflected Fixed Header Data TLV has been temporarily assigned `184` for TLV Type. The implementation will be updated as the Draft changes.
+[^heartbeat]: Note: The Destination Port TLV been temporarily assigned `242`.
+[^destport]: Note: The Destination Port TLV been temporarily assigned `243`.
+[^history]: Note: The History TLV been temporarily assigned `244`.
+[^bertlv]: Note: The BER TLV has been temporarily assigned `240` and `241` for TLV Type for the Pattern and the Count, respectively. The implementation will be updated as the Draft changes.
+[^headerreflect]: Note: The Reflected IPv6 Extension Header Data TLV has been temporarily assigned `246` for TLV Type. The Reflected Fixed Header Data TLV has been temporarily assigned `247` for TLV Type. The implementation will be updated as the Draft changes.
 [^cos-update]: This proposed TLV is a backwards-compatible update to the existing class-of-service TLV (as specified in [RFC 8972](https://datatracker.ietf.org/doc/rfc8972/)) "to enable the measurement of manipulation of the value of the Explicit Congestion Notification (ECN) field of the IP header by middleboxes between two STAMP hosts, and to enable discovery and measurement of paths that provide differential treatment of packets depending on the value of their ECN field."[^RFC8972]
 [^cosv2]: This TLV is an alternate means to add support to STAMP for measuring the handling of DSCP and ECN values by middleboxes to the backwards-compatible update to the existing class-of-service TLV described above. There is no draft specifying this TLV -- it is implemented here as a proof-of-concept. For more information, see [the IPPM meeting materials from IETF 125](https://datatracker.ietf.org/meeting/125/materials/slides-125-ippm-update-of-the-stamp-cos-extension-for-ecn-00.pdf).
-[^cosv22]: Note: The CoSV2 TLV has been temporarily assigned `185`. The implementation will be updated if/when/as needed.
+[^cosv22]: Note: The CoSV2 TLV has been temporarily assigned `248`. The implementation will be updated if/when/as needed.
 [^RFC8972]: Mirsky, Greg, Xiao Min, Henrik Nydell, Richard "Footer" Foote, Adi Masputra, and Ernesto Ruffini. 2021. "Simple Two-Way Active Measurement Protocol Optional Extensions." Request for Comments. RFC 8972; RFC Editor. https://doi.org/10.17487/RFC8972.
 
 ### Testing

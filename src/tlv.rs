@@ -700,15 +700,14 @@ mod tlv_parse_test {
 }
 
 impl Tlv {
-    pub const HEARTBEAT: u8 = 176;
-    pub const DESTINATION_PORT: u8 = 177;
-    pub const HISTORY: u8 = 178;
-    pub const REFLECTED_CONTROL: u8 = 180;
-    pub const BER_COUNT: u8 = 181;
-    pub const BER_PATTERN: u8 = 182;
-    pub const REFLECTED_IPV6_EXTENSION_HEADER_DATA: u8 = 183;
-    pub const REFLECTED_FIXED_HEADER_DATA: u8 = 184;
-    pub const COSV2: u8 = 185;
+    pub const BER_PATTERN: u8 = 240;
+    pub const BER_COUNT: u8 = 241;
+    pub const HEARTBEAT: u8 = 242;
+    pub const DESTINATION_PORT: u8 = 243;
+    pub const HISTORY: u8 = 244;
+    pub const REFLECTED_IPV6_EXTENSION_HEADER_DATA: u8 = 246;
+    pub const REFLECTED_FIXED_HEADER_DATA: u8 = 247;
+    pub const COSV2: u8 = 248;
 
     pub const PADDING: u8 = 1;
     pub const LOCATION: u8 = 2;
@@ -719,6 +718,7 @@ impl Tlv {
     pub const HMAC_TLV: u8 = 8;
     pub const DESTINATION_ADDRESS: u8 = 9;
     pub const RETURN_PATH: u8 = 10;
+    pub const REFLECTED_CONTROL: u8 = 12;
 
     pub fn type_to_string(tpe: u8) -> String {
         match tpe {
