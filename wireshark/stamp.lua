@@ -713,9 +713,6 @@ end
 
 -- TLV Dissectors: Reflected Control
 
-local return_path_tlv_protofield = ProtoField.bytes("stamp.tlv.reflected_control",
-	"Reflected Control TLV")
-
 local reflected_control_protofield       = ProtoField.bytes("stamp.tlv.reflected_control", "Reflected Control TLV")
 local length_of_reflected_packet_reflected_control_tlv_protofield = ProtoField.uint16("stamp.tlv.reflected_control.length", "length", base.DEC)
 local number_of_reflected_packet_reflected_control_tlv_protofield = ProtoField.uint16("stamp.tlv.reflected_control.number", "number", base.DEC)
