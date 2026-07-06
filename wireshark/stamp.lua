@@ -825,17 +825,16 @@ local tlv_type_map = {
 	[0x3] = "Timestamp Information",
 	[0x4] = "Class of Service",
 	[0x7] = "Followup",
-	[0x6] =
-	"Followup",
+	[0x6] = "Access Report",
 	[0x8] = "HMAC",
 	[0x9] = "Destination Address",
 	[0xa] = "Return Path",
 	[0xc] = "Reflected Control",
 	[177] = "Destination Port",
-	[181] = "Bit Error Count",
-	[182] = "Bit Error Pattern",
-	[183] = "Reflected IPv6 Extension Header",
-	[185] = "Class of Service (V2)"
+	[240] = "Bit Error Pattern",
+	[241] = "Bit Error Count",
+	[246] = "Reflected IPv6 Extension Header",
+	[248] = "Class of Service (V2)"
 }
 local tlv_dissector_map = {
 	[0x1] = tlv_padding_dissector,
@@ -848,10 +847,10 @@ local tlv_dissector_map = {
 	[0x0a] = tlv_return_path_dissector,
 	[0x0c] = tlv_reflected_control_dissector,
 	[177] = tlv_destination_port_dissector,
-	[181] = tlv_bercount_dissector,
-	[182] = tlv_berpattern_dissector,
-	[183] = tlv_reflected_ipv6_ext_header_dissector,
-	[185] = tlv_cosv2_dissector
+	[240] = tlv_berpattern_dissector,
+	[241] = tlv_bercount_dissector,
+	[246] = tlv_reflected_ipv6_ext_header_dissector,
+	[248] = tlv_cosv2_dissector
 }
 
 -- TLV General
